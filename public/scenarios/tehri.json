@@ -1,0 +1,41 @@
+{
+  "id": "tehri",
+  "name": "Tehri Dam",
+  "river": "Bhagirathi",
+  "center": [78.476, 30.383],
+  "bbox": [78.35, 30.28, 78.62, 30.50],
+  "demUrl": "/data/tehri/elevation.bin",
+  "infrastructureUrl": "/data/tehri/infrastructure.geojson",
+  "evacuationUrl": "/data/tehri/evacuation.geojson",
+  "gridSize": 256,
+  "cellSize": 50,
+  "breachPoint": {
+    "x": 128,
+    "y": 100
+  },
+  "breachPresets": [
+    {
+      "name": "Minor Breach",
+      "breachWidth": 20,
+      "breachDepth": 5,
+      "releaseRate": 5000
+    },
+    {
+      "name": "Major Breach",
+      "breachWidth": 80,
+      "breachDepth": 20,
+      "releaseRate": 25000
+    },
+    {
+      "name": "Extreme Failure",
+      "breachWidth": 150,
+      "breachDepth": 35,
+      "releaseRate": 60000
+    }
+  ],
+  "simulation": {
+    "friction": 0.2,
+    "timeStep": 0.5,
+    "maxSteps": 1000
+  }
+}

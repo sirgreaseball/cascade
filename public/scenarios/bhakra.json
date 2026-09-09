@@ -1,0 +1,29 @@
+{
+  "id": "bhakra",
+  "name": "Bhakra Nangal Dam",
+  "river": "Sutlej",
+  "center": [76.433, 31.411],
+  "bbox": [76.35, 31.30, 76.55, 31.50],
+  "demUrl": "/data/bhakra/elevation.bin",
+  "infrastructureUrl": "/data/bhakra/infrastructure.geojson",
+  "evacuationUrl": "/data/bhakra/evacuation.geojson",
+  "gridSize": 256,
+  "cellSize": 50,
+  "breachPoint": {
+    "x": 128,
+    "y": 128
+  },
+  "breachPresets": [
+    {
+      "name": "Major Breach",
+      "breachWidth": 100,
+      "breachDepth": 25,
+      "releaseRate": 30000
+    }
+  ],
+  "simulation": {
+    "friction": 0.2,
+    "timeStep": 0.5,
+    "maxSteps": 1000
+  }
+}
