@@ -1,0 +1,12 @@
+[
+  {
+    "id": "tehri",
+    "name": "Tehri Dam",
+    "river": "Bhagirathi"
+  },
+  {
+    "id": "bhakra",
+    "name": "Bhakra Nangal Dam",
+    "river": "Sutlej"
+  }
+]

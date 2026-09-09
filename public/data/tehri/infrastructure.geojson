@@ -1,0 +1,39 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "village",
+        "name": "Koti",
+        "population": 1200
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.47, 30.37]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "bridge",
+        "name": "Bridge B-04"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.48, 30.36]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "hospital",
+        "name": "District Hospital"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [78.49, 30.35]
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "evacuation_route",
+        "name": "Evacuation Route A"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [78.49, 30.35],
+          [78.50, 30.36],
+          [78.55, 30.38]
+        ]
+      }
+    }
+  ]
+}

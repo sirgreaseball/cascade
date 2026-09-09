@@ -15,10 +15,10 @@ export type Scenario = {
   infrastructureUrl: string;
   evacuationUrl: string;
   gridSize: number;
-  cellSize: number; // in meters
+  cellSize: number;
   breachPoint: {
-    x: number; // grid x coordinate
-    y: number; // grid y coordinate
+    x: number;
+    y: number;
   };
   breachPresets: BreachPreset[];
   simulation: {
@@ -28,8 +28,29 @@ export type Scenario = {
   };
 };
 
-export type InfrastructureFeatureProperties = {
-  type: 'village' | 'bridge' | 'highway' | 'hospital' | 'evacuation_route';
-  name: string;
-  population?: number;
+export type SimulationInput = {
+  waterDepth: Float32Array;
+  breachPoint: { x: number; y: number };
+  breachWidth: number;
+  releaseRate: number;
+  friction: number;
+  timeStep: number;
+};
+
+export type SimulationOutput = {
+  waterDepth: Float32Array;
+  arrivalTime: Float32Array;
+};
+
+export type ImpactResult = {
+  buildingsAffected: number;
+  roadsAffected: number;
+  populationAtRisk: number;
+};
+
+export type AlertItem = {
+  id: string;
+  timestamp: number;
+  message: string;
+  severity: 'low' | 'medium' | 'high';
 };
