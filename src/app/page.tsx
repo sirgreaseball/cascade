@@ -1,6 +1,7 @@
 import BreachControlPanel from '@/components/panels/BreachControlPanel';
 import ImpactPanel from '@/components/panels/ImpactPanel';
 import AlertLog from '@/components/panels/AlertLog';
+import Header from '@/components/panels/Header';
 import MapView from '@/components/map/MapView';
 import SimulationController from '@/components/SimulationController';
 
@@ -15,6 +16,7 @@ export default function Home() {
 
       {/* UI Overlay */}
       <div className="pointer-events-none absolute inset-0 z-10">
+        <Header />
         <BreachControlPanel />
         <ImpactPanel />
         <AlertLog />
