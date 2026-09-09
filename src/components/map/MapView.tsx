@@ -15,7 +15,7 @@ const TERRAIN_IMAGE = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{
 
 export default function MapView() {
   const { activeScenario } = useScenarioStore();
-  const { waterDepth } = useSimulationStore();
+  const { waterDepth, arrivalTime, currentStep } = useSimulationStore();
 
   const [viewState, setViewState] = useState({
     longitude: 78.476,
@@ -40,7 +40,7 @@ export default function MapView() {
   }, [activeScenario]);
 
   const gridData = useMemo(() => {
-    if (!activeScenario || !waterDepth) return [];
+    if (!activeScenario || !waterDepth || !arrivalTime) return [];
     
     const { gridSize, cellSize, bbox } = activeScenario;
     const [minLng, minLat, maxLng, maxLat] = bbox;
@@ -51,17 +51,20 @@ export default function MapView() {
 
     for (let y = 0; y < gridSize; y++) {
       for (let x = 0; x < gridSize; x++) {
-        const depth = waterDepth[y * gridSize + x];
+        const idx = y * gridSize + x;
+        const depth = waterDepth[idx];
+        const arrival = arrivalTime[idx];
         if (depth > 0.1) {
           data.push({
             position: [minLng + (x * lngStep), maxLat - (y * latStep)],
-            depth
+            depth,
+            arrival
           });
         }
       }
     }
     return data;
-  }, [activeScenario, waterDepth]);
+  }, [activeScenario, waterDepth, arrivalTime]);
 
   const layers = [
     new TerrainLayer({
@@ -76,7 +79,7 @@ export default function MapView() {
         offset: -32768
       },
       elevationData: TERRAIN_IMAGE,
-      texture: MAP_STYLE, // Use the map style as texture on the 3D terrain
+      texture: MAP_STYLE,
       wireframe: false,
       color: [255, 255, 255]
     }),
@@ -89,7 +92,16 @@ export default function MapView() {
       elevationScale: 4,
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.depth,
-      getFillColor: (d: any) => [59, 130, 246, Math.min(255, 100 + d.depth * 10)], 
+      getFillColor: (d: any) => {
+        // Active flood front (arrived within last 2 steps)
+        if (currentStep - d.arrival < 2) {
+          return [245, 158, 11, 255]; // Amber highlight
+        }
+        // Shallow vs Deep
+        return d.depth < 2 
+          ? [56, 189, 248, 150] // Translucent light blue
+          : [2, 132, 199, 200]; // Darker blue
+      },
     })
   ];
 
