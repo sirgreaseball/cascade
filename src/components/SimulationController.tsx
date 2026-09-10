@@ -90,7 +90,7 @@ export default function SimulationController() {
             );
 
             newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
-            updateImpacts(impacts, newAlerts);
+            updateImpacts(impacts, newAlerts, newlyFloodedIds);
           }
         }
       };
