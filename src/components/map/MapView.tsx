@@ -47,6 +47,20 @@ export default function MapView() {
 
   const [satelliteError, setSatelliteError] = useState(false);
 
+
+  const computedCellSize = useMemo(() => {
+    if (!activeScenario) return 30;
+    const { bbox, gridSize } = activeScenario;
+    const meanLat = (bbox[1] + bbox[3]) / 2;
+    const lonSpanM = (bbox[2] - bbox[0]) * 111320 * Math.cos(meanLat * (Math.PI / 180));
+    const latSpanM = (bbox[3] - bbox[1]) * 110540;
+    const cellW = lonSpanM / gridSize;
+    const cellH = latSpanM / gridSize;
+    const size = Math.max(cellW, cellH) * 1.05;
+    console.log(`TERRAIN CELL: ${size.toFixed(2)}m`);
+    return size;
+  }, [activeScenario]);
+
   const elevationGridData = useMemo(() => {
     const { elevation } = useSimulationStore.getState();
     if (!activeScenario || !elevation) return [];
@@ -136,7 +150,7 @@ export default function MapView() {
       data: elevationGridData,
       pickable: false,
       extruded: true,
-      cellSize: activeScenario?.cellSize || 30,
+      cellSize: computedCellSize,
       elevationScale: 4,
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.elevation,
@@ -157,7 +171,7 @@ export default function MapView() {
       data: gridData,
       pickable: true,
       extruded: true,
-      cellSize: activeScenario?.cellSize || 30,
+      cellSize: computedCellSize,
       elevationScale: 4,
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.depth,
