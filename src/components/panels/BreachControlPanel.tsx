@@ -43,6 +43,7 @@ export default function BreachControlPanel() {
             onChange={(e) => loadScenario(e.target.value)}
           >
             <option value="tehri">Tehri Dam (Bhagirathi River)</option>
+            <option value="tehri-blockage">Bhagirathi Landslide Blockage</option>
             <option value="bhakra">Bhakra Nangal (Stub)</option>
           </select>
           {isLoading && <div className="text-xs text-[#f59e0b] animate-pulse">Loading scenario data...</div>}

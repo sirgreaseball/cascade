@@ -1,15 +1,17 @@
 import * as turf from '@turf/turf';
-import { AlertItem } from '@/types';
+import { ImpactResult, AlertItem } from '@/types';
+import { calculateEstimatedLoss } from './damage';
 
 export function runAnalytics(
   waterDepth: Float32Array,
   gridSize: number,
   bbox: [number, number, number, number],
   infrastructure: any,
-  evacuation: any,
+  evacuationRoutes: any,
   previouslyFloodedIds: Set<string>,
   currentStep: number
-) {
+): { impacts: ImpactResult, newAlerts: AlertItem[], newlyFloodedIds: Set<string> } {
+  
   let buildingsAffected = 0;
   let roadsAffected = 0;
   let populationAtRisk = 0;
@@ -20,83 +22,89 @@ export function runAnalytics(
   const lngStep = (maxLng - minLng) / gridSize;
   const latStep = (maxLat - minLat) / gridSize;
 
-  const getDepthAt = (lng: number, lat: number) => {
-    const x = Math.floor((lng - minLng) / lngStep);
-    const y = Math.floor((maxLat - lat) / latStep);
-    if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
-      return waterDepth[y * gridSize + x];
+  // 1. Process Point Infrastructure (Buildings, Hospitals, Villages)
+  if (infrastructure && infrastructure.features) {
+    for (const feature of infrastructure.features) {
+      if (feature.geometry.type === 'Point') {
+        const [lng, lat] = feature.geometry.coordinates;
+        
+        // Convert to grid coords
+        const x = Math.floor((lng - minLng) / lngStep);
+        const y = Math.floor((maxLat - lat) / latStep);
+        
+        if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
+          const depth = waterDepth[y * gridSize + x];
+          const type = feature.properties.type || 'unknown';
+          const name = feature.properties.name || 'Unknown Asset';
+          const pop = feature.properties.population || 0;
+          
+          if (depth > 0.5) { // 0.5m threshold for impact
+            if (type === 'village' || type === 'hospital' || type === 'building') {
+              buildingsAffected++;
+              populationAtRisk += pop;
+            } else if (type === 'bridge' || type === 'road') {
+              roadsAffected++;
+            }
+
+            const idStr = `${type}-${name}`;
+            if (!previouslyFloodedIds.has(idStr) && !newlyFloodedIds.has(idStr)) {
+              newlyFloodedIds.add(idStr);
+              newAlerts.push({
+                id: `alert-${Date.now()}-${idStr}`,
+                timestamp: Date.now(),
+                message: `CRITICAL: ${name} (${type}) has been inundated. Depth: ${depth.toFixed(2)}m`,
+                severity: 'high'
+              });
+            }
+          }
+        }
+      }
     }
-    return 0;
-  };
-
-  if (infrastructure) {
-    turf.featureEach(infrastructure, (feature) => {
-      const type = feature.properties?.type;
-      const id = feature.properties?.name || `asset-${Math.random()}`;
-      let isHit = false;
-
-      const center = turf.center(feature);
-      const depth = getDepthAt(center.geometry.coordinates[0], center.geometry.coordinates[1]);
-
-      if (depth > 0.5) {
-        isHit = true;
-      }
-
-      if (isHit) {
-        if (type === 'village' || type === 'building') {
-          buildingsAffected++;
-          populationAtRisk += (feature.properties?.population || 4);
-        } else if (type === 'road' || type === 'bridge') {
-          roadsAffected++;
-        }
-
-        if (!previouslyFloodedIds.has(id)) {
-          newlyFloodedIds.add(id);
-          newAlerts.push({
-            id: `alert-${Date.now()}-${id}`,
-            timestamp: currentStep,
-            message: `${type.toUpperCase()} INUNDATED: ${id} (Depth: ${depth.toFixed(2)}m)`,
-            severity: 'high'
-          });
-        }
-      }
-    });
   }
 
-  if (evacuation) {
-    turf.featureEach(evacuation, (feature) => {
-      const id = feature.properties?.name || `evac-${Math.random()}`;
+  // 2. Process LineString Evacuation Routes
+  if (evacuationRoutes && evacuationRoutes.features) {
+    for (const feature of evacuationRoutes.features) {
       if (feature.geometry.type === 'LineString') {
-        const line = feature as any;
-        const length = turf.length(line, { units: 'kilometers' });
-        let floodedSegments = 0;
+        const coords = feature.geometry.coordinates;
+        let isFlooded = false;
         
-        // Sample every 100m
-        for (let i = 0; i <= length; i += 0.1) {
-          const pt = turf.along(line, i, { units: 'kilometers' });
-          const depth = getDepthAt(pt.geometry.coordinates[0], pt.geometry.coordinates[1]);
-          if (depth > 0.5) {
-            floodedSegments++;
+        // Check points along the route
+        for (const [lng, lat] of coords) {
+          const x = Math.floor((lng - minLng) / lngStep);
+          const y = Math.floor((maxLat - lat) / latStep);
+          
+          if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
+            if (waterDepth[y * gridSize + x] > 0.3) { // 0.3m blocks road
+              isFlooded = true;
+              break;
+            }
           }
         }
 
-        if (floodedSegments > 2) {
-          if (!previouslyFloodedIds.has(id)) {
-            newlyFloodedIds.add(id);
+        if (isFlooded) {
+          roadsAffected++;
+          const name = feature.properties?.name || 'Evacuation Route';
+          const idStr = `route-${name}`;
+          
+          if (!previouslyFloodedIds.has(idStr) && !newlyFloodedIds.has(idStr)) {
+            newlyFloodedIds.add(idStr);
             newAlerts.push({
-              id: `alert-${Date.now()}-${id}`,
-              timestamp: currentStep,
-              message: `EVAC ROUTE BLOCKED: ${id}`,
-              severity: 'high'
+              id: `alert-${Date.now()}-${idStr}`,
+              timestamp: Date.now(),
+              message: `WARNING: ${name} compromised by floodwaters.`,
+              severity: 'medium'
             });
           }
         }
       }
-    });
+    }
   }
 
+  const estimatedLoss = calculateEstimatedLoss(buildingsAffected, roadsAffected, populationAtRisk);
+
   return {
-    impacts: { buildingsAffected, roadsAffected, populationAtRisk },
+    impacts: { buildingsAffected, roadsAffected, populationAtRisk, estimatedLoss },
     newAlerts,
     newlyFloodedIds
   };

@@ -1,0 +1,29 @@
+{
+  "id": "tehri-blockage",
+  "name": "Bhagirathi Landslide Blockage",
+  "river": "Bhagirathi",
+  "center": [78.476, 30.383],
+  "bbox": [78.2, 30.1, 78.6, 30.5],
+  "demUrl": "/data/tehri/elevation.bin",
+  "infrastructureUrl": "/data/tehri/infrastructure.geojson",
+  "evacuationUrl": "/data/tehri/evacuation.geojson",
+  "gridSize": 256,
+  "cellSize": 30,
+  "breachPoint": {
+    "x": 150,
+    "y": 120
+  },
+  "breachPresets": [
+    {
+      "name": "Massive Blockage Failure",
+      "breachWidth": 150,
+      "breachDepth": 30,
+      "releaseRate": 30000
+    }
+  ],
+  "simulation": {
+    "friction": 0.05,
+    "timeStep": 1,
+    "maxSteps": 1000
+  }
+}

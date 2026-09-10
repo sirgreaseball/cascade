@@ -29,6 +29,7 @@ const initialImpacts: ImpactResult = {
   buildingsAffected: 0,
   roadsAffected: 0,
   populationAtRisk: 0,
+  estimatedLoss: 0,
 };
 
 export const useSimulationStore = create<SimulationState>((set) => ({

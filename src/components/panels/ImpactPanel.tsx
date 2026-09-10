@@ -4,6 +4,7 @@ import React from 'react';
 import { Activity, Building2, Car, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useSimulationStore } from '@/store/simulationStore';
+import { formatCurrency } from '@/lib/damage';
 
 export default function ImpactPanel() {
   const { impacts, comparisonImpacts } = useSimulationStore();
@@ -62,6 +63,16 @@ export default function ImpactPanel() {
             </div>
             {comparisonImpacts && (
               <span className="text-lg font-mono text-orange-400 mb-0.5">({comparisonImpacts.populationAtRisk.toLocaleString()})</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col col-span-2 pt-2 border-t border-[#334155]">
+          <span className="text-xs text-[#94a3b8] font-mono">ESTIMATED FINANCIAL LOSS</span>
+          <div className="flex items-end gap-3">
+            <span className="text-xl font-bold text-[#f8fafc]">{formatCurrency(impacts.estimatedLoss)}</span>
+            {comparisonImpacts && (
+              <span className="text-sm font-mono text-orange-400 mb-0.5">({formatCurrency(comparisonImpacts.estimatedLoss)})</span>
             )}
           </div>
         </div>
