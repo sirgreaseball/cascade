@@ -72,7 +72,7 @@ export default function MapView() {
     const lngStep = (maxLng - minLng) / gridSize;
     const latStep = (maxLat - minLat) / gridSize;
 
-    const step = gridSize > 256 ? 4 : 2;
+    const step = 1;
 
     for (let y = 0; y < gridSize; y += step) {
       for (let x = 0; x < gridSize; x += step) {
@@ -127,9 +127,9 @@ export default function MapView() {
     const lngStep = (maxLng - minLng) / gridSize;
     const latStep = (maxLat - minLat) / gridSize;
 
-    // Subsample for SPH style rendering
-    for (let y = 0; y < gridSize; y += 2) {
-      for (let x = 0; x < gridSize; x += 2) {
+    // Render at full resolution
+    for (let y = 0; y < gridSize; y += 1) {
+      for (let x = 0; x < gridSize; x += 1) {
         const idx = y * gridSize + x;
         const depth = comparisonWaterDepth[idx];
         if (depth > 0.1) {
