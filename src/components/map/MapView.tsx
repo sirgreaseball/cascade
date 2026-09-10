@@ -39,7 +39,35 @@ export default function MapView() {
     }
   }, [activeScenario]);
 
+  const [isOffline, setIsOffline] = useState(false);
 
+  const elevationGridData = useMemo(() => {
+    const { elevation } = useSimulationStore.getState();
+    if (!activeScenario || !elevation || !isOffline) return [];
+    
+    const { gridSize, bbox } = activeScenario;
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const data = [];
+
+    const lngStep = (maxLng - minLng) / gridSize;
+    const latStep = (maxLat - minLat) / gridSize;
+
+    const step = gridSize > 256 ? 4 : 2;
+
+    for (let y = 0; y < gridSize; y += step) {
+      for (let x = 0; x < gridSize; x += step) {
+        const idx = y * gridSize + x;
+        const e = elevation[idx];
+        if (e > 0) {
+          data.push({
+            position: [minLng + (x * lngStep), maxLat - (y * latStep)],
+            elevation: e
+          });
+        }
+      }
+    }
+    return data;
+  }, [activeScenario, isOffline, useSimulationStore.getState().elevation]);
 
   const gridData = useMemo(() => {
     if (!activeScenario || !waterDepth || !arrivalTime) return [];
@@ -112,7 +140,32 @@ export default function MapView() {
         ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' 
         : MAP_STYLE,
       wireframe: false,
-      color: [255, 255, 255]
+      color: [255, 255, 255],
+      onDataLoad: () => setIsOffline(false),
+      onError: () => {
+        console.warn("TerrainLayer failed to load. Falling back to local offline terrain.");
+        setIsOffline(true);
+        return true; // prevent error bubbling
+      }
+    }),
+    isOffline && new GridCellLayer({
+      id: 'fallback-terrain-layer',
+      data: elevationGridData,
+      pickable: false,
+      extruded: true,
+      cellSize: activeScenario?.cellSize || 30,
+      elevationScale: 4,
+      getPosition: (d: any) => d.position,
+      getElevation: (d: any) => d.elevation,
+      getFillColor: (d: any) => {
+        // Height-based coloring (green to brown)
+        const e = d.elevation;
+        if (e < 500) return [132, 204, 22]; // lime-500
+        if (e < 1000) return [163, 230, 53]; // lime-400
+        if (e < 1500) return [250, 204, 21]; // yellow-400
+        if (e < 2000) return [217, 119, 6]; // amber-600
+        return [120, 113, 108]; // stone-500
+      },
     }),
     new GridCellLayer({
       id: 'water-grid',

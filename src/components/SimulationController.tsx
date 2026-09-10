@@ -65,6 +65,7 @@ export default function SimulationController() {
       }
 
       elevationRef.current = elevation;
+      useSimulationStore.getState().setElevation(elevation);
       waterDepthRef.current = new Float32Array(gridSize * gridSize); // Initial empty water
 
       await solverRef.current.init(gridSize, elevation);

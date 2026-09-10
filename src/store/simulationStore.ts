@@ -9,6 +9,7 @@ interface SimulationState {
   releaseRate: number;
   simulationSpeed: number;
   waterDepth: Float32Array | null;
+  elevation: Float32Array | null;
   arrivalTime: Float32Array | null;
   impacts: ImpactResult;
   alerts: AlertItem[];
@@ -16,6 +17,7 @@ interface SimulationState {
   comparisonWaterDepth: Float32Array | null;
   comparisonImpacts: ImpactResult | null;
   setStatus: (status: 'idle' | 'running' | 'paused' | 'completed') => void;
+  setElevation: (elevation: Float32Array) => void;
   setParameters: (width: number, depth: number, rate: number) => void;
   setSimulationSpeed: (speed: number) => void;
   updateSimulationOutput: (step: number, waterDepth: Float32Array, arrivalTime: Float32Array) => void;
@@ -42,6 +44,7 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   releaseRate: 10000,
   simulationSpeed: 1,
   waterDepth: null,
+  elevation: null,
   arrivalTime: null,
   impacts: initialImpacts,
   alerts: [],
@@ -49,6 +52,7 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   comparisonWaterDepth: null,
   comparisonImpacts: null,
   setStatus: (status) => set({ status }),
+  setElevation: (elevation) => set({ elevation }),
   setParameters: (width, depth, rate) => set({ breachWidth: width, breachDepth: depth, releaseRate: rate }),
   setSimulationSpeed: (speed) => set({ simulationSpeed: speed }),
   updateSimulationOutput: (step, waterDepth, arrivalTime) => set({ currentStep: step, waterDepth, arrivalTime }),
