@@ -11,10 +11,30 @@ import { useSimulationStore } from '@/store/simulationStore';
 import { ShieldAlert } from 'lucide-react';
 
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+const SATELLITE_STYLE = {
+  version: 8,
+  sources: {
+    'satellite-raster': {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256
+    }
+  },
+  layers: [
+    {
+      id: 'satellite-layer',
+      type: 'raster',
+      source: 'satellite-raster',
+      minzoom: 0,
+      maxzoom: 22
+    }
+  ]
+};
+
 const TERRAIN_IMAGE = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`;
 
-const ambientLight = new AmbientLight({ color: [255, 255, 255], intensity: 1.0 });
-const sunLight = new SunLight({ timestamp: 1564696800000, color: [255, 255, 255], intensity: 2.0 });
+const ambientLight = new AmbientLight({ color: [255, 255, 255], intensity: 2.5 });
+const sunLight = new SunLight({ timestamp: 1564696800000, color: [255, 255, 255], intensity: 4.0 });
 const lightingEffect = new LightingEffect({ ambientLight, sunLight });
 
 export default function MapView() {
@@ -56,7 +76,7 @@ export default function MapView() {
     const latSpanM = (bbox[3] - bbox[1]) * 110540;
     const cellW = lonSpanM / gridSize;
     const cellH = latSpanM / gridSize;
-    const size = Math.max(cellW, cellH) * 1.05;
+    const size = Math.max(cellW, cellH) * 1.5;
     console.log(`TERRAIN CELL: ${size.toFixed(2)}m`);
     return size;
   }, [activeScenario]);
@@ -156,14 +176,14 @@ export default function MapView() {
       getElevation: (d: any) => d.elevation,
       opacity: 1,
       getFillColor: (d: any) => {
-        // Deep slate valleys to lighter ridge tops
+        // Brighter slate valleys to lighter ridge tops
         const e = d.elevation;
-        if (e < 500) return [30, 41, 59]; // slate-800 (#1e293b)
-        if (e < 800) return [51, 65, 85]; // slate-700
-        if (e < 1200) return [71, 85, 105]; // slate-600
-        if (e < 1600) return [100, 116, 139]; // slate-500
-        if (e < 2000) return [148, 163, 184]; // slate-400 (#94a3b8)
-        return [203, 213, 225]; // slate-300
+        if (e < 500) return [71, 85, 105]; // slate-600
+        if (e < 800) return [100, 116, 139]; // slate-500
+        if (e < 1200) return [148, 163, 184]; // slate-400
+        if (e < 1600) return [203, 213, 225]; // slate-300
+        if (e < 2000) return [226, 232, 240]; // slate-200
+        return [241, 245, 249]; // slate-100
       },
     }),
     new GridCellLayer({
@@ -223,7 +243,7 @@ export default function MapView() {
       >
         {activeScenario && (
           <Map 
-            mapStyle={basemap === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : MAP_STYLE}
+            mapStyle={basemap === 'satellite' ? SATELLITE_STYLE as any : MAP_STYLE}
             reuseMaps 
             onError={(e: any) => {
               if (basemap === 'satellite') {
