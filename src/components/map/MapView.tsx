@@ -14,7 +14,7 @@ const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.j
 const TERRAIN_IMAGE = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`;
 
 export default function MapView() {
-  const { activeScenario } = useScenarioStore();
+  const { activeScenario, basemap } = useScenarioStore();
   const { waterDepth, arrivalTime, currentStep } = useSimulationStore();
 
   const [viewState, setViewState] = useState({
@@ -108,7 +108,9 @@ export default function MapView() {
         offset: -32768
       },
       elevationData: TERRAIN_IMAGE,
-      texture: MAP_STYLE,
+      texture: basemap === 'satellite' 
+        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' 
+        : MAP_STYLE,
       wireframe: false,
       color: [255, 255, 255]
     }),

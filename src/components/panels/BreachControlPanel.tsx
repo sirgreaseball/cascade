@@ -8,7 +8,7 @@ import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimulationStore } from '@/store/simulationStore';
 
 export default function BreachControlPanel() {
-  const { activeScenario, scenarios, loadScenario, isLoading } = useScenarioStore();
+  const { activeScenario, basemap, scenarios, loadScenario, isLoading } = useScenarioStore();
   const { status, setStatus, breachWidth, breachDepth, releaseRate, setParameters, simulationSpeed, setSimulationSpeed, reset } = useSimulationStore();
 
   useEffect(() => {
@@ -47,6 +47,30 @@ export default function BreachControlPanel() {
             <option value="bhakra">Bhakra Nangal (Stub)</option>
           </select>
           {isLoading && <div className="text-xs text-[#f59e0b] animate-pulse">Loading scenario data...</div>}
+
+          <div className="pt-2">
+            <div className="flex items-center justify-between text-xs font-mono text-[#94a3b8] mb-2">
+              <span>Basemap</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                onClick={() => useScenarioStore.getState().setBasemap('dark')}
+                className={cn("p-1.5 rounded text-xs border transition-colors", 
+                  basemap === 'dark' ? "bg-[#334155] border-[#475569] text-white" : "border-[#334155] text-[#94a3b8] hover:text-white"
+                )}
+              >
+                Dark
+              </button>
+              <button 
+                onClick={() => useScenarioStore.getState().setBasemap('satellite')}
+                className={cn("p-1.5 rounded text-xs border transition-colors", 
+                  basemap === 'satellite' ? "bg-[#334155] border-[#475569] text-white" : "border-[#334155] text-[#94a3b8] hover:text-white"
+                )}
+              >
+                Satellite
+              </button>
+            </div>
+          </div>
         </section>
 
         {/* Simulation Controls */}
@@ -113,6 +137,29 @@ export default function BreachControlPanel() {
           </div>
           
           <div className="pt-4 border-t border-[#334155] space-y-2">
+            <button 
+              onClick={() => {
+                const { activeScenario } = useScenarioStore.getState();
+                if (activeScenario) {
+                  import('@/lib/geeService').then(({ fetchNRTWaterExtent }) => {
+                    useSimulationStore.getState().setStatus('paused');
+                    fetchNRTWaterExtent(activeScenario.bbox).then(mask => {
+                      if (mask) {
+                        // Normally this would initialize a comparison baseline
+                        // For the stub, we just log.
+                        console.log("Applied GEE mask.");
+                      } else {
+                        // Dispatch alert or toast
+                        console.warn("GEE returned empty mask or failed.");
+                      }
+                    });
+                  });
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 p-2 rounded text-xs font-bold bg-[#1e293b] border border-[#334155] hover:bg-[#334155] text-blue-400 transition-colors"
+            >
+              FETCH NRT MASK (GEE STUB)
+            </button>
             <button 
               onClick={() => useSimulationStore.getState().saveAsComparisonBaseline()}
               className="w-full flex items-center justify-center gap-2 p-2 rounded text-sm font-bold bg-[#1e293b] border border-[#334155] hover:bg-[#334155] text-orange-400 transition-colors"

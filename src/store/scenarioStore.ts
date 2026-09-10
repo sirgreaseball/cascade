@@ -7,6 +7,8 @@ interface ScenarioState {
   evacuationData: any | null;
   scenarios: Scenario[];
   isLoading: boolean;
+  basemap: 'dark' | 'satellite';
+  setBasemap: (mode: 'dark' | 'satellite') => void;
   loadScenario: (id: string) => Promise<void>;
   setActiveScenario: (scenario: Scenario) => void;
 }
@@ -17,6 +19,8 @@ export const useScenarioStore = create<ScenarioState>((set) => ({
   evacuationData: null,
   scenarios: [],
   isLoading: false,
+  basemap: 'dark',
+  setBasemap: (mode) => set({ basemap: mode }),
   setActiveScenario: (scenario) => set({ activeScenario: scenario }),
   loadScenario: async (id: string) => {
     set({ isLoading: true });
