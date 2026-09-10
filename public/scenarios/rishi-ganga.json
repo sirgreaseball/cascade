@@ -1,0 +1,55 @@
+{
+  "id": "rishi-ganga",
+  "name": "Rishi Ganga lake outburst",
+  "river": "Rishi Ganga · Dhauliganga",
+  "region": "Chamoli, Uttarakhand",
+  "event": "lake-outburst",
+  "summary": "Illustrative what-if inspired by the February 2021 Chamoli disaster: a landslide dam on the Rishi Ganga above Raini fails, and the outburst flood runs down the Dhauliganga past Tapovan to Vishnuprayag near Joshimath.",
+  "bbox": [
+    79.52,
+    30.45,
+    79.83,
+    30.6
+  ],
+  "cellSize": 60,
+  "grid": {
+    "cols": 495,
+    "rows": 276
+  },
+  "dem": {
+    "url": "/data/rishi-ganga/elevation.bin",
+    "source": "Terrain Tiles (AWS Open Data; SRTM, NASA / USGS), zoom 13, box-filtered to 60 m",
+    "retrieved": "2026-09-10",
+    "min": 1309,
+    "max": 5739
+  },
+  "exposure": {
+    "assetsUrl": "/data/rishi-ganga/assets.geojson",
+    "roadsUrl": "/data/rishi-ganga/roads.geojson",
+    "source": "© OpenStreetMap contributors (Overpass API)",
+    "retrieved": "2026-09-10"
+  },
+  "dam": {
+    "name": "Landslide blockage (illustrative)",
+    "lng": 79.77,
+    "lat": 30.52,
+    "height": 40,
+    "crestLength": 250,
+    "type": "Landslide debris dam",
+    "reservoir": "Blockage lake",
+    "volumeMCM": 12,
+    "waterDepth": 38,
+    "snapRadius": 300
+  },
+  "defaults": {
+    "manning": 0.05,
+    "duration": 7200,
+    "failureMode": "overtopping"
+  },
+  "view": {
+    "zoom": 11,
+    "pitch": 58,
+    "bearing": 60
+  },
+  "notes": "Blockage height and lake volume are illustrative, not survey values. Edit them in Event to explore other cases."
+}

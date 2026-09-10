@@ -1,12 +1,5 @@
 [
-  {
-    "id": "tehri",
-    "name": "Tehri Dam",
-    "river": "Bhagirathi"
-  },
-  {
-    "id": "bhakra",
-    "name": "Bhakra Nangal Dam",
-    "river": "Sutlej"
-  }
+  { "id": "tehri", "name": "Tehri Dam", "river": "Bhagirathi · Ganga", "event": "dam-break" },
+  { "id": "bhakra", "name": "Bhakra Dam", "river": "Sutlej", "event": "dam-break" },
+  { "id": "rishi-ganga", "name": "Rishi Ganga lake outburst", "river": "Rishi Ganga · Dhauliganga", "event": "lake-outburst" }
 ]

@@ -1,20 +1,37 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0f172a;
-  --color-foreground: #f8fafc;
-  --color-primary: #ef4444;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #1e293b;
-  --color-secondary-foreground: #f1f5f9;
-  --color-accent: #f59e0b;
-  --color-accent-foreground: #ffffff;
-  --color-destructive: #dc2626;
-  --color-destructive-foreground: #ffffff;
-  --color-muted: #334155;
-  --color-muted-foreground: #94a3b8;
-  
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", var(--font-inter), "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --color-canvas: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-ink: #1d1d1f;
+  --color-ink-2: #424245;
+  --color-muted: #6e6e73;
+  --color-faint: #86868b;
+  --color-hairline: rgba(0, 0, 0, 0.08);
+  --color-fill: #f0f0f2;
+  --color-fill-2: #e8e8ed;
+  --color-accent: #0071e3;
+  --color-accent-strong: #0062c4;
+
+  --color-swe: #2a78d6;
+  --color-sph: #eb6834;
+  --color-ext: #1baf7a;
+  --color-obs: #4a3aa7;
+
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+
+  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 12px 48px -12px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-float: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 6px 24px -6px rgba(0, 0, 0, 0.18);
+  --shadow-knob: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0, 0, 0, 0.16);
+
+  --radius-panel: 22px;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
@@ -23,27 +40,122 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-muted, currentColor);
+    border-color: var(--color-hairline);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    letter-spacing: -0.006em;
+    overflow: hidden;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 8px;
   }
 }
 
-body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  font-family: Arial, Helvetica, sans-serif;
-  overflow: hidden; /* Prevent scrolling for the full-screen dashboard */
+@layer components {
+  .glass {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-faint);
+  }
+  .scroll-soft {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+  }
+  .scroll-soft::-webkit-scrollbar {
+    width: 8px;
+  }
+  .scroll-soft::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  /* Range input, Apple-style: hairline track with a filled portion and a white knob. */
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 22px;
+    background: transparent;
+    --fill: 0%;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-ink) var(--fill), var(--color-fill-2) var(--fill));
+  }
+  .range::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-ink) var(--fill), var(--color-fill-2) var(--fill));
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    margin-top: -8px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: var(--shadow-knob);
+    transition: transform 0.15s var(--ease-out-soft);
+  }
+  .range::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: var(--shadow-knob);
+  }
+  .range:active::-webkit-slider-thumb {
+    transform: scale(1.12);
+  }
 }
 
-/* MapLibre specific overrides for dark mode */
-.maplibregl-popup-content {
-  background-color: var(--color-secondary) !important;
-  color: var(--color-foreground) !important;
-  border: 1px solid var(--color-muted);
+/* MapLibre chrome, restyled to match. */
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(12px);
+  border-radius: 8px !important;
+  font-size: 10px !important;
+  color: var(--color-muted) !important;
 }
-.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
-  border-top-color: var(--color-secondary) !important;
+.maplibregl-ctrl-attrib a {
+  color: var(--color-muted) !important;
 }
-
-/* Mute maplibre attribution */
-.maplibregl-ctrl-attrib { background-color: rgba(15, 23, 42, 0.5) !important; color: #64748b !important; }
-.maplibregl-ctrl-attrib a { color: #64748b !important; }
+.maplibregl-ctrl-bottom-right {
+  bottom: 8px !important;
+  right: 8px !important;
+}

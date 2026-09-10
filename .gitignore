@@ -42,5 +42,6 @@ next-env.d.ts
 
 # additional
 *.exe
+scripts/.cache/
 !public/data/**
 !public/scenarios/**

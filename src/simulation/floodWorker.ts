@@ -1,47 +1,57 @@
-import { stepSolver } from './solver';
+// Flood simulation worker. Owns one EngineRuntime and computes as fast as it can, in slices,
+// so pause/stop messages are handled between slices. Results go back by structured cloning;
+// no transfer lists are used anywhere (the UI must never hold a detached buffer).
 
-type SimMessage = 
-  | { type: 'INIT'; payload: { gridSize: number; elevation: Float32Array } }
-  | { type: 'STEP'; payload: { 
-      waterDepth: Float32Array; 
-      breachPoint: { x: number, y: number };
-      breachWidth: number;
-      releaseRate: number;
-      friction: number;
-      timeStep: number;
-    } };
+import { EngineRuntime } from './runtime.ts';
+import type { EngineId, WorkerInbound, WorkerOutbound } from './types.ts';
 
-let gridSize = 256;
-let elevation: Float32Array | null = null;
-let arrivalTime: Float32Array | null = null;
-let stepCounter = 0;
+let runtime: EngineRuntime | null = null;
+let running = false;
+let engine: EngineId = 'swe';
 
-self.onmessage = (e: MessageEvent<SimMessage>) => {
-  const msg = e.data;
+const post = (msg: WorkerOutbound) => (self as unknown as Worker).postMessage(msg);
 
-  if (msg.type === 'INIT') {
-    gridSize = msg.payload.gridSize;
-    elevation = msg.payload.elevation;
-    arrivalTime = new Float32Array(gridSize * gridSize);
-    arrivalTime.fill(-1);
-    stepCounter = 0;
-    self.postMessage({ type: 'READY' });
-  } 
-  
-  else if (msg.type === 'STEP') {
-    if (!elevation || !arrivalTime) return;
-    
-    stepCounter++;
-    const { waterDepth, arrivalTime: newArrival } = stepSolver(
-      gridSize, elevation, arrivalTime,
-      msg.payload.waterDepth, msg.payload.breachPoint, msg.payload.releaseRate,
-      msg.payload.friction, msg.payload.timeStep, stepCounter
-    );
-    arrivalTime = newArrival; // keep ref
+function loop(): void {
+  if (!running || !runtime) return;
+  try {
+    const done = runtime.runSlice(40);
+    if (done) {
+      running = false;
+      return;
+    }
+  } catch (err) {
+    running = false;
+    post({ type: 'error', engine, message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  setTimeout(loop, 0);
+}
 
-    postMessage({ 
-      type: 'STEP_RESULT', 
-      payload: { waterDepth: waterDepth, arrivalTime: newArrival } 
-    });
+self.onmessage = (event: MessageEvent<WorkerInbound>) => {
+  const msg = event.data;
+  switch (msg.type) {
+    case 'init':
+      try {
+        engine = msg.config.engine;
+        runtime = new EngineRuntime(msg.config, post);
+        running = false;
+        post({ type: 'ready', engine, info: runtime.info() });
+      } catch (err) {
+        post({ type: 'error', engine: msg.config.engine, message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    case 'start':
+      if (runtime && !running) {
+        running = true;
+        loop();
+      }
+      break;
+    case 'pause':
+      running = false;
+      break;
+    case 'stop':
+      running = false;
+      runtime = null;
+      break;
   }
 };

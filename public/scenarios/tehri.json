@@ -1,41 +1,55 @@
 {
   "id": "tehri",
   "name": "Tehri Dam",
-  "river": "Bhagirathi",
-  "center": [78.476, 30.383],
-  "bbox": [78.35, 30.28, 78.62, 30.50],
-  "demUrl": "/data/tehri/elevation.bin",
-  "infrastructureUrl": "/data/tehri/infrastructure.geojson",
-  "evacuationUrl": "/data/tehri/evacuation.geojson",
-  "gridSize": 256,
-  "cellSize": 50,
-  "breachPoint": {
-    "x": 128,
-    "y": 100
-  },
-  "breachPresets": [
-    {
-      "name": "Minor Breach",
-      "breachWidth": 20,
-      "breachDepth": 5,
-      "releaseRate": 5000
-    },
-    {
-      "name": "Major Breach",
-      "breachWidth": 80,
-      "breachDepth": 20,
-      "releaseRate": 25000
-    },
-    {
-      "name": "Extreme Failure",
-      "breachWidth": 150,
-      "breachDepth": 35,
-      "releaseRate": 60000
-    }
+  "river": "Bhagirathi · Ganga",
+  "region": "Tehri Garhwal, Uttarakhand",
+  "event": "dam-break",
+  "summary": "Hypothetical full breach of India's tallest dam, routed down the Bhagirathi gorge past Koteshwar and Devprayag towards Rishikesh.",
+  "bbox": [
+    78.22,
+    30.02,
+    78.66,
+    30.42
   ],
-  "simulation": {
-    "friction": 0.2,
-    "timeStep": 0.5,
-    "maxSteps": 1000
-  }
+  "cellSize": 100,
+  "grid": {
+    "cols": 423,
+    "rows": 442
+  },
+  "dem": {
+    "url": "/data/tehri/elevation.bin",
+    "source": "Terrain Tiles (AWS Open Data; SRTM, NASA / USGS), zoom 12, box-filtered to 100 m",
+    "retrieved": "2026-09-10",
+    "min": 307,
+    "max": 2752
+  },
+  "exposure": {
+    "assetsUrl": "/data/tehri/assets.geojson",
+    "roadsUrl": "/data/tehri/roads.geojson",
+    "source": "© OpenStreetMap contributors (Overpass API)",
+    "retrieved": "2026-09-10"
+  },
+  "dam": {
+    "name": "Tehri Dam",
+    "lng": 78.4806,
+    "lat": 30.3778,
+    "height": 260.5,
+    "crestLength": 575,
+    "type": "Earth and rockfill",
+    "completed": 2006,
+    "reservoir": "Tehri Lake",
+    "volumeMCM": 3540,
+    "waterDepth": 250
+  },
+  "defaults": {
+    "manning": 0.045,
+    "duration": 21600,
+    "failureMode": "overtopping"
+  },
+  "view": {
+    "zoom": 10.3,
+    "pitch": 55,
+    "bearing": -20
+  },
+  "notes": "Dam and reservoir figures are approximate public values (THDC India, National Register of Large Dams)."
 }

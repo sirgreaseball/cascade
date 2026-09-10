@@ -1,29 +1,57 @@
 {
   "id": "bhakra",
-  "name": "Bhakra Nangal Dam",
+  "name": "Bhakra Dam",
   "river": "Sutlej",
-  "center": [76.433, 31.411],
-  "bbox": [76.35, 31.30, 76.55, 31.50],
-  "demUrl": "/data/bhakra/elevation.bin",
-  "infrastructureUrl": "/data/bhakra/infrastructure.geojson",
-  "evacuationUrl": "/data/bhakra/evacuation.geojson",
-  "gridSize": 256,
-  "cellSize": 50,
-  "breachPoint": {
-    "x": 128,
-    "y": 128
-  },
-  "breachPresets": [
-    {
-      "name": "Major Breach",
-      "breachWidth": 100,
-      "breachDepth": 25,
-      "releaseRate": 30000
-    }
+  "region": "Bilaspur, Himachal Pradesh · Rupnagar, Punjab",
+  "event": "dam-break",
+  "summary": "Hypothetical sudden failure of a section of the Bhakra concrete gravity dam, routed past Nangal, Anandpur Sahib and Kiratpur Sahib onto the Punjab plains at Rupnagar.",
+  "bbox": [
+    76.3,
+    30.92,
+    76.66,
+    31.46
   ],
-  "simulation": {
-    "friction": 0.2,
-    "timeStep": 0.5,
-    "maxSteps": 1000
-  }
+  "cellSize": 110,
+  "grid": {
+    "cols": 312,
+    "rows": 543
+  },
+  "dem": {
+    "url": "/data/bhakra/elevation.bin",
+    "source": "Terrain Tiles (AWS Open Data; SRTM, NASA / USGS), zoom 12, box-filtered to 110 m",
+    "retrieved": "2026-09-10",
+    "min": 248,
+    "max": 1169
+  },
+  "exposure": {
+    "assetsUrl": "/data/bhakra/assets.geojson",
+    "roadsUrl": "/data/bhakra/roads.geojson",
+    "source": "© OpenStreetMap contributors (Overpass API)",
+    "retrieved": "2026-09-10"
+  },
+  "dam": {
+    "name": "Bhakra Dam",
+    "lng": 76.4333,
+    "lat": 31.4108,
+    "height": 226,
+    "crestLength": 518,
+    "type": "Concrete gravity",
+    "completed": 1963,
+    "reservoir": "Gobind Sagar",
+    "volumeMCM": 9340,
+    "waterDepth": 200
+  },
+  "defaults": {
+    "manning": 0.04,
+    "duration": 21600,
+    "failureMode": "piping",
+    "breachWidth": 170,
+    "formationTime": 900
+  },
+  "view": {
+    "zoom": 9.9,
+    "pitch": 50,
+    "bearing": 10
+  },
+  "notes": "Concrete dams fail by monolith collapse, so the breach is set to roughly a third of the crest forming in 15 minutes instead of the Froehlich embankment regression. Figures are approximate public values (BBMB, NRLD)."
 }

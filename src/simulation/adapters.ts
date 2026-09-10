@@ -1,141 +1,108 @@
-import { SolverAdapter } from './SolverAdapter';
-import { stepSolver } from './solver';
+// Main-thread handle for one flood engine. Prefers a dedicated Web Worker; if the worker cannot
+// start (old browser, CSP, bundler issue) it falls back to running the same EngineRuntime on
+// the main thread in small time slices. Messages to and from the worker are structured-cloned;
+// never pass a transfer list here — the UI keeps its own copies of every array.
 
-export class CASolverAdapter implements SolverAdapter {
+import { EngineRuntime } from './runtime.ts';
+import type { EngineConfig, EngineId, EngineInfo, WorkerInbound, WorkerOutbound } from './types.ts';
+
+export type EngineMode = 'worker' | 'main-thread';
+
+export class EngineClient {
+  mode: EngineMode = 'worker';
+  info: EngineInfo | null = null;
   private worker: Worker | null = null;
-  private isFallback = false;
-  private elevation: Float32Array | null = null;
-  private arrivalTime: Float32Array | null = null;
-  private stepCounter = 0;
-  private gridSize = 0;
+  private runtime: EngineRuntime | null = null;
+  private running = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
+  private engine: EngineId = 'swe';
+  private readonly onMessage: (msg: WorkerOutbound) => void;
 
-  async init(gridSize: number, elevation: Float32Array): Promise<void> {
-    this.gridSize = gridSize;
-    this.elevation = elevation;
-    this.arrivalTime = new Float32Array(gridSize * gridSize).fill(-1);
-    this.stepCounter = 0;
+  constructor(onMessage: (msg: WorkerOutbound) => void) {
+    this.onMessage = onMessage;
+  }
 
-    return new Promise((resolve) => {
-      try {
-        this.worker = new Worker(new URL('./floodWorker.ts', import.meta.url), { type: 'module' });
-        
-        const timeout = setTimeout(() => {
-          console.warn("Worker init timed out. Falling back to main thread solver.");
-          console.log("SOLVER MODE: main-thread-fallback");
-          this.isFallback = true;
-          this.worker?.terminate();
-          this.worker = null;
-          resolve();
-        }, 3000);
+  async init(config: EngineConfig): Promise<EngineMode> {
+    this.engine = config.engine;
+    try {
+      await this.initWorker(config);
+      this.mode = 'worker';
+    } catch (err) {
+      console.warn('[cascade] Worker unavailable, running the solver on the main thread.', err);
+      this.worker?.terminate();
+      this.worker = null;
+      this.runtime = new EngineRuntime(config, (m) => !this.disposed && this.onMessage(m));
+      this.info = this.runtime.info();
+      this.mode = 'main-thread';
+    }
+    return this.mode;
+  }
 
-        const onReady = (e: MessageEvent) => {
-          if (e.data.type === 'READY') {
-            clearTimeout(timeout);
-            this.worker?.removeEventListener('message', onReady);
-            console.log("SOLVER MODE: worker");
-            resolve();
-          }
-        };
-        
-        this.worker.addEventListener('message', onReady);
-        this.worker.addEventListener('error', (e) => {
+  private initWorker(config: EngineConfig): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(new URL('./floodWorker.ts', import.meta.url), { type: 'module' });
+      this.worker = worker;
+      const timeout = setTimeout(() => reject(new Error('Worker did not become ready in time')), 8000);
+      worker.onmessage = (e: MessageEvent<WorkerOutbound>) => {
+        const msg = e.data;
+        if (msg.type === 'ready') {
           clearTimeout(timeout);
-          console.warn("Worker error. Falling back to main thread solver.", e);
-          console.log("SOLVER MODE: main-thread-fallback");
-          this.isFallback = true;
-          this.worker?.terminate();
-          this.worker = null;
+          this.info = msg.info;
+          worker.onmessage = (ev: MessageEvent<WorkerOutbound>) => !this.disposed && this.onMessage(ev.data);
           resolve();
-        });
-
-        this.worker.postMessage({
-          type: 'INIT',
-          payload: { gridSize, elevation }
-        });
-      } catch (err) {
-        console.warn("Worker creation failed. Falling back to main thread solver.", err);
-        console.log("SOLVER MODE: main-thread-fallback");
-        this.isFallback = true;
-        resolve();
-      }
+        } else if (msg.type === 'error') {
+          clearTimeout(timeout);
+          reject(new Error(msg.message));
+        }
+      };
+      worker.onerror = (e) => {
+        clearTimeout(timeout);
+        reject(e.error ?? new Error(e.message || 'Worker failed to load'));
+      };
+      this.send({ type: 'init', config });
     });
   }
 
-  async step(
-    waterDepth: Float32Array,
-    breachPoint: { x: number; y: number },
-    breachWidth: number,
-    releaseRate: number,
-    friction: number,
-    timeStep: number
-  ): Promise<{ waterDepth: Float32Array; arrivalTime: Float32Array }> {
-    if (this.isFallback) {
-      this.stepCounter++;
-      const result = stepSolver(
-        this.gridSize, this.elevation!, this.arrivalTime!, waterDepth,
-        breachPoint, releaseRate, friction, timeStep, this.stepCounter
-      );
-      this.arrivalTime = result.arrivalTime;
-      return Promise.resolve(result);
+  private send(msg: WorkerInbound): void {
+    this.worker?.postMessage(msg);
+  }
+
+  start(): void {
+    if (this.worker) {
+      this.send({ type: 'start' });
+      return;
     }
-
-    return new Promise((resolve) => {
-      if (!this.worker) throw new Error("Worker not initialized");
-
-      const onStep = (e: MessageEvent) => {
-        if (e.data.type === 'STEP_RESULT') {
-          this.worker?.removeEventListener('message', onStep);
-          resolve(e.data.payload);
+    if (!this.runtime || this.running) return;
+    this.running = true;
+    const tick = () => {
+      if (!this.running || !this.runtime || this.disposed) return;
+      try {
+        if (this.runtime.runSlice(12)) {
+          this.running = false;
+          return;
         }
-      };
-      this.worker.addEventListener('message', onStep);
+      } catch (err) {
+        this.running = false;
+        this.onMessage({ type: 'error', engine: this.engine, message: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      this.timer = setTimeout(tick, 0);
+    };
+    tick();
+  }
 
-      this.worker.postMessage({
-        type: 'STEP',
-        payload: {
-          waterDepth,
-          breachPoint,
-          breachWidth,
-          releaseRate,
-          friction,
-          timeStep
-        }
-      });
-    });
+  pause(): void {
+    if (this.worker) this.send({ type: 'pause' });
+    this.running = false;
+    if (this.timer) clearTimeout(this.timer);
   }
 
   terminate(): void {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-    }
+    this.disposed = true;
+    this.pause();
+    this.worker?.terminate();
+    this.worker = null;
+    this.runtime = null;
   }
-}
-
-// Stub Adapter for SPH Output Files
-export class SPHSolverAdapter implements SolverAdapter {
-  async init(gridSize: number, elevation: Float32Array): Promise<void> {
-    console.log("SPHSolverAdapter: Init called. Ready to load precomputed SPH .bin frames.");
-  }
-
-  async step(waterDepth: Float32Array): Promise<{ waterDepth: Float32Array; arrivalTime: Float32Array }> {
-    console.log("SPHSolverAdapter: Stub step executed.");
-    return { waterDepth, arrivalTime: new Float32Array(waterDepth.length).fill(-1) };
-  }
-
-  terminate(): void {}
-}
-
-// Stub Adapter for Delft3D Output Files
-export class Delft3DAdapter implements SolverAdapter {
-  async init(gridSize: number, elevation: Float32Array): Promise<void> {
-    console.log("Delft3DAdapter: Init called. Ready to load Delft3D NetCDF/Grid data.");
-  }
-
-  async step(waterDepth: Float32Array): Promise<{ waterDepth: Float32Array; arrivalTime: Float32Array }> {
-    console.log("Delft3DAdapter: Stub step executed.");
-    return { waterDepth, arrivalTime: new Float32Array(waterDepth.length).fill(-1) };
-  }
-
-  terminate(): void {}
 }
