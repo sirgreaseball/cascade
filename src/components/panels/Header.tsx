@@ -11,7 +11,7 @@ export default function Header() {
       className="pointer-events-auto absolute top-0 left-80 right-0 h-12 bg-[#0f172a]/95 backdrop-blur border-b border-[#334155] z-10 flex items-center justify-between px-6 shadow-2xl text-[#f8fafc]"
     >
       <div className="font-mono text-sm tracking-widest text-[#94a3b8]">
-        PROJECT: <span className="text-[#f8fafc]">SIH26161</span> // COMMAND CENTER
+        PROJECT: <span className="text-[#f8fafc]">CASCADE</span> // COMMAND CENTER
       </div>
       <div className="flex items-center gap-4 text-xs font-mono">
         <div className="flex items-center gap-2">
