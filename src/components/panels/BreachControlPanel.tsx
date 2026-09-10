@@ -110,6 +110,23 @@ export default function BreachControlPanel() {
               RESET
             </button>
           </div>
+          
+          <div className="pt-4 border-t border-[#334155] space-y-2">
+            <button 
+              onClick={() => useSimulationStore.getState().saveAsComparisonBaseline()}
+              className="w-full flex items-center justify-center gap-2 p-2 rounded text-sm font-bold bg-[#1e293b] border border-[#334155] hover:bg-[#334155] text-orange-400 transition-colors"
+            >
+              SAVE AS BASELINE
+            </button>
+            {useSimulationStore.getState().comparisonWaterDepth && (
+              <button 
+                onClick={() => useSimulationStore.getState().clearComparison()}
+                className="w-full flex items-center justify-center gap-2 p-2 rounded text-xs font-mono bg-transparent text-[#94a3b8] hover:text-white transition-colors"
+              >
+                CLEAR BASELINE
+              </button>
+            )}
+          </div>
         </section>
       </div>
     </motion.div>

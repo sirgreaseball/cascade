@@ -6,13 +6,17 @@ import { useScenarioStore } from '@/store/scenarioStore';
 
 import { runAnalytics } from '@/lib/analytics';
 
+import { CASolverAdapter } from '@/simulation/adapters';
+import { SolverAdapter } from '@/simulation/SolverAdapter';
+
 export default function SimulationController() {
   const { activeScenario, infrastructureData, evacuationData } = useScenarioStore();
   const { status, currentStep, breachWidth, releaseRate, simulationSpeed, updateSimulationOutput, updateImpacts } = useSimulationStore();
   
-  const workerRef = useRef<Worker | null>(null);
+  const solverRef = useRef<SolverAdapter | null>(null);
   const elevationRef = useRef<Float32Array | null>(null);
   const waterDepthRef = useRef<Float32Array | null>(null);
+  const isSteppingRef = useRef(false);
   
   // Analytics state
   const previouslyFloodedIds = useRef<Set<string>>(new Set());
@@ -26,10 +30,9 @@ export default function SimulationController() {
     previouslyFloodedIds.current.clear();
     stepsSinceAnalytics.current = 0;
 
-    // Initialize worker and data asynchronously
+    // Initialize solver and data asynchronously
     const initData = async () => {
-      // Create worker
-      workerRef.current = new Worker(new URL('../../simulation/floodWorker.ts', import.meta.url));
+      solverRef.current = new CASolverAdapter();
 
       const gridSize = activeScenario.gridSize;
       const elevationFile = activeScenario.demUrl || `/data/${activeScenario.id}/elevation.bin`;
@@ -64,42 +67,13 @@ export default function SimulationController() {
       elevationRef.current = elevation;
       waterDepthRef.current = new Float32Array(gridSize * gridSize); // Initial empty water
 
-      workerRef.current.postMessage({
-        type: 'INIT',
-        payload: { gridSize, elevation }
-      });
-
-      workerRef.current.onmessage = (e) => {
-        if (e.data.type === 'STEP_RESULT') {
-          const { waterDepth, arrivalTime } = e.data.payload;
-          waterDepthRef.current = waterDepth;
-          updateSimulationOutput(currentStep + 1, waterDepth, arrivalTime);
-
-          // Run analytics every 10 steps
-          stepsSinceAnalytics.current++;
-          if (stepsSinceAnalytics.current >= 10) {
-            stepsSinceAnalytics.current = 0;
-            const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
-              waterDepth,
-              activeScenario.gridSize,
-              activeScenario.bbox,
-              infrastructureData,
-              evacuationData,
-              previouslyFloodedIds.current,
-              currentStep + 1
-            );
-
-            newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
-            updateImpacts(impacts, newAlerts, newlyFloodedIds);
-          }
-        }
-      };
+      await solverRef.current.init(gridSize, elevation);
     };
 
     initData();
 
     return () => {
-      workerRef.current?.terminate();
+      solverRef.current?.terminate();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeScenario]);
@@ -109,23 +83,46 @@ export default function SimulationController() {
     let animationFrameId: number;
     let lastUpdate = performance.now();
 
-    const loop = (time: number) => {
-      if (status === 'running' && workerRef.current && activeScenario && waterDepthRef.current) {
+    const loop = async (time: number) => {
+      if (status === 'running' && solverRef.current && activeScenario && waterDepthRef.current && !isSteppingRef.current) {
         // Throttle updates based on simulation speed
         if (time - lastUpdate > (100 / simulationSpeed)) {
-          workerRef.current.postMessage({
-            type: 'STEP',
-            payload: {
-              waterDepth: waterDepthRef.current,
-              breachPoint: activeScenario.breachPoint,
-              breachWidth,
-              releaseRate: releaseRate / 100, // scaled for step
-              friction: activeScenario.simulation.friction,
-              timeStep: activeScenario.simulation.timeStep
-            }
-          }, [waterDepthRef.current.buffer]); // Transfer zero-copy
-          
+          isSteppingRef.current = true;
           lastUpdate = time;
+
+          try {
+            const result = await solverRef.current.step(
+              waterDepthRef.current,
+              activeScenario.breachPoint,
+              breachWidth,
+              releaseRate / 100, // scaled for step
+              activeScenario.simulation.friction,
+              activeScenario.simulation.timeStep
+            );
+
+            waterDepthRef.current = result.waterDepth;
+            updateSimulationOutput(currentStep + 1, result.waterDepth, result.arrivalTime);
+
+            // Run analytics every 10 steps
+            stepsSinceAnalytics.current++;
+            if (stepsSinceAnalytics.current >= 10) {
+              stepsSinceAnalytics.current = 0;
+              const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
+                result.waterDepth,
+                activeScenario.gridSize,
+                activeScenario.bbox,
+                infrastructureData,
+                evacuationData,
+                previouslyFloodedIds.current,
+                currentStep + 1
+              );
+
+              newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
+              updateImpacts(impacts, newAlerts, newlyFloodedIds);
+            }
+          } finally {
+            isSteppingRef.current = false;
+          }
         }
       }
       animationFrameId = requestAnimationFrame(loop);

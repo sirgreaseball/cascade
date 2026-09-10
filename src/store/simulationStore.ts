@@ -13,11 +13,15 @@ interface SimulationState {
   impacts: ImpactResult;
   alerts: AlertItem[];
   floodedFeatureIds: Set<string>;
+  comparisonWaterDepth: Float32Array | null;
+  comparisonImpacts: ImpactResult | null;
   setStatus: (status: 'idle' | 'running' | 'paused' | 'completed') => void;
   setParameters: (width: number, depth: number, rate: number) => void;
   setSimulationSpeed: (speed: number) => void;
   updateSimulationOutput: (step: number, waterDepth: Float32Array, arrivalTime: Float32Array) => void;
   updateImpacts: (impacts: ImpactResult, newAlerts: AlertItem[], newlyFloodedIds: Set<string>) => void;
+  saveAsComparisonBaseline: () => void;
+  clearComparison: () => void;
   reset: () => void;
 }
 
@@ -39,6 +43,8 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   impacts: initialImpacts,
   alerts: [],
   floodedFeatureIds: new Set(),
+  comparisonWaterDepth: null,
+  comparisonImpacts: null,
   setStatus: (status) => set({ status }),
   setParameters: (width, depth, rate) => set({ breachWidth: width, breachDepth: depth, releaseRate: rate }),
   setSimulationSpeed: (speed) => set({ simulationSpeed: speed }),
@@ -52,5 +58,10 @@ export const useSimulationStore = create<SimulationState>((set) => ({
       floodedFeatureIds: newSet
     };
   }),
+  saveAsComparisonBaseline: () => set((state) => ({
+    comparisonWaterDepth: state.waterDepth ? new Float32Array(state.waterDepth) : null,
+    comparisonImpacts: state.impacts ? { ...state.impacts } : null
+  })),
+  clearComparison: () => set({ comparisonWaterDepth: null, comparisonImpacts: null }),
   reset: () => set({ status: 'idle', currentStep: 0, waterDepth: null, arrivalTime: null, impacts: initialImpacts, alerts: [], floodedFeatureIds: new Set() }),
 }));

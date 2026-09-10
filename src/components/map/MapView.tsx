@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Map, { NavigationControl, Marker } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
-import { GridCellLayer } from '@deck.gl/layers';
+import { GridCellLayer, ScatterplotLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useScenarioStore } from '@/store/scenarioStore';
@@ -39,6 +39,8 @@ export default function MapView() {
     }
   }, [activeScenario]);
 
+
+
   const gridData = useMemo(() => {
     if (!activeScenario || !waterDepth || !arrivalTime) return [];
     
@@ -65,6 +67,33 @@ export default function MapView() {
     }
     return data;
   }, [activeScenario, waterDepth, arrivalTime]);
+
+  const comparisonData = useMemo(() => {
+    const { comparisonWaterDepth } = useSimulationStore.getState();
+    if (!activeScenario || !comparisonWaterDepth) return [];
+    
+    const { gridSize, bbox } = activeScenario;
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const data = [];
+
+    const lngStep = (maxLng - minLng) / gridSize;
+    const latStep = (maxLat - minLat) / gridSize;
+
+    // Subsample for SPH style rendering
+    for (let y = 0; y < gridSize; y += 2) {
+      for (let x = 0; x < gridSize; x += 2) {
+        const idx = y * gridSize + x;
+        const depth = comparisonWaterDepth[idx];
+        if (depth > 0.1) {
+          data.push({
+            position: [minLng + (x * lngStep), maxLat - (y * latStep)],
+            depth
+          });
+        }
+      }
+    }
+    return data;
+  }, [activeScenario, useSimulationStore.getState().comparisonWaterDepth]);
 
   const layers = [
     new TerrainLayer({
@@ -102,8 +131,21 @@ export default function MapView() {
           ? [56, 189, 248, 150] // Translucent light blue
           : [2, 132, 199, 200]; // Darker blue
       },
+    }),
+    comparisonData.length > 0 && new ScatterplotLayer({
+      id: 'comparison-sph-layer',
+      data: comparisonData,
+      pickable: false,
+      opacity: 0.8,
+      stroked: false,
+      filled: true,
+      radiusScale: activeScenario?.cellSize || 30,
+      radiusMinPixels: 2,
+      radiusMaxPixels: 10,
+      getPosition: (d: any) => d.position,
+      getFillColor: [249, 115, 22, 180], // Orange
     })
-  ];
+  ].filter(Boolean);
 
   return (
     <div className="absolute inset-0 w-full h-full bg-[#0f172a]">
