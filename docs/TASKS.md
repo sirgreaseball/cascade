@@ -33,3 +33,14 @@
 - Trigger alerts based on flood arrival times.
 - Write the demo script and prepare the pitch deck.
 - Record the backup demo video.
+
+---
+
+## 🛑 STATUS: FEATURE FREEZE (HARDENING MODE)
+As of Milestone 12, all core features (M1-M12) are completed.
+**Next Steps (Hackathon T-Minus 12 Hours):**
+- Demo preparation & rehearsal.
+- Offline resilience (fallback UI for local data).
+- Build stabilization (`npm run build`).
+- Post-hackathon documentation (`ROADMAP.md`).
+No new functional features are to be added.
