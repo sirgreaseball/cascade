@@ -144,13 +144,13 @@ export default function BreachControlPanel() {
                 if (activeScenario) {
                   import('@/lib/geeService').then(({ fetchNRTWaterExtent }) => {
                     useSimulationStore.getState().setStatus('paused');
-                    fetchNRTWaterExtent(activeScenario.bbox).then(mask => {
+                    fetchNRTWaterExtent(activeScenario.id).then(mask => {
                       if (mask) {
-                        // Normally this would initialize a comparison baseline
-                        // For the stub, we just log.
+                        useScenarioStore.getState().setObservedData(mask);
                         console.log("Applied GEE mask.");
+                        alert("NRT Data successfully loaded and overlaid on map.");
                       } else {
-                        // Dispatch alert or toast
+                        alert("GEE connection failed. No local offline fallback found.");
                         console.warn("GEE returned empty mask or failed.");
                       }
                     });

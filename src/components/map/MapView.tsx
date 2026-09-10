@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Map, { NavigationControl, Marker } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
-import { GridCellLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { GridCellLayer, ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useScenarioStore } from '@/store/scenarioStore';
@@ -14,7 +14,7 @@ const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.j
 const TERRAIN_IMAGE = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`;
 
 export default function MapView() {
-  const { activeScenario, basemap } = useScenarioStore();
+  const { activeScenario, basemap, observedData } = useScenarioStore();
   const { waterDepth, arrivalTime, currentStep } = useSimulationStore();
 
   const [viewState, setViewState] = useState({
@@ -146,6 +146,17 @@ export default function MapView() {
       radiusMaxPixels: 10,
       getPosition: (d: any) => d.position,
       getFillColor: [249, 115, 22, 180], // Orange
+    }),
+    observedData && new GeoJsonLayer({
+      id: 'observed-nrt-layer',
+      data: observedData,
+      pickable: false,
+      stroked: true,
+      filled: true,
+      extruded: false,
+      getFillColor: [14, 165, 233, 100], // Sky blue translucent
+      getLineColor: [2, 132, 199, 255],
+      lineWidthMinPixels: 2,
     })
   ].filter(Boolean);
 

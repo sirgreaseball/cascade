@@ -5,10 +5,12 @@ interface ScenarioState {
   activeScenario: Scenario | null;
   infrastructureData: any | null;
   evacuationData: any | null;
+  observedData: any | null;
   scenarios: Scenario[];
   isLoading: boolean;
   basemap: 'dark' | 'satellite';
   setBasemap: (mode: 'dark' | 'satellite') => void;
+  setObservedData: (data: any) => void;
   loadScenario: (id: string) => Promise<void>;
   setActiveScenario: (scenario: Scenario) => void;
 }
@@ -17,13 +19,15 @@ export const useScenarioStore = create<ScenarioState>((set) => ({
   activeScenario: null,
   infrastructureData: null,
   evacuationData: null,
+  observedData: null,
   scenarios: [],
   isLoading: false,
   basemap: 'dark',
   setBasemap: (mode) => set({ basemap: mode }),
+  setObservedData: (data) => set({ observedData: data }),
   setActiveScenario: (scenario) => set({ activeScenario: scenario }),
   loadScenario: async (id: string) => {
-    set({ isLoading: true });
+    set({ isLoading: true, observedData: null });
     try {
       const res = await fetch(`/scenarios/${id}.json`);
       const scenario: Scenario = await res.json();
