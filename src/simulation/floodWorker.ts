@@ -39,9 +39,9 @@ self.onmessage = (e: MessageEvent<SimMessage>) => {
     );
     arrivalTime = newArrival; // keep ref
 
-    (postMessage as any)({ 
+    postMessage({ 
       type: 'STEP_RESULT', 
       payload: { waterDepth: waterDepth, arrivalTime: newArrival } 
-    }, [waterDepth.buffer, newArrival.buffer]);
+    });
   }
 };

@@ -100,7 +100,7 @@ export class CASolverAdapter implements SolverAdapter {
           friction,
           timeStep
         }
-      }, [waterDepth.buffer]);
+      });
     });
   }
 
