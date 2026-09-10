@@ -1,5 +1,3 @@
-// MOCK Web Worker for Flood Simulation
-
 type SimMessage = 
   | { type: 'INIT'; payload: { gridSize: number; elevation: Float32Array } }
   | { type: 'STEP'; payload: { 
@@ -12,6 +10,8 @@ type SimMessage =
     } };
 
 let gridSize = 256;
+let elevation: Float32Array | null = null;
+let arrivalTime: Float32Array | null = null;
 let stepCounter = 0;
 
 self.onmessage = (e: MessageEvent<SimMessage>) => {
@@ -19,40 +19,75 @@ self.onmessage = (e: MessageEvent<SimMessage>) => {
 
   if (msg.type === 'INIT') {
     gridSize = msg.payload.gridSize;
+    elevation = msg.payload.elevation;
+    arrivalTime = new Float32Array(gridSize * gridSize);
+    arrivalTime.fill(-1);
     stepCounter = 0;
     self.postMessage({ type: 'READY' });
   } 
   
   else if (msg.type === 'STEP') {
-    const { waterDepth, breachPoint, releaseRate } = msg.payload;
+    if (!elevation || !arrivalTime) return;
+    
+    const { waterDepth, breachPoint, releaseRate, friction, timeStep } = msg.payload;
     const nextWaterDepth = new Float32Array(waterDepth);
-    const arrivalTime = new Float32Array(gridSize * gridSize); 
     
     stepCounter++;
 
-    // Mock behavior: expand a circle from breach point
-    const radius = stepCounter * (releaseRate / 10000); 
+    // Inject water at breach point
+    const bIdx = breachPoint.y * gridSize + breachPoint.x;
+    nextWaterDepth[bIdx] += releaseRate;
+    if (arrivalTime[bIdx] === -1) arrivalTime[bIdx] = stepCounter;
 
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        const dx = x - breachPoint.x;
-        const dy = y - breachPoint.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
+    // Cellular Automata
+    for (let y = 1; y < gridSize - 1; y++) {
+      for (let x = 1; x < gridSize - 1; x++) {
         const idx = y * gridSize + x;
+        const currentWater = waterDepth[idx];
+        
+        if (currentWater <= 0.01) continue;
 
-        if (dist <= radius) {
-          // Inner circle = deep water
-          nextWaterDepth[idx] = 10 - (dist / radius) * 5;
-          arrivalTime[idx] = stepCounter - Math.floor(dist); // arbitrary mock arrival time
+        const currentSurface = elevation[idx] + currentWater;
+        
+        const neighbors = [
+          idx - gridSize, // North
+          idx + gridSize, // South
+          idx - 1,        // West
+          idx + 1         // East
+        ];
+
+        let totalOutflow = 0;
+
+        for (const nIdx of neighbors) {
+          const neighborSurface = elevation[nIdx] + waterDepth[nIdx];
+          const diff = currentSurface - neighborSurface;
+          
+          if (diff > 0) {
+            // Transfer water proportional to height difference, clamped by friction and max available
+            const flow = Math.min(diff * (1 - friction) * timeStep, currentWater / 4);
+            if (flow > 0.001) {
+              nextWaterDepth[nIdx] += flow;
+              totalOutflow += flow;
+              
+              if (arrivalTime[nIdx] === -1) {
+                arrivalTime[nIdx] = stepCounter;
+              }
+            }
+          }
         }
+        
+        nextWaterDepth[idx] -= totalOutflow;
+        // Clamp to 0
+        if (nextWaterDepth[idx] < 0) nextWaterDepth[idx] = 0;
       }
     }
+
+    const arrivalTimeClone = new Float32Array(arrivalTime);
 
     // Transfer back via zero-copy
     (postMessage as any)({ 
       type: 'STEP_RESULT', 
-      payload: { waterDepth: nextWaterDepth, arrivalTime } 
-    }, [nextWaterDepth.buffer, arrivalTime.buffer]);
+      payload: { waterDepth: nextWaterDepth, arrivalTime: arrivalTimeClone } 
+    }, [nextWaterDepth.buffer, arrivalTimeClone.buffer]);
   }
 };

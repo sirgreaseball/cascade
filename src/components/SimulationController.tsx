@@ -29,15 +29,21 @@ export default function SimulationController() {
     // Create worker
     workerRef.current = new Worker(new URL('../../simulation/floodWorker.ts', import.meta.url));
 
-    // For demo, generate mock elevation (cone pointing down)
+    // Generate V-shaped valley and two ridges
     const gridSize = activeScenario.gridSize;
     const elevation = new Float32Array(gridSize * gridSize);
     for (let y = 0; y < gridSize; y++) {
       for (let x = 0; x < gridSize; x++) {
-        const cx = gridSize / 2;
-        const cy = gridSize / 2;
-        const dist = Math.sqrt(Math.pow(x - cx, 2) + Math.pow(y - cy, 2));
-        elevation[y * gridSize + x] = dist * 0.5; // Slope
+        // Normalize coordinates to -1 to 1
+        const nx = (x / gridSize) * 2 - 1;
+        const ny = (y / gridSize) * 2 - 1;
+        
+        // V-shape valley (absolute x) + downhill slope (y)
+        // Add a ridge barrier on the sides
+        const valley = Math.abs(nx) * 100; // 0 at center, 100 at edges
+        const slope = -ny * 50; // Higher at north (negative ny), lower at south
+        
+        elevation[y * gridSize + x] = valley + slope; 
       }
     }
     elevationRef.current = elevation;
