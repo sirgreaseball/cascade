@@ -168,12 +168,17 @@ export default function BreachControlPanel() {
               SAVE AS BASELINE
             </button>
             {useSimulationStore.getState().comparisonWaterDepth && (
-              <button 
-                onClick={() => useSimulationStore.getState().clearComparison()}
-                className="w-full flex items-center justify-center gap-2 p-2 rounded text-xs font-mono bg-transparent text-[#94a3b8] hover:text-white transition-colors"
-              >
-                CLEAR BASELINE
-              </button>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-orange-400 text-center uppercase tracking-wider font-mono">
+                  SPH-style Particle Visualization
+                </span>
+                <button 
+                  onClick={() => useSimulationStore.getState().clearComparison()}
+                  className="w-full flex items-center justify-center gap-2 p-2 rounded text-xs font-mono bg-transparent text-[#94a3b8] hover:text-white transition-colors"
+                >
+                  CLEAR BASELINE
+                </button>
+              </div>
             )}
           </div>
         </section>

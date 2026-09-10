@@ -110,11 +110,12 @@ export default function SimulationController() {
               const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
                 result.waterDepth,
                 activeScenario.gridSize,
+                activeScenario.cellSize,
                 activeScenario.bbox,
                 infrastructureData,
                 evacuationData,
-                previouslyFloodedIds.current,
-                currentStep + 1
+                useSimulationStore.getState().floodedFeatureIds,
+                currentStep
               );
 
               newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));

@@ -5,6 +5,7 @@ import { calculateEstimatedLoss } from './damage';
 export function runAnalytics(
   waterDepth: Float32Array,
   gridSize: number,
+  cellSize: number,
   bbox: [number, number, number, number],
   infrastructure: any,
   evacuationRoutes: any,
@@ -15,12 +16,20 @@ export function runAnalytics(
   let buildingsAffected = 0;
   let roadsAffected = 0;
   let populationAtRisk = 0;
+  let floodedCellCount = 0;
   const newAlerts: AlertItem[] = [];
   const newlyFloodedIds = new Set<string>();
 
   const [minLng, minLat, maxLng, maxLat] = bbox;
   const lngStep = (maxLng - minLng) / gridSize;
   const latStep = (maxLat - minLat) / gridSize;
+
+  for (let i = 0; i < waterDepth.length; i++) {
+    if (waterDepth[i] > 0.1) {
+      floodedCellCount++;
+    }
+  }
+  const inundatedArea = floodedCellCount * (cellSize * cellSize) / 1000000; // in km^2
 
   // 1. Process Point Infrastructure (Buildings, Hospitals, Villages)
   if (infrastructure && infrastructure.features) {
@@ -102,9 +111,10 @@ export function runAnalytics(
   }
 
   const estimatedLoss = calculateEstimatedLoss(buildingsAffected, roadsAffected, populationAtRisk);
+  const timeToImpact = currentStep; // Using steps as proxy for time for now
 
   return {
-    impacts: { buildingsAffected, roadsAffected, populationAtRisk, estimatedLoss },
+    impacts: { buildingsAffected, roadsAffected, populationAtRisk, estimatedLoss, inundatedArea, timeToImpact },
     newAlerts,
     newlyFloodedIds
   };

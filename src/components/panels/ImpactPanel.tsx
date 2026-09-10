@@ -29,6 +29,30 @@ export default function ImpactPanel() {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="flex flex-col">
+          <span className="text-xs text-[#94a3b8] font-mono">INUNDATED AREA</span>
+          <div className="flex items-end gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold">{impacts.inundatedArea ? impacts.inundatedArea.toFixed(2) : 0} km²</span>
+            </div>
+            {comparisonImpacts && (
+              <span className="text-sm font-mono text-orange-400 mb-0.5">({comparisonImpacts.inundatedArea ? comparisonImpacts.inundatedArea.toFixed(2) : 0} km²)</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col">
+          <span className="text-xs text-[#94a3b8] font-mono">TIME TO IMPACT</span>
+          <div className="flex items-end gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold">T+ {impacts.timeToImpact || 0}s</span>
+            </div>
+            {comparisonImpacts && (
+              <span className="text-sm font-mono text-orange-400 mb-0.5">(T+ {comparisonImpacts.timeToImpact || 0}s)</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col pt-2 border-t border-[#334155]">
           <span className="text-xs text-[#94a3b8] font-mono">BUILDINGS</span>
           <div className="flex items-end gap-3">
             <div className="flex items-center gap-2">
@@ -41,7 +65,7 @@ export default function ImpactPanel() {
           </div>
         </div>
 
-        <div className="flex flex-col">
+        <div className="flex flex-col pt-2 border-t border-[#334155]">
           <span className="text-xs text-[#94a3b8] font-mono">ROADS / BRIDGES</span>
           <div className="flex items-end gap-3">
             <div className="flex items-center gap-2">
@@ -54,7 +78,7 @@ export default function ImpactPanel() {
           </div>
         </div>
 
-        <div className="flex flex-col col-span-2">
+        <div className="flex flex-col col-span-2 pt-2 border-t border-[#334155]">
           <span className="text-xs text-[#94a3b8] font-mono">POPULATION AT RISK</span>
           <div className="flex items-end gap-3">
             <div className="flex items-center gap-2">
@@ -68,7 +92,10 @@ export default function ImpactPanel() {
         </div>
 
         <div className="flex flex-col col-span-2 pt-2 border-t border-[#334155]">
-          <span className="text-xs text-[#94a3b8] font-mono">ESTIMATED FINANCIAL LOSS</span>
+          <span className="text-xs text-[#94a3b8] font-mono flex items-center justify-between">
+            ESTIMATED FINANCIAL LOSS
+            <span className="text-[10px] text-orange-300 bg-orange-900/30 px-1 rounded">Indicative Estimate</span>
+          </span>
           <div className="flex items-end gap-3">
             <span className="text-xl font-bold text-[#f8fafc]">{formatCurrency(impacts.estimatedLoss)}</span>
             {comparisonImpacts && (

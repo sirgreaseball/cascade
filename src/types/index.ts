@@ -47,6 +47,8 @@ export type ImpactResult = {
   roadsAffected: number;
   populationAtRisk: number;
   estimatedLoss: number;
+  inundatedArea: number;
+  timeToImpact: number;
 };
 
 export type AlertItem = {
