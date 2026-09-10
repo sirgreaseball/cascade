@@ -13,7 +13,7 @@ export default function ImpactPanel() {
     <motion.div 
       initial={{ x: -300, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      className="pointer-events-auto absolute top-6 right-6 z-10 w-96 bg-[#0f172a]/95 backdrop-blur border border-[#334155] p-4 text-[#f8fafc] flex flex-col gap-4 rounded shadow-xl"
+      className="pointer-events-auto absolute top-20 right-6 z-10 w-96 bg-[#0f172a]/95 backdrop-blur border border-[#334155] p-4 text-[#f8fafc] flex flex-col gap-4 rounded shadow-xl"
     >
       <div className="flex items-center gap-2 border-b border-[#334155] pb-2 justify-between">
         <div className="flex items-center gap-2">

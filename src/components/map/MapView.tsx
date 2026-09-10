@@ -5,7 +5,6 @@ import Map, { NavigationControl, Marker } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { LightingEffect, AmbientLight, _SunLight as SunLight } from '@deck.gl/core';
 import { GridCellLayer, ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
-import { TerrainLayer } from '@deck.gl/geo-layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimulationStore } from '@/store/simulationStore';
@@ -44,11 +43,11 @@ export default function MapView() {
     }
   }, [activeScenario]);
 
-  const [isOffline, setIsOffline] = useState(false);
+  const [satelliteError, setSatelliteError] = useState(false);
 
   const elevationGridData = useMemo(() => {
     const { elevation } = useSimulationStore.getState();
-    if (!activeScenario || !elevation || !isOffline) return [];
+    if (!activeScenario || !elevation) return [];
     
     const { gridSize, bbox } = activeScenario;
     const [minLng, minLat, maxLng, maxLat] = bbox;
@@ -72,7 +71,7 @@ export default function MapView() {
       }
     }
     return data;
-  }, [activeScenario, isOffline, useSimulationStore.getState().elevation]);
+  }, [activeScenario, useSimulationStore.getState().elevation]);
 
   const gridData = useMemo(() => {
     if (!activeScenario || !waterDepth || !arrivalTime) return [];
@@ -129,31 +128,8 @@ export default function MapView() {
   }, [activeScenario, useSimulationStore.getState().comparisonWaterDepth]);
 
   const layers = [
-    new TerrainLayer({
-      id: 'terrain',
-      minZoom: 0,
-      maxZoom: 23,
-      strategy: 'no-overlap',
-      elevationDecoder: {
-        rScaler: 384,
-        gScaler: 1.5,
-        bScaler: 1.5 / 256,
-        offset: -49152
-      },
-      elevationData: TERRAIN_IMAGE,
-      texture: basemap === 'satellite' 
-        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' 
-        : MAP_STYLE,
-      wireframe: false,
-      color: [255, 255, 255],
-      onDataLoad: () => setIsOffline(false),
-      onError: () => {
-        console.warn("TerrainLayer failed to load. Falling back to local offline terrain.");
-        setIsOffline(true);
-        return true; // prevent error bubbling
-      }
-    }),
-    isOffline && new GridCellLayer({
+
+    new GridCellLayer({
       id: 'fallback-terrain-layer',
       data: elevationGridData,
       pickable: false,
@@ -163,13 +139,14 @@ export default function MapView() {
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.elevation,
       getFillColor: (d: any) => {
-        // Height-based coloring (green to brown)
+        // Deep slate valleys to lighter ridge tops
         const e = d.elevation;
-        if (e < 500) return [132, 204, 22]; // lime-500
-        if (e < 1000) return [163, 230, 53]; // lime-400
-        if (e < 1500) return [250, 204, 21]; // yellow-400
-        if (e < 2000) return [217, 119, 6]; // amber-600
-        return [120, 113, 108]; // stone-500
+        if (e < 500) return [15, 23, 42]; // slate-900
+        if (e < 800) return [30, 41, 59]; // slate-800
+        if (e < 1200) return [51, 65, 85]; // slate-700
+        if (e < 1600) return [71, 85, 105]; // slate-600
+        if (e < 2000) return [100, 116, 139]; // slate-500
+        return [148, 163, 184]; // slate-400
       },
     }),
     new GridCellLayer({
@@ -219,7 +196,7 @@ export default function MapView() {
   ].filter(Boolean);
 
   return (
-    <div className="absolute inset-0 w-full h-full bg-[#0f172a]">
+    <div className="absolute inset-0 w-full h-full bg-[#020617]">
       <DeckGL
         effects={[lightingEffect]}
         layers={layers}
@@ -229,8 +206,15 @@ export default function MapView() {
       >
         {activeScenario && (
           <Map 
-            mapStyle={MAP_STYLE} 
+            mapStyle={basemap === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : MAP_STYLE}
             reuseMaps 
+            onError={(e: any) => {
+              if (basemap === 'satellite') {
+                useScenarioStore.getState().setBasemap('dark');
+                setSatelliteError(true);
+                setTimeout(() => setSatelliteError(false), 5000);
+              }
+            }}
           >
             <Marker longitude={activeScenario.center[0]} latitude={activeScenario.center[1]}>
               <div className="text-red-500 animate-bounce flex flex-col items-center">
@@ -242,6 +226,13 @@ export default function MapView() {
           </Map>
         )}
       </DeckGL>
+
+      {satelliteError && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-900/90 border border-red-500 text-red-200 px-4 py-2 rounded shadow-2xl font-mono text-sm tracking-widest backdrop-blur-sm animate-pulse">
+          SATELLITE FEED UNAVAILABLE - TERRAIN MODE
+        </div>
+      )}
+
     </div>
   );
 }
