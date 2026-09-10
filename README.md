@@ -15,7 +15,22 @@ Built for the **Smart India Hackathon (SIH26161)** under the National Technical 
 
 ## Getting Started
 
-First, run the development server:
+## Live Demo Venue Instructions
+
+During the hackathon presentation, ensure the environment is pre-built to avoid network dependency risks.
+
+```bash
+# 1. Install precise dependencies (requires internet once)
+npm ci
+
+# 2. Build the production application
+npm run build
+
+# 3. Start the production server (runs on http://localhost:3000)
+npm run start
+```
+
+## Running the Development Server:
 
 ```bash
 npm install
