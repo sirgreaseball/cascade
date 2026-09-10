@@ -14,6 +14,7 @@ import { HAZARD_COLORS, IDENTITY } from '@/components/map/colormaps';
 import { extentAgreement, depthDifference } from '@/lib/compare';
 import { formatArea, formatClock, formatCompact, formatDepth, formatDischarge, formatINR, formatNumber, formatVolume } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { displayName } from '@/lib/text';
 
 function HazardBadge({ level }: { level: number }) {
   if (!level) return <span className="text-[11px] text-faint">—</span>;
@@ -100,7 +101,7 @@ function PlacesList() {
             className={cn('tnum grid w-full grid-cols-[1fr_58px_52px_34px] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-black/[0.04]', i === selected && 'bg-accent/[0.08]')}
           >
             <span className="min-w-0">
-              <span className="block truncate font-medium text-ink">{a.name}</span>
+              <span className="block truncate font-medium text-ink">{displayName(a.name)}</span>
               <span className="block truncate text-[10.5px] text-muted">
                 {a.kind === 'settlement' ? `${a.subtype} · ${formatCompact(s.peopleExposed)} people` : a.kind === 'bridge' ? 'bridge' : a.subtype.replace('_', ' ')}
               </span>
@@ -125,7 +126,7 @@ function PlacesList() {
 function Comparison() {
   const version = useSimStore((s) => s.resultsVersion);
   const duration = useSimStore((s) => s.duration);
-  const playhead = useSimStore((s) => s.playhead);
+  const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const cellArea = useScenarioStore((s) => s.data?.grid.cellArea ?? 1);
   const data = useMemo(() => {
     void version;
@@ -180,7 +181,7 @@ export default function RightPanel() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
             transition={{ type: 'spring', stiffness: 380, damping: 36 }}
-            className="glass pointer-events-auto absolute bottom-4 right-4 top-[76px] z-20 flex w-[340px] flex-col overflow-hidden rounded-panel shadow-panel"
+            className="glass pointer-events-auto absolute bottom-4 right-4 top-[76px] z-20 flex w-[var(--right-w)] flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center justify-between px-5 pb-2 pt-4">
               <div>
@@ -212,7 +213,7 @@ export default function RightPanel() {
                       in {formatNumber(i.settlementsFlooded)} settlement{i.settlementsFlooded === 1 ? '' : 's'}
                       {i.firstArrivalPlace && (
                         <>
-                          {' '}· first reached: <span className="font-medium text-ink">{i.firstArrivalPlace}</span> at T+{formatClock(i.firstArrival ?? 0)}
+                          {' '}· first reached: <span className="font-medium text-ink">{displayName(i.firstArrivalPlace)}</span> at T+{formatClock(i.firstArrival ?? 0)}
                         </>
                       )}
                     </div>

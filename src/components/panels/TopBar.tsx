@@ -37,8 +37,13 @@ function ScenarioSwitcher() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', esc);
+    };
   }, []);
   const bundled = index.filter((s) => !s.custom);
   const custom = index.filter((s) => s.custom);
@@ -129,12 +134,20 @@ export default function TopBar() {
   const runs = useSimStore((s) => s.runs);
   const hasExternal = useScenarioStore((s) => !!s.external);
   const setExportOpen = useUiStore((s) => s.setExportOpen);
+  const engines = useSimStore((s) => s.engines);
   const bothRan = runs.swe.frames > 0 && runs.sph.frames > 0;
   const anyResults = runs.swe.frames > 0 || runs.sph.frames > 0;
+  const diffAvailable = bothRan || (hasExternal && runs.swe.frames > 0);
+
+  // Never leave the map on a view whose data has gone (e.g. after a new run starts).
+  useEffect(() => {
+    if (view.layer === 'difference' && !diffAvailable) setView({ layer: 'depth' });
+    if (view.engine === 'overlay' && !bothRan && anyResults) setView({ engine: engines.swe ? 'swe' : 'sph' });
+  }, [view.layer, view.engine, diffAvailable, bothRan, anyResults, engines.swe, setView]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
-      <div className="glass pointer-events-auto flex h-12 items-center gap-1 rounded-full pl-2 pr-1 shadow-float">
+    <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex items-start justify-between gap-3">
+      <div className="glass-pill pointer-events-auto flex h-12 items-center gap-1 rounded-full pl-2 pr-1 shadow-float">
         <div className="flex items-center gap-2 pr-2">
           <Logo className="h-8 w-8" />
           <span className="text-[15px] font-semibold tracking-[-0.02em]">Cascade</span>
@@ -143,33 +156,33 @@ export default function TopBar() {
         <ScenarioSwitcher />
       </div>
 
-      <div className="glass pointer-events-auto hidden h-12 items-center rounded-full px-1.5 shadow-float xl:flex">
+      <div className="glass-pill pointer-events-auto hidden h-12 items-center rounded-full px-1.5 shadow-float min-[1440px]:flex">
         <Segmented
           layoutId="layer-seg"
           value={view.layer}
           onChange={(layer) => setView({ layer })}
-          options={LAYERS.map((l) => ({
-            ...l,
-            disabled: l.value === 'difference' ? !(bothRan || (hasExternal && runs.swe.frames > 0)) : false,
-          }))}
+          options={LAYERS.map((l) => ({ ...l, disabled: l.value === 'difference' ? !diffAvailable : false }))}
           className="bg-transparent"
         />
       </div>
 
-      <div className="glass pointer-events-auto flex h-12 items-center gap-1.5 rounded-full pl-1.5 pr-1.5 shadow-float">
+      <div className="glass-pill pointer-events-auto flex h-12 items-center gap-1.5 rounded-full pl-1.5 pr-1.5 shadow-float">
         {/* Compact layer picker where the full layer bar does not fit. */}
-        <select
-          aria-label="Map layer"
-          value={view.layer}
-          onChange={(e) => setView({ layer: e.target.value as MapLayer })}
-          className="h-8 rounded-full bg-fill px-3 text-[12px] font-medium text-ink outline-none xl:hidden"
-        >
-          {LAYERS.map((l) => (
-            <option key={l.value} value={l.value} disabled={l.value === 'difference' && !(bothRan || (hasExternal && runs.swe.frames > 0))}>
-              {l.label}
-            </option>
-          ))}
-        </select>
+        <label className="relative min-[1440px]:hidden">
+          <span className="sr-only">Map layer</span>
+          <select
+            value={view.layer}
+            onChange={(e) => setView({ layer: e.target.value as MapLayer })}
+            className="h-8 cursor-pointer appearance-none rounded-full bg-fill py-0 pl-3 pr-7 text-[12px] font-medium text-ink outline-none transition-colors hover:bg-fill-2"
+          >
+            {LAYERS.map((l) => (
+              <option key={l.value} value={l.value} disabled={l.value === 'difference' && !diffAvailable}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-2 h-4 w-4 text-muted" />
+        </label>
         {bothRan && (
           <Segmented
             size="sm"
@@ -193,16 +206,18 @@ export default function TopBar() {
             { value: '3d', label: '3D' },
           ]}
         />
-        <Segmented
-          size="sm"
-          layoutId="base-seg"
-          value={view.basemap}
-          onChange={(basemap) => setView({ basemap })}
-          options={[
-            { value: 'satellite', label: 'Satellite' },
-            { value: 'light', label: 'Map' },
-          ]}
-        />
+        <div className="hidden min-[1180px]:block">
+          <Segmented
+            size="sm"
+            layoutId="base-seg"
+            value={view.basemap}
+            onChange={(basemap) => setView({ basemap })}
+            options={[
+              { value: 'satellite', label: 'Satellite' },
+              { value: 'light', label: 'Map' },
+            ]}
+          />
+        </div>
         <Button variant="primary" size="sm" className="ml-1 h-9 px-4" disabled={!anyResults} onClick={() => setExportOpen(true)}>
           <Download className="h-3.5 w-3.5" />
           Export

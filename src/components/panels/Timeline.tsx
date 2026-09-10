@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { useSimStore, isRunning } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
@@ -45,6 +45,15 @@ export default function Timeline() {
   const hasResults = runs.swe.frames > 0 || runs.sph.frames > 0;
   const trackRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [trackW, setTrackW] = useState(480);
+  useLayoutEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setTrackW(el.clientWidth);
+    const ro = new ResizeObserver(([e]) => setTrackW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const series = useMemo(() => {
     void version;
@@ -57,6 +66,8 @@ export default function Timeline() {
     const preview = setup ? setup.hydrograph.peak : 0;
     return Math.max(preview, ...(series?.q ?? [0])) * 1.05;
   }, [series, setup]);
+  // The timeline re-renders with the playhead (60 Hz); build the hydrograph path only when it changes.
+  const area = useMemo(() => (series ? areaPath(series.t, series.q, duration, qMax) : ''), [series, duration, qMax]);
 
   const seek = (clientX: number) => {
     const el = trackRef.current;
@@ -68,16 +79,8 @@ export default function Timeline() {
     s.setPlayhead(Math.min(f * duration, latest));
   };
 
-  const togglePlay = () => {
-    const s = useSimStore.getState();
-    if (follow || playing) {
-      s.setFollow(false);
-      s.setPlaying(false);
-      return;
-    }
-    if (s.playhead >= latest - 1 && !running) s.setPlayhead(0);
-    s.setPlaying(true);
-  };
+  const togglePlay = () => useSimStore.getState().togglePlayback();
+  const basemap = useSimStore((s) => s.view.basemap);
 
   const hoverT = hoverX === null ? null : hoverX * duration;
   const hoverQ = useMemo(() => {
@@ -89,13 +92,26 @@ export default function Timeline() {
   }, [hoverT, series]);
 
   const enabled = (['swe', 'sph'] as const).filter((e) => engines[e]);
-  const hours = Math.max(1, Math.round(duration / 3600));
-  const ticks = Array.from({ length: hours + 1 }, (_, i) => (i * 3600) / duration).filter((f) => f <= 1.0001);
+  // Hour ticks spaced so their labels never touch, whatever the track width.
+  const hours = Math.max(1, duration / 3600);
+  const tickStep = [1, 2, 3, 6, 12].find((s) => (trackW / hours) * s >= 30) ?? 12;
+  const ticks: { f: number; label: string }[] = [];
+  for (let hh = 0; hh <= hours + 1e-6; hh += tickStep) ticks.push({ f: (hh * 3600) / duration, label: `${hh}h` });
+  const speeds = [60, 300, 900];
+  const speedLabel = (v: number) => `${v / 60} min/s`;
+  const engineState = (e: 'swe' | 'sph') => {
+    const r = runs[e];
+    if (r.status === 'running' || r.status === 'starting') return `${Math.round(r.progress * 100)}%`;
+    if (r.status === 'done') return formatDuration(r.wallMs / 1000);
+    if (r.status === 'paused') return 'Paused';
+    if (r.status === 'error') return 'Error';
+    return 'Ready';
+  };
 
   return (
     <div
-      className="pointer-events-none absolute bottom-4 z-20 transition-[left,right] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
-      style={{ left: leftOpen ? 392 : 16, right: rightOpen ? 372 : 16 }}
+      className="pointer-events-none absolute bottom-[3px] z-20 transition-[left,right] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+      style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16, right: rightOpen ? 'calc(var(--right-w) + 32px)' : 16 }}
     >
       <div className="glass pointer-events-auto flex h-[76px] items-center gap-4 rounded-[26px] pl-3 pr-4 shadow-panel">
         {/* Transport */}
@@ -134,10 +150,26 @@ export default function Timeline() {
         </div>
 
         {/* Clock */}
-        <div className="w-[104px] shrink-0">
+        <div className="w-[108px] shrink-0">
           <div className="tnum text-[22px] font-semibold leading-none tracking-[-0.03em]">T+{formatClock(hasResults ? playhead : 0)}</div>
-          <div className="mt-1 truncate text-[11px] text-muted">
-            {running ? 'Computing…' : hasResults ? `of ${formatDuration(duration)}` : setup ? `${formatDuration(duration)} scenario` : ' '}
+          <div className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-muted">
+            {running && !follow && hasResults ? (
+              <button onClick={() => useSimStore.getState().goLive()} className="flex items-center gap-1 rounded-full bg-critical/10 px-1.5 py-px font-semibold text-critical transition-colors hover:bg-critical/15" title="Jump to the latest computed moment">
+                <span className="h-1.5 w-1.5 rounded-full bg-critical" />
+                Live
+              </button>
+            ) : running ? (
+              <>
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-critical" />
+                Live
+              </>
+            ) : hasResults ? (
+              `of ${formatDuration(duration)}`
+            ) : setup ? (
+              `${formatDuration(duration)} scenario`
+            ) : (
+              ' '
+            )}
           </div>
         </div>
 
@@ -164,14 +196,18 @@ export default function Timeline() {
                 </clipPath>
               </defs>
               <rect x="0" y={H - 0.5} width={W} height="1" fill="rgba(0,0,0,0.12)" />
-              {series && <path d={areaPath(series.t, series.q, duration, qMax)} fill="rgba(0,0,0,0.07)" />}
-              {series && hasResults && <path d={areaPath(series.t, series.q, duration, qMax)} fill={IDENTITY.swe} fillOpacity={0.22} clipPath="url(#computed)" />}
+              {area && <path d={area} fill="rgba(0,0,0,0.07)" />}
+              {area && hasResults && <path d={area} fill={IDENTITY.swe} fillOpacity={0.22} clipPath="url(#computed)" />}
             </svg>
             {/* Hour ticks */}
             <div className="absolute inset-x-0 bottom-0 h-3">
-              {ticks.map((f, i) => (
-                <span key={i} className="tnum absolute -translate-x-1/2 text-[9.5px] text-faint" style={{ left: `${f * 100}%` }}>
-                  {i}h
+              {ticks.map((t, i) => (
+                <span
+                  key={i}
+                  className={cn('tnum absolute text-[9.5px] text-faint', i === 0 ? '' : t.f > 0.98 ? '-translate-x-full' : '-translate-x-1/2')}
+                  style={{ left: `${t.f * 100}%` }}
+                >
+                  {t.label}
                 </span>
               ))}
             </div>
@@ -192,42 +228,44 @@ export default function Timeline() {
         </div>
 
         {/* Engines + speed */}
-        <div className="hidden shrink-0 flex-col items-end gap-1.5 lg:flex">
-          <div className="flex items-center gap-3">
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2.5 min-[1440px]:gap-3">
             {enabled.map((e) => {
               const r = runs[e];
-              const label = e === 'swe' ? 'Grid' : 'SPH';
-              const state =
-                r.status === 'running' || r.status === 'starting'
-                  ? `${Math.round(r.progress * 100)}%`
-                  : r.status === 'done'
-                    ? formatDuration(r.wallMs / 1000)
-                    : r.status === 'paused'
-                      ? 'Paused'
-                      : r.status === 'error'
-                        ? 'Error'
-                        : 'Ready';
               return (
-                <span key={e} className="flex items-center gap-1.5 text-[11.5px]" title={r.error ?? r.label}>
+                <span key={e} className="flex items-center gap-1.5 text-[11px] min-[1440px]:text-[11.5px]" title={r.error ?? r.label}>
                   <Dot color={e === 'swe' ? IDENTITY.swe : IDENTITY.sph} />
-                  <span className="font-medium text-ink">{label}</span>
-                  <span className={cn('tnum text-muted', r.status === 'error' && 'text-critical')}>{state}</span>
+                  <span className="font-medium text-ink">{e === 'swe' ? 'Grid' : 'SPH'}</span>
+                  <span className={cn('tnum text-muted', r.status === 'error' && 'text-critical')}>{engineState(e)}</span>
                 </span>
               );
             })}
           </div>
-          <Segmented
-            size="sm"
-            layoutId="speed-seg"
-            value={String(speed)}
-            onChange={(v) => useSimStore.getState().setSpeed(Number(v))}
-            options={[
-              { value: '60', label: '1 min/s' },
-              { value: '300', label: '5 min/s' },
-              { value: '900', label: '15 min/s' },
-            ]}
-          />
+          <div className="hidden min-[1440px]:block">
+            <Segmented
+              size="sm"
+              layoutId="speed-seg"
+              value={String(speed)}
+              onChange={(v) => useSimStore.getState().setSpeed(Number(v))}
+              options={speeds.map((v) => ({ value: String(v), label: speedLabel(v) }))}
+            />
+          </div>
+          <button
+            className="h-6 rounded-full bg-fill px-2.5 text-[11.5px] font-medium text-ink transition-colors hover:bg-fill-2 min-[1440px]:hidden"
+            title="Playback speed"
+            onClick={() => useSimStore.getState().setSpeed(speeds[(speeds.indexOf(speed) + 1) % speeds.length])}
+          >
+            {speedLabel(speed)}
+          </button>
         </div>
+      </div>
+      <div
+        className={cn(
+          'mt-[3px] truncate text-center text-[9.5px] tracking-[0.01em]',
+          basemap === 'satellite' ? 'text-white/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]' : 'text-muted',
+        )}
+      >
+        Imagery © Esri, Maxar, Earthstar Geographics · Terrain: AWS Terrain Tiles (SRTM) · Places © OpenStreetMap contributors
       </div>
     </div>
   );

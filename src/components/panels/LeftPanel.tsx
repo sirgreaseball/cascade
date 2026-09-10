@@ -39,7 +39,8 @@ function EventTab() {
   const setupError = useSimStore((s) => s.setupError);
   const duration = useSimStore((s) => s.duration);
   const version = useSimStore((s) => s.resultsVersion);
-  const playhead = useSimStore((s) => s.playhead);
+  // The chart marker moves in one-minute steps, so the panel is not re-rendered every frame.
+  const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
 
   const series = useMemo(() => {
@@ -524,7 +525,7 @@ export default function LeftPanel() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -24 }}
             transition={{ type: 'spring', stiffness: 380, damping: 36 }}
-            className="glass pointer-events-auto absolute bottom-4 left-4 top-[76px] z-20 flex w-[360px] flex-col overflow-hidden rounded-panel shadow-panel"
+            className="glass pointer-events-auto absolute bottom-4 left-4 top-[76px] z-20 flex w-[var(--left-w)] flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center gap-2 px-4 pb-3 pt-4">
               <Segmented

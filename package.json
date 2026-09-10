@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/copy-workers.mjs",
+    "predev": "node scripts/copy-workers.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-workers.mjs",
     "build": "next build",
     "start": "next start",
+    "demo": "npm run build && next start",
     "lint": "eslint",
     "verify": "node scripts/verify-engines.ts",
     "data:build": "node scripts/build-scenario.ts"

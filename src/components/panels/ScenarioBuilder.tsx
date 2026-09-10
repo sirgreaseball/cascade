@@ -246,7 +246,13 @@ export default function ScenarioBuilder() {
     <>
       <AnimatePresence>
         {open && !pickingDam && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 p-6 backdrop-blur-[2px]">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 p-6 backdrop-blur-[2px]"
+            onMouseDown={(e) => e.target === e.currentTarget && !building && setOpen(false)}
+          >
             <motion.div
               initial={{ opacity: 0, y: 16, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", var(--font-inter), "Inter", "Helvetica Neue", system-ui, sans-serif;
+  /* One brand face on every platform: Inter (self-hosted by next/font), system UI as fallback. */
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 
   --color-canvas: #f5f5f7;
@@ -32,6 +33,18 @@
 
   --radius-panel: 22px;
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Side panel widths; the timeline and legend position themselves from these. */
+:root {
+  --left-w: 360px;
+  --right-w: 340px;
+}
+@media (max-width: 1439px) {
+  :root {
+    --left-w: 320px;
+    --right-w: 304px;
+  }
 }
 
 @layer base {
@@ -66,13 +79,26 @@
     outline-offset: 2px;
     border-radius: 8px;
   }
+  ::selection {
+    background: rgba(0, 113, 227, 0.18);
+  }
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.45;
+    cursor: pointer;
+  }
 }
 
 @layer components {
+  /* Large surfaces over the live map: no backdrop blur (re-blurring an animating WebGL canvas
+     every frame costs integrated GPUs ~5 fps); near-opaque white reads the same. */
   .glass {
-    background: rgba(255, 255, 255, 0.86);
-    backdrop-filter: saturate(180%) blur(28px);
-    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    background: rgba(255, 255, 255, 0.93);
+  }
+  /* Small floating pills keep a light frosted blur. */
+  .glass-pill {
+    background: rgba(255, 255, 255, 0.84);
+    backdrop-filter: saturate(170%) blur(14px);
+    -webkit-backdrop-filter: saturate(170%) blur(14px);
   }
   .glass-strong {
     background: rgba(255, 255, 255, 0.92);

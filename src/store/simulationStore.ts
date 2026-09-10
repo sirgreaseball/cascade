@@ -4,6 +4,7 @@ import { setupSimulation } from '@/simulation/setup';
 import type { Resolution, SimulationSetup } from '@/simulation/setup';
 import type { EngineId } from '@/simulation/types';
 import { eventDefaults } from '@/lib/scenario';
+import { results } from '@/simulation/results';
 import type { ScenarioConfig, ScenarioData } from '@/lib/scenario';
 
 export type RunStatus = 'idle' | 'starting' | 'running' | 'paused' | 'done' | 'error';
@@ -81,6 +82,10 @@ interface SimState {
   updateRun: (engine: EngineId, patch: Partial<EngineRun>) => void;
   resetRuns: () => void;
   bumpResults: () => void;
+  /** Play / pause, as the transport button and the space bar do. */
+  togglePlayback: () => void;
+  /** Jump back to the edge of the live computation. */
+  goLive: () => void;
 }
 
 let scenarioRef: { config: ScenarioConfig; data: ScenarioData } | null = null;
@@ -180,6 +185,17 @@ export const useSimStore = create<SimState>((set, get) => ({
   updateRun: (engine, patch) => set({ runs: { ...get().runs, [engine]: { ...get().runs[engine], ...patch } } }),
   resetRuns: () => set({ runs: { swe: idleRun(), sph: idleRun() }, playhead: 0, playing: false, follow: true, stale: false, resultsVersion: get().resultsVersion + 1 }),
   bumpResults: () => set({ resultsVersion: get().resultsVersion + 1 }),
+  togglePlayback: () => {
+    const s = get();
+    if (s.runs.swe.frames === 0 && s.runs.sph.frames === 0) return;
+    if (s.follow || s.playing) {
+      set({ follow: false, playing: false });
+      return;
+    }
+    const latest = Math.max(results.latestTime('swe'), results.latestTime('sph'));
+    set({ playing: true, playhead: s.playhead >= latest - 1 && !isRunning(s.runs) ? 0 : s.playhead });
+  },
+  goLive: () => set({ follow: true, playing: false }),
 }));
 
 export function isRunning(runs: Record<EngineId, EngineRun>): boolean {

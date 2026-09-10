@@ -18,6 +18,8 @@ export class EngineRuntime {
   private msSinceFrame = 0;
   private wallMs = 0;
   private finished = false;
+  /** Progress is reported at most four times a second (each report re-renders the UI). */
+  private lastProgressAt = 0;
   private readonly cfg: EngineConfig;
   private readonly emit: (msg: WorkerOutbound) => void;
 
@@ -62,13 +64,17 @@ export class EngineRuntime {
       }
       if (!Number.isFinite(this.solver.t)) throw new Error('Solver produced a non-finite time step.');
     }
-    this.wallMs += now() - start;
-    this.emit({
-      type: 'progress',
-      engine: this.cfg.engine,
-      t: this.solver.t,
-      progress: Math.min(this.solver.t / duration, 1),
-    });
+    const end = now();
+    this.wallMs += end - start;
+    if (end - this.lastProgressAt >= 250) {
+      this.lastProgressAt = end;
+      this.emit({
+        type: 'progress',
+        engine: this.cfg.engine,
+        t: this.solver.t,
+        progress: Math.min(this.solver.t / duration, 1),
+      });
+    }
     return false;
   }
 

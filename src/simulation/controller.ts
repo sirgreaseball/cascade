@@ -19,7 +19,15 @@ class SimulationController {
     sim.resetRuns();
     const runId = ++this.runId;
     const engines = (Object.keys(sim.engines) as EngineId[]).filter((e) => sim.engines[e]);
-    useSimStore.setState({ playing: false, follow: true, playhead: 0 });
+    // Start every run on a view that has data immediately: depth, led by the grid solver.
+    const view = useSimStore.getState().view;
+    useSimStore.setState({
+      playing: false,
+      follow: true,
+      playhead: 0,
+      selectedAsset: null,
+      view: { ...view, layer: view.layer === 'difference' ? 'depth' : view.layer, engine: sim.engines.swe ? 'swe' : 'sph' },
+    });
 
     await Promise.all(
       engines.map(async (engine) => {

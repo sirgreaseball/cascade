@@ -96,7 +96,7 @@ export default function Legend() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
           className="glass pointer-events-auto absolute bottom-[104px] z-10 w-[232px] rounded-2xl px-3.5 py-3 shadow-float transition-[left] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
-          style={{ left: leftOpen ? 392 : 16 }}
+          style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16 }}
         >
           <div className="mb-2 text-[11.5px] font-semibold text-ink">{TITLES[layer]}</div>
           {body}

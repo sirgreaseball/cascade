@@ -43,5 +43,7 @@ next-env.d.ts
 # additional
 *.exe
 scripts/.cache/
+# copied from node_modules by scripts/copy-workers.mjs
+/public/workers/
 !public/data/**
 !public/scenarios/**

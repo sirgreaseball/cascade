@@ -30,7 +30,10 @@ export interface DamSite {
   sources: SourceCell[];
   /** Unit vector pointing downstream, grid axes (x east, y south). */
   direction: [number, number];
+  /** Ends of the burned wall (may run past the crest to seal low saddles). */
   axis: [[number, number], [number, number]];
+  /** Ends of the real crest, centred on the riverbed: what the map draws. */
+  crestAxis: [[number, number], [number, number]];
   /** Riverbed point on the dam axis. */
   bed: { lng: number; lat: number; elevation: number };
   crestElevation: number;
@@ -128,8 +131,11 @@ export function prepareDamSite(g: GridGeometry, dem: Float32Array, input: DamSit
   const crest = bedZ + input.height;
 
   // 3. Burn the wall. Walk both ways along the axis until the crest length is covered AND the
-  //    ground rises above the crest (or 5 km), stamping a disc ≥ 0.75 cells so the wall stays
-  //    8-connected and therefore blocks 4-connected face fluxes.
+  //    ground rises above the crest, stamping a disc ≥ 0.75 cells so the wall stays 8-connected
+  //    and therefore blocks 4-connected face fluxes. The wall never runs further than half a
+  //    crest length (min 300 m) past each abutment: where the DEM stays low along the line
+  //    (a filled reservoir, a wide saddle) an unbounded walk produced kilometre-long walls.
+  const maxHalf = input.crestLength / 2 + Math.max(input.crestLength / 2, 300);
   const elevation = new Float32Array(dem);
   let wallCells = 0;
   const stamp = (x: number, y: number) => {
@@ -157,7 +163,7 @@ export function prepareDamSite(g: GridGeometry, dem: Float32Array, input: DamSit
     let s = 0;
     let lastX = cx;
     let lastY = cy;
-    while (s < 5000) {
+    while (s <= maxHalf) {
       const x = cx + ax * s * sign;
       const y = cy + ay * s * sign;
       if (x < 0 || y < 0 || x > g.width || y > g.height) break;
@@ -217,11 +223,13 @@ export function prepareDamSite(g: GridGeometry, dem: Float32Array, input: DamSit
   const sources: SourceCell[] = [...picked.entries()].map(([index, n]) => ({ index, weight: n / total }));
 
   const bedLngLat = localToLngLat(g, cx, cy);
+  const halfCrest = input.crestLength / 2;
   return {
     elevation,
     sources,
     direction: [fx, fy],
     axis: [localToLngLat(g, ends[0][0], ends[0][1]), localToLngLat(g, ends[1][0], ends[1][1])],
+    crestAxis: [localToLngLat(g, cx - ax * halfCrest, cy - ay * halfCrest), localToLngLat(g, cx + ax * halfCrest, cy + ay * halfCrest)],
     bed: { lng: bedLngLat[0], lat: bedLngLat[1], elevation: bedZ },
     crestElevation: crest,
     wallCells,

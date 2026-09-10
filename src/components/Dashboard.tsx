@@ -9,7 +9,7 @@ import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import { latestTime } from './useSimView';
-import TopBar from './panels/TopBar';
+import TopBar, { Logo } from './panels/TopBar';
 import Timeline from './panels/Timeline';
 import Legend from './panels/Legend';
 import LeftPanel from './panels/LeftPanel';
@@ -66,6 +66,58 @@ function usePlayback() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
+}
+
+/** Space plays / pauses; Escape closes whatever sheet or mode is open. */
+function useKeyboard() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if (e.key === 'Escape') {
+        const ui = useUiStore.getState();
+        if (ui.pickingDam) ui.setPickingDam(false);
+        else if (ui.exportOpen) ui.setExportOpen(false);
+        else if (useScenarioStore.getState().builderOpen) useScenarioStore.getState().setBuilderOpen(false);
+        else useSimStore.getState().selectAsset(null);
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'Space' && !(el && el.tagName === 'BUTTON')) {
+        e.preventDefault();
+        useSimStore.getState().togglePlayback();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+}
+
+/** Start with side panels tucked away on narrower windows so the map keeps room. */
+function useResponsiveStart() {
+  useEffect(() => {
+    const w = window.innerWidth;
+    if (w < 1200) useUiStore.getState().setRightOpen(false);
+    if (w < 960) useUiStore.getState().setLeftOpen(false);
+  }, []);
+}
+
+function SmallScreenNotice() {
+  const [show, setShow] = React.useState(false);
+  useEffect(() => setShow(window.innerWidth < 760), []);
+  if (!show) return null;
+  return (
+    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-black/25 p-4 backdrop-blur-sm">
+      <div className="glass-strong w-full max-w-sm rounded-[26px] p-6 shadow-panel">
+        <Logo className="h-9 w-9" />
+        <div className="mt-4 text-[17px] font-semibold tracking-[-0.02em]">Cascade is built for bigger screens</div>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted">The simulator runs two hydrodynamic solvers and a 3D map side by side. It works best on a laptop or desktop.</p>
+        <button onClick={() => setShow(false)} className="mt-5 h-10 w-full rounded-full bg-ink text-[14px] font-medium text-white">
+          Continue anyway
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Toasts() {
@@ -125,10 +177,14 @@ function LoadingVeil() {
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-3 text-[13px] text-muted">
-              <Spinner />
-              Preparing terrain and exposure data…
-            </div>
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="flex flex-col items-center gap-4">
+              <Logo className="h-12 w-12 shadow-float [border-radius:14px]" />
+              <div className="text-[17px] font-semibold tracking-[-0.02em]">Cascade</div>
+              <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                <Spinner />
+                Preparing terrain and exposure data…
+              </div>
+            </motion.div>
           )}
         </motion.div>
       )}
@@ -139,6 +195,8 @@ function LoadingVeil() {
 export default function Dashboard() {
   useBoot();
   usePlayback();
+  useKeyboard();
+  useResponsiveStart();
   // Drop frames from a previous session's run when this component unmounts (route change).
   useEffect(() => () => results.clear(), []);
   return (
@@ -153,6 +211,7 @@ export default function Dashboard() {
       <ScenarioBuilder />
       <ExportSheet />
       <LoadingVeil />
+      <SmallScreenNotice />
     </main>
   );
 }

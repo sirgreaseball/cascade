@@ -17,18 +17,24 @@ Built for Smart India Hackathon problem statement **SIH26161** (National Technic
 
 ## Run it
 
+**One click.** Install [Node.js](https://nodejs.org) (LTS), then:
+
+- Windows: double-click **`start.cmd`**
+- macOS / Linux: run **`./start.sh`**
+
+It installs dependencies the first time, builds the optimised version and opens http://localhost:3000.
+
+**From a terminal:**
+
 ```bash
 npm install
-npm run dev          # http://localhost:3000  (also served at /dashboard)
+npm run demo         # optimised build, fastest — use this to present
+npm run dev          # development mode with hot reload (slower rendering)
 ```
 
-Production build for a demo machine:
+The dashboard is served at `/` and `/dashboard`. Bundled scenarios work offline once built; satellite imagery, the scenario builder, OpenStreetMap and Earth Engine need a connection.
 
-```bash
-npm run build && npm run start
-```
-
-Bundled scenarios work offline once built; satellite imagery, the scenario builder, OpenStreetMap and Earth Engine need a connection.
+**Browsers:** current Chrome, Edge, Firefox or Safari (16.4+) with hardware acceleration on. The map needs WebGL 2; the simulation runs in Web Workers (with an automatic main-thread fallback).
 
 ## Verify the physics
 
