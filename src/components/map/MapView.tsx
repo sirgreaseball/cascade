@@ -81,33 +81,6 @@ export default function MapView() {
     return size;
   }, [activeScenario]);
 
-  const elevationGridData = useMemo(() => {
-    const { elevation } = useSimulationStore.getState();
-    if (!activeScenario || !elevation) return [];
-    
-    const { gridSize, bbox } = activeScenario;
-    const [minLng, minLat, maxLng, maxLat] = bbox;
-    const data = [];
-
-    const lngStep = (maxLng - minLng) / gridSize;
-    const latStep = (maxLat - minLat) / gridSize;
-
-    const step = 1;
-
-    for (let y = 0; y < gridSize; y += step) {
-      for (let x = 0; x < gridSize; x += step) {
-        const idx = y * gridSize + x;
-        const e = elevation[idx];
-        if (e > 0) {
-          data.push({
-            position: [minLng + (x * lngStep), maxLat - (y * latStep)],
-            elevation: e
-          });
-        }
-      }
-    }
-    return data;
-  }, [activeScenario, useSimulationStore.getState().elevation]);
 
   const gridData = useMemo(() => {
     if (!activeScenario || !waterDepth || !arrivalTime) return [];
@@ -165,27 +138,7 @@ export default function MapView() {
 
   const layers = [
 
-    new GridCellLayer({
-      id: 'fallback-terrain-layer',
-      data: elevationGridData,
-      pickable: false,
-      extruded: true,
-      cellSize: computedCellSize,
-      elevationScale: 4,
-      getPosition: (d: any) => d.position,
-      getElevation: (d: any) => d.elevation,
-      opacity: 1,
-      getFillColor: (d: any) => {
-        // Brighter slate valleys to lighter ridge tops
-        const e = d.elevation;
-        if (e < 500) return [71, 85, 105]; // slate-600
-        if (e < 800) return [100, 116, 139]; // slate-500
-        if (e < 1200) return [148, 163, 184]; // slate-400
-        if (e < 1600) return [203, 213, 225]; // slate-300
-        if (e < 2000) return [226, 232, 240]; // slate-200
-        return [241, 245, 249]; // slate-100
-      },
-    }),
+
     new GridCellLayer({
       id: 'water-grid',
       data: gridData,
