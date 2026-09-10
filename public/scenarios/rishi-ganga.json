@@ -43,7 +43,7 @@
   },
   "defaults": {
     "manning": 0.05,
-    "duration": 7200,
+    "duration": 10800,
     "failureMode": "overtopping"
   },
   "view": {

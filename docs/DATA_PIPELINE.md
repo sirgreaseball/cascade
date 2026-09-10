@@ -1,33 +1,36 @@
-# Data Pipeline Guide
+# Data pipeline
 
-This document outlines how the GIS engineer should prepare and export scenario data for Project CASCADE.
+## Scenario files
 
-## 1. GeoJSON Infrastructure & Evacuation
+A scenario is `public/scenarios/<id>.json` plus `public/data/<id>/`:
 
-Export `infrastructure.geojson` and `evacuation.geojson` as standard EPSG:4326 GeoJSON files. 
-- Infrastructure must contain `Point` or `Polygon` features with a `type` property (`village`, `building`, `road`, `bridge`, `hospital`) and a `name` property.
-- Evacuation must contain `LineString` features with a `name` property.
+| File | Contents |
+|---|---|
+| `elevation.bin` | DEM, headerless little-endian Float32, metres, `grid.cols × grid.rows` values, row 0 = north edge, west → east |
+| `assets.geojson` | Points: settlements (with population), health, education and emergency facilities, bridges |
+| `roads.geojson` | LineStrings: motorway / trunk / primary / secondary / tertiary roads |
 
-## 2. Digital Elevation Model (DEM) Binary Format
+Cell *(col, row)* covers longitudes `bbox[0] + col·Δλ … +Δλ` and latitudes `bbox[3] − row·Δφ … −Δφ`, with `Δλ = (bbox[2] − bbox[0]) / cols` and `Δφ = (bbox[3] − bbox[1]) / rows`.
 
-To guarantee 60 FPS zero-copy transfers between the browser main thread and the physics Web Worker, we use raw binary Float32 arrays for elevation data instead of parsing GeoTIFFs at runtime.
+Key fields in the JSON: `bbox`, `cellSize` (target metres), `grid`, `event` (`dam-break` · `lake-outburst` · `controlled-release`), `dam` (location, height, crest length, storage in million m³, water depth), and `defaults` (Manning n, simulated duration, optional breach width / formation time).
 
-**File:** `public/data/<scenario-id>/elevation.bin`
+## Building bundled data
 
-### Binary Spec:
-- **Format**: Headerless Raw Binary
-- **Data Type**: 32-bit Float (Float32)
-- **Byte Order (Endianness)**: Little-Endian
-- **Elevation Units**: Meters
-- **NoData Value**: `-9999.0` (or `NaN`)
-
-### Grid & Bounding Box Alignment:
-- The binary file must contain EXACTLY `gridSize * gridSize` float values (e.g., 256x256 = 65,536 floats = 262,144 bytes).
-- **Row 0, Col 0** (the very first float in the file) corresponds to the **North-West** corner of the bounding box (`bbox[0], bbox[3]`).
-- The grid is read in row-major order, sweeping West to East, North to South.
-
-To convert a GeoTIFF to this exact format using GDAL:
 ```bash
-gdal_translate -of ENVI -ot Float32 -outsize 256 256 input.tif output.bin
-# (You may need to rename the resulting raw file to elevation.bin)
+npm run data:build                 # every scenario in index.json
+npm run data:build -- bhakra       # one scenario
 ```
+
+The script (`scripts/build-scenario.ts`) uses the same code as the in-app builder:
+
+1. Picks a grid for the bbox at `cellSize`.
+2. Downloads Terrarium tiles (AWS Open Data Terrain Tiles, SRTM-derived in India) at the finest zoom whose pixels are at most half a cell, and box-filters every pixel inside each cell. Tiles are cached in `scripts/.cache/`.
+3. Queries OpenStreetMap through Overpass for places, facilities, bridges and major roads. Places without a population tag get a typical value for their type and are flagged `populationEstimated`.
+4. Writes the files above and records sources and dates in the scenario JSON.
+
+## Your own data
+
+- **DEM:** GeoTIFF or ESRI ASCII grid in WGS 84, WGS 84 / UTM or Web Mercator (SRTM, ASTER GDEM, CartoDEM from Bhuvan). Use the scenario builder's upload option.
+- **Exposure:** GeoJSON points (a `name`, and a `population` or `type`/`amenity`/`place` property) and LineStrings for roads.
+- **External model results:** a maximum-depth raster from Delft3D, HEC-RAS, TUFLOW etc. as GeoTIFF or `.asc` — Model → Compare with another model.
+- **Satellite observations:** GeoJSON / KML polygons or a GeoTIFF mask — Observe → Import observed extent. `scripts/gee/nrt_flood.py` produces one from Sentinel-1.

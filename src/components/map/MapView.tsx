@@ -8,7 +8,10 @@ import { COORDINATE_SYSTEM, FlyToInterpolator } from '@deck.gl/core';
 import type { MapViewState, PickingInfo } from '@deck.gl/core';
 import { BitmapLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
-import { _TerrainExtension as TerrainExtension, CollisionFilterExtension } from '@deck.gl/extensions';
+import { _TerrainExtension as TerrainExtension } from '@deck.gl/extensions';
+// Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
+// fetched from a CDN at runtime (and fail offline).
+import { TerrainLoader } from '@loaders.gl/terrain';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
@@ -31,6 +34,7 @@ import {
   paintVelocity,
 } from './colormaps';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
+import { TERRARIUM_URL } from '@/lib/geo/terrarium';
 
 const SATELLITE_STYLE = {
   version: 8 as const,
@@ -45,8 +49,8 @@ const SATELLITE_STYLE = {
 const LIGHT_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
 const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: -32768 };
+const TERRAIN_MATERIAL = { ambient: 0.62, diffuse: 0.55, shininess: 8, specularColor: [30, 30, 30] as [number, number, number] };
 const terrainExt = new TerrainExtension();
-const collisionExt = new CollisionFilterExtension();
 
 interface Hover {
   x: number;
@@ -55,23 +59,28 @@ interface Hover {
   lines: string[];
 }
 
-function useTerrainTextures() {
+/**
+ * Offline 3D terrain: the scenario DEM as a single mesh, textured with a satellite snapshot
+ * when it can be fetched, otherwise a local hillshade. Only built when world terrain is off.
+ */
+function useLocalTerrain(enabled: boolean) {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
-  const [tex, setTex] = useState<{ id: string; elevation: string; texture: string; satellite: boolean } | null>(null);
+  const [tex, setTex] = useState<{ id: string; elevation: string; texture: string } | null>(null);
   useEffect(() => {
-    if (!config || !data) return;
+    if (!enabled || !config || !data) return;
     let cancelled = false;
     const elevation = terrariumDataUrl(data.dem, data.grid.cols, data.grid.rows);
-    const shade = hillshadeDataUrl(data.dem, data.grid);
-    setTex({ id: config.id, elevation, texture: shade, satellite: false });
-    satelliteDataUrl(data.grid.bbox).then((sat) => {
-      if (!cancelled && sat) setTex({ id: config.id, elevation, texture: sat, satellite: true });
-    });
+    setTex({ id: config.id, elevation, texture: hillshadeDataUrl(data.dem, data.grid) });
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      satelliteDataUrl(data.grid.bbox).then((sat) => {
+        if (!cancelled && sat) setTex({ id: config.id, elevation, texture: sat });
+      });
+    }
     return () => {
       cancelled = true;
     };
-  }, [config, data]);
+  }, [enabled, config, data]);
   return tex;
 }
 
@@ -84,13 +93,21 @@ export default function MapView() {
   const setup = useSimStore((s) => s.setup);
   const view = useSimStore((s) => s.view);
   const engines = useSimStore((s) => s.engines);
-  const playhead = useSimStore((s) => s.playhead);
+  // The map repaints at ~15 Hz of wall-clock time, not every animation tick: each repaint
+  // re-uploads the flood texture and re-drapes it on the terrain.
+  const playhead = useSimStore((s) => {
+    const q = Math.max(1, s.speed / 15);
+    return Math.floor(s.playhead / q) * q;
+  });
   const version = useSimStore((s) => s.resultsVersion);
   const selectedAsset = useSimStore((s) => s.selectedAsset);
   const pickingDam = useUiStore((s) => s.pickingDam);
   const primary = usePrimaryEngine();
   const impacts = useImpacts(primary);
-  const terrain = useTerrainTextures();
+  // Seamless world terrain from the same SRTM tiles when online; the scenario DEM block offline.
+  const [terrainMode, setTerrainMode] = useState<'world' | 'local'>(() => (typeof navigator !== 'undefined' && !navigator.onLine ? 'local' : 'world'));
+  const tileErrors = useRef(0);
+  const terrain = useLocalTerrain(terrainMode === 'local' && view.terrain3d);
 
   const [viewState, setViewState] = useState<MapViewState>({ longitude: 78.44, latitude: 30.22, zoom: 9.6, pitch: 55, bearing: -20 });
   const [hover, setHover] = useState<Hover | null>(null);
@@ -140,7 +157,7 @@ export default function MapView() {
   }, [selectedAsset, exposure]);
 
   // ---- Flood raster, painted into ping-pong buffers --------------------------------------
-  const buffers = useRef<{ a: Uint8ClampedArray; b: Uint8ClampedArray; flip: boolean; n: number } | null>(null);
+  const buffers = useRef<{ a: Uint8ClampedArray<ArrayBuffer>; b: Uint8ClampedArray<ArrayBuffer>; flip: boolean; n: number } | null>(null);
   const image = useMemo(() => {
     if (!data) return null;
     const { cols, rows } = data.grid;
@@ -185,6 +202,13 @@ export default function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, primary, playhead, version, view.layer, external]);
 
+  // Ground elevation under each place, so markers and labels sit on the 3D terrain.
+  const assetZ = useMemo(() => {
+    if (!data || !exposure) return null;
+    const g = data.grid;
+    return Float32Array.from(exposure.assets, (a) => sampleBilinear(data.dem, g.cols, g.rows, (a.lng - g.bbox[0]) / g.lngStep, (g.bbox[3] - a.lat) / g.latStep));
+  }, [data, exposure]);
+
   const observedImage = useMemo(() => {
     if (!data || !observed) return null;
     const out = new Uint8ClampedArray(data.grid.cols * data.grid.rows * 4);
@@ -217,7 +241,26 @@ export default function MapView() {
     const drape = view.terrain3d ? [terrainExt] : [];
     const list: unknown[] = [];
 
-    if (view.terrain3d && terrain && terrain.id === config.id) {
+    if (view.terrain3d && terrainMode === 'world') {
+      list.push(
+        new TerrainLayer({
+          id: 'terrain-world',
+          elevationData: TERRARIUM_URL,
+          texture: IMAGERY_URL,
+          elevationDecoder: TERRARIUM_DECODER,
+          maxZoom: 14,
+          meshMaxError: 3,
+          operation: 'terrain+draw',
+          loaders: [TerrainLoader],
+          loadOptions: { worker: false },
+          material: TERRAIN_MATERIAL,
+          onTileError: () => {
+            tileErrors.current++;
+            if (tileErrors.current > 6) setTerrainMode('local');
+          },
+        }),
+      );
+    } else if (view.terrain3d && terrain && terrain.id === config.id) {
       list.push(
         new TerrainLayer({
           id: `terrain-${config.id}`,
@@ -227,8 +270,9 @@ export default function MapView() {
           elevationDecoder: TERRARIUM_DECODER,
           meshMaxError: 4,
           operation: 'terrain+draw',
-          loadOptions: { worker: false },
-          material: { ambient: 0.62, diffuse: 0.55, shininess: 8, specularColor: [30, 30, 30] },
+          loaders: [TerrainLoader],
+          loadOptions: { worker: false, terrain: { skirtHeight: 0 } },
+          material: TERRAIN_MATERIAL,
         }),
       );
     }
@@ -340,56 +384,70 @@ export default function MapView() {
     if (exposure && view.showAssets) {
       const statuses = impacts?.statuses;
       const hazardRgb = HAZARD_COLORS.map(hexToRgb);
-      const radius = (d: { population: number; kind: string }) => (d.kind === 'settlement' ? 2.6 + 1.5 * Math.log10(Math.max(d.population, 100) / 100) : 3.2);
+      const lift = (index: number) => (view.terrain3d && assetZ ? assetZ[index] + 18 : 0);
+      const flooded = (index: number) => (statuses?.[index]?.hazard ?? 0) > 0;
+      const baseRadius = (d: { population: number; kind: string; subtype: string }) =>
+        d.kind === 'settlement' ? (d.subtype === 'city' ? 4.2 : d.subtype === 'town' ? 3.3 : d.subtype === 'village' ? 1.9 : 1.5) : 2.4;
       list.push(
         new ScatterplotLayer({
           id: 'assets',
           data: exposure.assets,
           pickable: true,
-          getPosition: (d: { lng: number; lat: number }) => [d.lng, d.lat],
-          getRadius: radius,
+          getPosition: (d: { lng: number; lat: number }, { index }: { index: number }) => [d.lng, d.lat, lift(index)],
+          getRadius: (d: { population: number; kind: string; subtype: string }, { index }: { index: number }) => baseRadius(d) + (flooded(index) ? 1.8 : 0),
           radiusUnits: 'pixels',
           stroked: true,
           lineWidthUnits: 'pixels',
-          getLineWidth: (_d: unknown, { index }: { index: number }) => (index === selectedAsset ? 3 : 1.25),
+          getLineWidth: (_d: unknown, { index }: { index: number }) => (index === selectedAsset ? 3 : flooded(index) ? 1.5 : 0.75),
           getFillColor: (d: { kind: string }, { index }: { index: number }) => {
             const s = statuses?.[index];
             if (s && s.hazard > 0) return [...hazardRgb[s.hazard - 1], 255] as [number, number, number, number];
-            return d.kind === 'settlement' ? [255, 255, 255, 235] : [29, 29, 31, 210];
+            return d.kind === 'settlement' ? [255, 255, 255, 170] : [29, 29, 31, 200];
           },
-          getLineColor: (_d: unknown, { index }: { index: number }) => (index === selectedAsset ? [0, 113, 227, 255] : [29, 29, 31, 170]),
-          extensions: view.terrain3d ? [terrainExt] : [],
-          updateTriggers: { getFillColor: [statuses], getLineColor: [selectedAsset], getLineWidth: [selectedAsset] },
+          getLineColor: (_d: unknown, { index }: { index: number }) =>
+            index === selectedAsset ? [0, 113, 227, 255] : flooded(index) ? [255, 255, 255, 255] : [0, 0, 0, 70],
+          updateTriggers: {
+            getPosition: [view.terrain3d, assetZ],
+            getRadius: [statuses],
+            getFillColor: [statuses],
+            getLineColor: [selectedAsset, statuses],
+            getLineWidth: [selectedAsset, statuses],
+          },
         }),
       );
-      const labelled = exposure.assets
+      // Towns always; otherwise the most populous places under serious hazard, and the selection.
+      const hit = exposure.assets
         .map((a, index) => ({ a, index }))
-        .filter(({ a, index }) => a.kind === 'settlement' && (a.subtype === 'city' || a.subtype === 'town' || (statuses?.[index]?.hazard ?? 0) > 0 || index === selectedAsset));
+        .filter(({ a, index }) => a.kind === 'settlement' && a.subtype !== 'city' && a.subtype !== 'town' && (statuses?.[index]?.hazard ?? 0) >= 4)
+        .sort((x, y) => y.a.population - x.a.population)
+        .slice(0, 14);
+      const labelled = [
+        ...exposure.assets.map((a, index) => ({ a, index })).filter(({ a, index }) => (a.kind === 'settlement' && (a.subtype === 'city' || a.subtype === 'town')) || index === selectedAsset),
+        ...hit,
+      ];
       list.push(
         new TextLayer({
           id: 'labels',
           data: labelled,
-          getPosition: (d: { a: { lng: number; lat: number } }) => [d.a.lng, d.a.lat],
+          getPosition: (d: { a: { lng: number; lat: number }; index: number }) => [d.a.lng, d.a.lat, lift(d.index)],
           getText: (d: { a: { name: string } }) => d.a.name,
-          getSize: (d: { a: { subtype: string } }) => (d.a.subtype === 'city' || d.a.subtype === 'town' ? 13 : 11),
+          getSize: (d: { a: { subtype: string } }) => (d.a.subtype === 'city' || d.a.subtype === 'town' ? 12.5 : 11),
           getColor: [29, 29, 31, 255],
-          getPixelOffset: [0, -14],
+          getPixelOffset: [0, -13],
           fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
           fontWeight: 600,
           fontSettings: { sdf: true, buffer: 6 },
           outlineWidth: 5,
           outlineColor: [255, 255, 255, 235],
           characterSet: 'auto',
-          getCollisionPriority: (d: { a: { population: number } }) => Math.log10(d.a.population + 1),
-          collisionGroup: 'labels',
-          extensions: view.terrain3d ? [terrainExt, collisionExt] : [collisionExt],
-          updateTriggers: { getPosition: [view.terrain3d] },
+          parameters: { depthTest: false },
+          updateTriggers: { getPosition: [view.terrain3d, assetZ] },
         }),
       );
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, image, observedImage, particles, impacts, view, selectedAsset]);
+  }, [config, data, exposure, setup, terrain, terrainMode, image, observedImage, particles, impacts, view, selectedAsset, assetZ]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(

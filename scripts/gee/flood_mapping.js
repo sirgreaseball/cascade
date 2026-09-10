@@ -1,58 +1,64 @@
-// Google Earth Engine (GEE) Script for Near Real-Time Flood Mapping
-// Copy and paste this into the GEE Code Editor (https://code.earthengine.google.com/)
+// Cascade · Near-real-time flood extent from Sentinel-1 SAR (Google Earth Engine Code Editor)
+//
+// This is the same script the dashboard generates in Observe → Copy script, shown here for the
+// Tehri study area. The dashboard version fills in the study area and dates for the open scenario.
+// Method: UN-SPIDER Recommended Practice (Sentinel-1 change detection), adapted:
+//   post/pre VH backscatter ratio > threshold, minus permanent water (JRC Global Surface Water),
+//   minus slopes > 5° (radar shadow), minus specks (< 8 connected pixels).
+// Paste into https://code.earthengine.google.com/, press Run, then start the export tasks.
+// Import the exported GeoJSON or GeoTIFF into Cascade → Observe → Import observed extent.
 
-// Define the Area of Interest (AOI) - e.g., Tehri Dam downstream
-var aoi = ee.Geometry.Polygon([
-  [[78.2, 30.1], [78.6, 30.1], [78.6, 30.5], [78.2, 30.5]]
-]);
+var aoi = ee.Geometry.Rectangle([78.22, 30.02, 78.66, 30.42]);
+var before = ['2026-07-25', '2026-08-10'];
+var after = ['2026-08-29', '2026-09-10'];
+var polarization = 'VH';
+var passDirection = 'DESCENDING';
+var differenceThreshold = 1.25;
 
-// Set the event dates
-var beforeStart = '2023-07-01';
-var beforeEnd = '2023-07-15';
-var afterStart = '2023-07-16';
-var afterEnd = '2023-07-30';
-
-// 1. Load Sentinel-1 GRD imagery
-var collection = ee.ImageCollection('COPERNICUS/S1_GRD')
-  .filterBounds(aoi)
-  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
+var s1 = ee.ImageCollection('COPERNICUS/S1_GRD')
   .filter(ee.Filter.eq('instrumentMode', 'IW'))
-  .select('VH');
+  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', polarization))
+  .filter(ee.Filter.eq('orbitProperties_pass', passDirection))
+  .filter(ee.Filter.eq('resolution_meters', 10))
+  .filterBounds(aoi)
+  .select(polarization);
 
-// 2. Filter by date and create mosaics
-var beforeImage = collection.filterDate(beforeStart, beforeEnd).mosaic().clip(aoi);
-var afterImage = collection.filterDate(afterStart, afterEnd).mosaic().clip(aoi);
+var beforeCollection = s1.filterDate(before[0], before[1]);
+var afterCollection = s1.filterDate(after[0], after[1]);
+print('Sentinel-1 scenes before / after:', beforeCollection.size(), afterCollection.size());
 
-// Apply a smoothing filter to reduce radar speckle noise
-var SMOOTHING_RADIUS = 30;
-var beforeSmoothed = beforeImage.focal_median(SMOOTHING_RADIUS, 'circle', 'meters');
-var afterSmoothed = afterImage.focal_median(SMOOTHING_RADIUS, 'circle', 'meters');
+var beforeImage = beforeCollection.mosaic().clip(aoi);
+var afterImage = afterCollection.mosaic().clip(aoi);
 
-// 3. Water Classification (Otsu thresholding or simple threshold)
-// Assuming water backscatter is very low (< -18 dB)
-var WATER_THRESHOLD = -18; 
-var beforeWater = beforeSmoothed.lt(WATER_THRESHOLD);
-var afterWater = afterSmoothed.lt(WATER_THRESHOLD);
+var smoothingRadius = 50;
+var beforeFiltered = beforeImage.focal_mean(smoothingRadius, 'circle', 'meters');
+var afterFiltered = afterImage.focal_mean(smoothingRadius, 'circle', 'meters');
+var difference = afterFiltered.divide(beforeFiltered);
+var flooded = difference.gt(differenceThreshold).rename('flooded').selfMask();
 
-// 4. Identify flooded areas (Water in 'after' but not in 'before')
-var flooded = afterWater.and(beforeWater.not());
+var gsw = ee.Image('JRC/GSW1_4/GlobalSurfaceWater');
+var permanentWater = gsw.select('seasonality').gte(10).unmask(0);
+flooded = flooded.updateMask(permanentWater.not());
+var slope = ee.Algorithms.Terrain(ee.Image('WWF/HydroSHEDS/03VFDEM')).select('slope');
+flooded = flooded.updateMask(slope.lt(5));
+flooded = flooded.updateMask(flooded.connectedPixelCount(8).gte(8));
 
-// Mask out zero values so only flooded areas are rendered
-var floodedMasked = flooded.updateMask(flooded.gt(0));
+var floodedArea = flooded.multiply(ee.Image.pixelArea()).reduceRegion({
+  reducer: ee.Reducer.sum(), geometry: aoi, scale: 10, bestEffort: true, maxPixels: 1e10
+});
+print('Newly flooded area (km²):', ee.Number(floodedArea.get('flooded')).divide(1e6));
 
-// 5. Visualization
 Map.centerObject(aoi, 11);
-Map.addLayer(beforeImage, {min: -25, max: 0}, 'Before Event (SAR)', false);
-Map.addLayer(afterImage, {min: -25, max: 0}, 'After Event (SAR)', false);
-Map.addLayer(afterWater.updateMask(afterWater.gt(0)), {palette: 'blue'}, 'Water Extent (After)', false);
-Map.addLayer(floodedMasked, {palette: 'red'}, 'Flooded Areas (NRT)', true);
+Map.addLayer(beforeFiltered, {min: -25, max: 0}, 'Before (VH, dB)', false);
+Map.addLayer(afterFiltered, {min: -25, max: 0}, 'After (VH, dB)', false);
+Map.addLayer(flooded, {palette: ['4a3aa7']}, 'Newly flooded (Sentinel-1)');
 
-// 6. Export the result for CASCADE platform
+var vectors = flooded.reduceToVectors({
+  geometry: aoi, scale: 20, geometryType: 'polygon', eightConnected: false,
+  bestEffort: true, maxPixels: 1e10, tileScale: 4
+});
+Export.table.toDrive({collection: vectors, description: 'cascade_tehri_observed_flood', folder: 'Cascade', fileFormat: 'GeoJSON'});
 Export.image.toDrive({
-  image: floodedMasked,
-  description: 'NRT_Flood_Extent',
-  folder: 'CASCADE_Exports',
-  scale: 30, // 30m resolution
-  region: aoi,
-  fileFormat: 'GeoTIFF'
+  image: flooded.unmask(0).toByte(), description: 'cascade_tehri_observed_mask', folder: 'Cascade',
+  region: aoi, scale: 20, crs: 'EPSG:4326', fileFormat: 'GeoTIFF', maxPixels: 1e10
 });

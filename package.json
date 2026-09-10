@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify": "node scripts/verify-engines.ts",
+    "data:build": "node scripts/build-scenario.ts"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",

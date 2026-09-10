@@ -173,9 +173,28 @@ export function prepareDamSite(g: GridGeometry, dem: Float32Array, input: DamSit
   // 4. Breach outflow cells: a line parallel to the axis, two cells downstream, spanning the
   //    breach width centred on the thalweg. Outflow is shared like flow over a weir — in
   //    proportion to (crest − bed)^1.5 — so the valley floor takes most of it, not the walls.
-  const offset = 2.2 * cell;
-  const sx = cx + fx * offset;
-  const sy = cy + fy * offset;
+  // The channel just below the dam: the lowest non-wall cell up to four cells downstream and
+  // three cells either side. In winding gorges a straight offset can land on the valley wall,
+  // where the "tailwater" would sit above the reservoir and wrongly drown the breach.
+  let sx = cx + fx * 2.2 * cell;
+  let sy = cy + fy * 2.2 * cell;
+  let toeZ = Number.POSITIVE_INFINITY;
+  for (let a = 1; a <= 4; a += 0.5) {
+    for (let s = -3; s <= 3; s += 0.5) {
+      const x = cx + (fx * a + ax * s) * cell;
+      const y = cy + (fy * a + ay * s) * cell;
+      const c = Math.floor(x / dx);
+      const r = Math.floor(y / dy);
+      if (r < 0 || c < 0 || r >= rows || c >= cols) continue;
+      const k = r * cols + c;
+      if (elevation[k] >= crest - 1e-3) continue;
+      if (dem[k] < toeZ) {
+        toeZ = dem[k];
+        sx = (c + 0.5) * dx;
+        sy = (r + 0.5) * dy;
+      }
+    }
+  }
   const width = Math.max(input.breachWidth, cell);
   const picked = new Map<number, number>();
   for (let s = -width / 2; s <= width / 2 + 1e-6; s += Math.min(dx, dy) / 2) {

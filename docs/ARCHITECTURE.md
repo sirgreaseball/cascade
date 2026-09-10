@@ -1,22 +1,52 @@
-# Architecture Overview
+# Architecture
 
-This project is built for the SIH26161 Hackathon. The primary goal is a fast, stable, and visually impressive demonstration of dam break inundation without over-engineering.
+## Flow of a run
 
-## 1. Core Principles
-- **Scenario-Driven**: All location-specific data (coordinates, dem paths, presets) are stored in JSON configs (`public/scenarios/`). No hardcoded Tehri values in the UI components.
-- **Web Worker Simulation**: The cellular automata flood propagation logic runs in a dedicated TypeScript Web Worker (`simulation/floodWorker.ts`) to avoid blocking the main UI thread.
-- **Preloaded Geospatial Analytics**: OpenStreetMap infrastructure (hospitals, villages, routes) are preloaded as lightweight GeoJSON. Turf.js computes intersections with the simulated flood front periodically, not every frame, to maintain 30+ FPS.
+```
+scenario JSON + DEM (.bin) + exposure (GeoJSON)
+        │
+        ▼
+setupSimulation()            src/simulation/setup.ts
+  ├─ prepareDamSite()        damSite.ts   wall burned into the DEM, breach cells, downstream direction
+  ├─ computeHydrograph()     hydrograph.ts free-outflow preview (Froehlich 2008 breach + weir routing)
+  └─ EngineConfig × 2        one per solver, identical inputs
+        │
+        ▼
+SimulationController         controller.ts  one EngineClient per enabled solver
+  └─ EngineClient            adapters.ts    Web Worker, or main-thread fallback
+       └─ EngineRuntime      runtime.ts     the only code that drives a solver
+            ├─ ShallowWaterSolver  swe.ts   2D SWE, finite volume (HLL + hydrostatic reconstruction)
+            └─ SPHSolver           sph.ts   SPH for the shallow-water equations
+                 └─ InflowBoundary boundary.ts  reservoir drained against the live tailwater
+        │  frames (depth, cm), summaries (peak depth, arrival, velocity, depth×velocity)
+        ▼
+results store                results.ts     frames + per-place exposure samples, outside React
+        │
+        ├─ MapView           components/map  deck.gl: 3D terrain, flood raster, particles, places
+        ├─ panels            components/panels  impact, places by arrival, comparison, charts
+        └─ exports           lib/export     KML, Shapefile, GeoJSON, ASCII grid, CSV
+```
 
-## 2. Tech Stack
-- **Frontend**: Next.js (App Router), React, Tailwind CSS, Framer Motion
-- **State Management**: Zustand
-- **Map & 3D**: MapLibre GL JS + Deck.gl (`GridCellLayer` / `BitmapLayer`)
-- **Simulation**: Custom TS Cellular Automata (TypedArrays)
-- **Analytics**: Turf.js
+## Rules that keep it correct
 
-## 3. Simulation Approach
-We are **not** using Navier-Stokes. We use a simplified grid-based water transfer algorithm:
-1. Water is injected at the breach point.
-2. For each cell, we compute `surface level = terrain elevation + water depth`.
-3. Water flows to lower-elevation neighboring cells over discrete time steps based on a gravity gradient and friction.
-4. Output consists of `waterDepth` and `arrivalTime` TypedArrays passed via zero-copy Transferable Objects to the main thread.
+- **Structured cloning only across the worker boundary.** No `postMessage` transfer lists: a transferred buffer is detached on the sending side, and the UI must never hold a detached array.
+- **One call path per solver.** The worker (`floodWorker.ts`) and the main-thread fallback (`adapters.ts`) both construct `EngineRuntime` from the same `EngineConfig`. New solver inputs belong in `EngineConfig`, never in a second argument list.
+- **Mass is conserved exactly.** The grid solver's fluxes are conservative and edge outflow is tallied; SPH conserves to one particle volume. `npm run verify` checks both.
+
+## Solvers
+
+**Grid (2D shallow-water, finite volume).** Full depth-averaged momentum equations on the DEM grid. HLL Riemann fluxes with hydrostatic reconstruction (Audusse et al. 2004) make it well-balanced and depth-positive on wet/dry fronts; Manning friction is point-implicit; the time step follows the CFL limit. Only the wet bounding box is iterated.
+
+**SPH (SPH-SWE).** Water as particles of fixed volume; depth is the kernel sum of nearby volumes with a variable smoothing length; momentum from the depth gradient, the DEM bed slope, Monaghan viscosity and implicit Manning friction (Vacondio et al. 2012). A counting-sort hash grid finds neighbours. Particles are interpolated back to the grid with a mass-normalised kernel so both solvers share maps, analytics and comparison.
+
+**Breach.** Level-pool reservoir with a stage–storage power law, draining through a trapezoidal breach that grows over the formation time (broad-crested weir, SI coefficients). Inside the solvers the tailwater comes from the 2D flow at the channel below the dam, with Fread's submergence correction, so a drowned breach passes less water.
+
+## State
+
+- `scenarioStore` — the open scenario, its DEM and exposure index, imported observations and external model results.
+- `simulationStore` — event parameters, solver settings, run status, playhead and view settings. Large arrays stay in `results` and are read through version counters.
+- `uiStore` — panels, sheets and toasts.
+
+## Rendering
+
+The flood is painted into an `ImageData` per frame (colour lookup tables, depth interpolated between frames) and shown as a `BitmapLayer`, draped on a `TerrainLayer` built from the scenario's own DEM in 3D. One texture per frame instead of one object per cell keeps large grids smooth.
