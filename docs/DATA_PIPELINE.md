@@ -1,30 +1,33 @@
-# Data Pipeline
+# Data Pipeline Guide
 
-This document explains how to prepare data for a new dam scenario. We use small, preprocessed files to keep the hackathon demo fast and the repository size small.
+This document outlines how the GIS engineer should prepare and export scenario data for Project CASCADE.
 
-## 1. Elevation Data (DEM)
-1. Download DEM data for the target region using ISRO Bhuvan or USGS EarthExplorer (e.g., SRTM 30m).
-2. Open the DEM in QGIS.
-3. Clip the raster to a bounding box extending downstream of the dam.
-4. Downsample/Resample the raster to a `512x512` or `256x256` grid using `gdalwarp` or QGIS tools.
-5. Export the raw float values to a binary file (`elevation.bin`) using the provided Python scripts in `scripts/`.
-6. Place `elevation.bin` in `public/data/<scenario-name>/`.
+## 1. GeoJSON Infrastructure & Evacuation
 
-## 2. Infrastructure Data (GeoJSON)
-1. Use Overpass Turbo or QGIS to extract OpenStreetMap data for the clipped bounding box.
-2. Filter for critical infrastructure:
-   - `highway=*` (roads)
-   - `amenity=hospital`
-   - `place=village` or `place=town`
-   - `bridge=yes`
-3. Simplify the geometries (e.g., convert complex polygons to points or simplified lines) to reduce file size.
-4. Add custom properties like `population`, `type`, and `name`.
-5. Export as `infrastructure.geojson` and save in `public/data/<scenario-name>/`.
+Export `infrastructure.geojson` and `evacuation.geojson` as standard EPSG:4326 GeoJSON files. 
+- Infrastructure must contain `Point` or `Polygon` features with a `type` property (`village`, `building`, `road`, `bridge`, `hospital`) and a `name` property.
+- Evacuation must contain `LineString` features with a `name` property.
 
-## 3. Evacuation Routes
-1. Manually draw plausible evacuation routes in GeoJSON.io leading away from the river valley.
-2. Export as `evacuation.geojson` and save in `public/data/<scenario-name>/`.
+## 2. Digital Elevation Model (DEM) Binary Format
 
-## 4. Scenario Configuration
-1. Create `public/scenarios/<scenario-name>.json` matching the `Scenario` type interface.
-2. Set the `breachPoint` coordinates based on the pixel index (x, y) of the dam wall in the `512x512` elevation grid.
+To guarantee 60 FPS zero-copy transfers between the browser main thread and the physics Web Worker, we use raw binary Float32 arrays for elevation data instead of parsing GeoTIFFs at runtime.
+
+**File:** `public/data/<scenario-id>/elevation.bin`
+
+### Binary Spec:
+- **Format**: Headerless Raw Binary
+- **Data Type**: 32-bit Float (Float32)
+- **Byte Order (Endianness)**: Little-Endian
+- **Elevation Units**: Meters
+- **NoData Value**: `-9999.0` (or `NaN`)
+
+### Grid & Bounding Box Alignment:
+- The binary file must contain EXACTLY `gridSize * gridSize` float values (e.g., 256x256 = 65,536 floats = 262,144 bytes).
+- **Row 0, Col 0** (the very first float in the file) corresponds to the **North-West** corner of the bounding box (`bbox[0], bbox[3]`).
+- The grid is read in row-major order, sweeping West to East, North to South.
+
+To convert a GeoTIFF to this exact format using GDAL:
+```bash
+gdal_translate -of ENVI -ot Float32 -outsize 256 256 input.tif output.bin
+# (You may need to rename the resulting raw file to elevation.bin)
+```

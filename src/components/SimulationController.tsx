@@ -26,59 +26,77 @@ export default function SimulationController() {
     previouslyFloodedIds.current.clear();
     stepsSinceAnalytics.current = 0;
 
-    // Create worker
-    workerRef.current = new Worker(new URL('../../simulation/floodWorker.ts', import.meta.url));
+    // Initialize worker and data asynchronously
+    const initData = async () => {
+      // Create worker
+      workerRef.current = new Worker(new URL('../../simulation/floodWorker.ts', import.meta.url));
 
-    // Generate V-shaped valley and two ridges
-    const gridSize = activeScenario.gridSize;
-    const elevation = new Float32Array(gridSize * gridSize);
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        // Normalize coordinates to -1 to 1
-        const nx = (x / gridSize) * 2 - 1;
-        const ny = (y / gridSize) * 2 - 1;
+      const gridSize = activeScenario.gridSize;
+      const elevationFile = activeScenario.demUrl || `/data/${activeScenario.id}/elevation.bin`;
+      let elevation: Float32Array;
+
+      try {
+        const res = await fetch(elevationFile);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const arrayBuffer = await res.arrayBuffer();
+        elevation = new Float32Array(arrayBuffer);
         
-        // V-shape valley (absolute x) + downhill slope (y)
-        // Add a ridge barrier on the sides
-        const valley = Math.abs(nx) * 100; // 0 at center, 100 at edges
-        const slope = -ny * 50; // Higher at north (negative ny), lower at south
+        if (elevation.length !== gridSize * gridSize) {
+          throw new Error(`Size mismatch: got ${elevation.length}, expected ${gridSize * gridSize}`);
+        }
+        console.log(`Loaded DEM binary: ${elevationFile}`);
+      } catch (err) {
+        console.warn(`Failed to load real DEM (${elevationFile}), falling back to synthetic V-valley. Error: ${err}`);
         
-        elevation[y * gridSize + x] = valley + slope; 
-      }
-    }
-    elevationRef.current = elevation;
-    waterDepthRef.current = new Float32Array(gridSize * gridSize); // Initial empty water
-
-    workerRef.current.postMessage({
-      type: 'INIT',
-      payload: { gridSize, elevation }
-    });
-
-    workerRef.current.onmessage = (e) => {
-      if (e.data.type === 'STEP_RESULT') {
-        const { waterDepth, arrivalTime } = e.data.payload;
-        waterDepthRef.current = waterDepth;
-        updateSimulationOutput(currentStep + 1, waterDepth, arrivalTime);
-
-        // Run analytics every 10 steps
-        stepsSinceAnalytics.current++;
-        if (stepsSinceAnalytics.current >= 10) {
-          stepsSinceAnalytics.current = 0;
-          const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
-            waterDepth,
-            activeScenario.gridSize,
-            activeScenario.bbox,
-            infrastructureData,
-            evacuationData,
-            previouslyFloodedIds.current,
-            currentStep + 1
-          );
-
-          newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
-          updateImpacts(impacts, newAlerts);
+        // Fallback: Generate V-shaped valley and two ridges
+        elevation = new Float32Array(gridSize * gridSize);
+        for (let y = 0; y < gridSize; y++) {
+          for (let x = 0; x < gridSize; x++) {
+            const nx = (x / gridSize) * 2 - 1;
+            const ny = (y / gridSize) * 2 - 1;
+            const valley = Math.abs(nx) * 100;
+            const slope = -ny * 50;
+            elevation[y * gridSize + x] = valley + slope; 
+          }
         }
       }
+
+      elevationRef.current = elevation;
+      waterDepthRef.current = new Float32Array(gridSize * gridSize); // Initial empty water
+
+      workerRef.current.postMessage({
+        type: 'INIT',
+        payload: { gridSize, elevation }
+      });
+
+      workerRef.current.onmessage = (e) => {
+        if (e.data.type === 'STEP_RESULT') {
+          const { waterDepth, arrivalTime } = e.data.payload;
+          waterDepthRef.current = waterDepth;
+          updateSimulationOutput(currentStep + 1, waterDepth, arrivalTime);
+
+          // Run analytics every 10 steps
+          stepsSinceAnalytics.current++;
+          if (stepsSinceAnalytics.current >= 10) {
+            stepsSinceAnalytics.current = 0;
+            const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
+              waterDepth,
+              activeScenario.gridSize,
+              activeScenario.bbox,
+              infrastructureData,
+              evacuationData,
+              previouslyFloodedIds.current,
+              currentStep + 1
+            );
+
+            newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
+            updateImpacts(impacts, newAlerts);
+          }
+        }
+      };
     };
+
+    initData();
 
     return () => {
       workerRef.current?.terminate();
