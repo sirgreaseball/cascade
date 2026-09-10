@@ -1,0 +1,29 @@
+{
+  "id": "rishi-ganga",
+  "name": "Rishi Ganga (Illustrative)",
+  "river": "Rishi Ganga",
+  "center": [79.69, 30.42],
+  "bbox": [79.5, 30.3, 79.8, 30.6],
+  "demUrl": "/data/tehri/elevation.bin",
+  "infrastructureUrl": "/data/tehri/infrastructure.geojson",
+  "evacuationUrl": "/data/tehri/evacuation.geojson",
+  "gridSize": 256,
+  "cellSize": 30,
+  "breachPoint": {
+    "x": 128,
+    "y": 128
+  },
+  "breachPresets": [
+    {
+      "name": "Rock/Ice Avalanche",
+      "breachWidth": 120,
+      "breachDepth": 25,
+      "releaseRate": 25000
+    }
+  ],
+  "simulation": {
+    "friction": 0.05,
+    "timeStep": 1,
+    "maxSteps": 1000
+  }
+}
