@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# dependencies (at any depth, e.g. a frontend/ app with its own packages)
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -13,9 +13,10 @@
 # testing
 /coverage
 
-# next.js
-/.next/
+# next.js / build output (at any depth)
+.next/
 /out/
+dist/
 
 # production
 /build

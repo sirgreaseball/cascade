@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The marketing splash page is a separate app with its own tooling.
+    "frontend/**",
   ]),
 ]);
 
