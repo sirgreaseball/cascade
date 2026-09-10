@@ -4,7 +4,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import Map, { NavigationControl, Marker } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { LightingEffect, AmbientLight, _SunLight as SunLight } from '@deck.gl/core';
-import { GridCellLayer, ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
+import { GridCellLayer, ScatterplotLayer, GeoJsonLayer, PolygonLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimulationStore } from '@/store/simulationStore';
@@ -139,24 +139,45 @@ export default function MapView() {
   const layers = [
 
 
+    new PolygonLayer({
+      id: 'dam-structure',
+      data: [{
+        polygon: [
+          [78.472, 30.386], // NW
+          [78.480, 30.383], // NE
+          [78.479, 30.380], // SE
+          [78.471, 30.383], // SW
+        ],
+        elevation: 260.5 // Tehri Dam height
+      }],
+      pickable: true,
+      stroked: true,
+      filled: true,
+      extruded: true,
+      wireframe: true,
+      getPolygon: (d: any) => d.polygon,
+      getElevation: (d: any) => d.elevation,
+      getFillColor: [90, 90, 95, 255], // Concrete Grey
+      getLineColor: [40, 40, 40, 255],
+    }),
     new GridCellLayer({
       id: 'water-grid',
       data: gridData,
       pickable: true,
       extruded: true,
       cellSize: computedCellSize,
-      elevationScale: 4,
+      elevationScale: 2, // More realistic height
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.depth,
       getFillColor: (d: any) => {
-        // Active flood front (arrived within last 2 steps)
+        // Active flood front (arrived within last 2 steps) - white foam / churning water
         if (currentStep - d.arrival < 2) {
-          return [245, 158, 11, 255]; // Amber highlight
+          return [220, 230, 240, 250]; 
         }
-        // Shallow vs Deep
-        return d.depth < 2 
-          ? [56, 189, 248, 150] // Translucent light blue
-          : [2, 132, 199, 200]; // Darker blue
+        // Realistic muddy/deep flood water gradient
+        if (d.depth < 2) return [139, 168, 176, 210]; // Murky shallow
+        if (d.depth < 5) return [74, 117, 133, 230]; // Mid depth
+        return [31, 74, 92, 255]; // Deep dark flood
       },
     }),
     comparisonData.length > 0 && new ScatterplotLayer({
