@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { ImpactResult, AlertItem } from '@/types';
 
 interface SimulationState {
   status: 'idle' | 'running' | 'paused' | 'completed';
@@ -9,12 +10,21 @@ interface SimulationState {
   simulationSpeed: number;
   waterDepth: Float32Array | null;
   arrivalTime: Float32Array | null;
+  impacts: ImpactResult;
+  alerts: AlertItem[];
   setStatus: (status: 'idle' | 'running' | 'paused' | 'completed') => void;
   setParameters: (width: number, depth: number, rate: number) => void;
   setSimulationSpeed: (speed: number) => void;
   updateSimulationOutput: (step: number, waterDepth: Float32Array, arrivalTime: Float32Array) => void;
+  updateImpacts: (impacts: ImpactResult, newAlerts: AlertItem[]) => void;
   reset: () => void;
 }
+
+const initialImpacts: ImpactResult = {
+  buildingsAffected: 0,
+  roadsAffected: 0,
+  populationAtRisk: 0,
+};
 
 export const useSimulationStore = create<SimulationState>((set) => ({
   status: 'idle',
@@ -25,9 +35,15 @@ export const useSimulationStore = create<SimulationState>((set) => ({
   simulationSpeed: 1,
   waterDepth: null,
   arrivalTime: null,
+  impacts: initialImpacts,
+  alerts: [],
   setStatus: (status) => set({ status }),
   setParameters: (width, depth, rate) => set({ breachWidth: width, breachDepth: depth, releaseRate: rate }),
   setSimulationSpeed: (speed) => set({ simulationSpeed: speed }),
   updateSimulationOutput: (step, waterDepth, arrivalTime) => set({ currentStep: step, waterDepth, arrivalTime }),
-  reset: () => set({ status: 'idle', currentStep: 0, waterDepth: null, arrivalTime: null }),
+  updateImpacts: (impacts, newAlerts) => set((state) => ({ 
+    impacts, 
+    alerts: [...state.alerts, ...newAlerts] 
+  })),
+  reset: () => set({ status: 'idle', currentStep: 0, waterDepth: null, arrivalTime: null, impacts: initialImpacts, alerts: [] }),
 }));

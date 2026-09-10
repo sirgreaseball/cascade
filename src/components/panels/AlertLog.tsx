@@ -1,9 +1,19 @@
 "use client";
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useSimulationStore } from '@/store/simulationStore';
 
 export default function AlertLog() {
+  const { alerts, status } = useSimulationStore();
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [alerts]);
+
   return (
     <motion.div 
       initial={{ y: 100, opacity: 0 }}
@@ -13,10 +23,14 @@ export default function AlertLog() {
       <div className="bg-[#1e293b] px-3 py-1 text-xs font-mono text-[#94a3b8] border-b border-[#334155]">
         SYSTEM LOG
       </div>
-      <div className="p-3 flex-1 overflow-y-auto space-y-2 font-mono text-xs">
+      <div ref={logRef} className="p-3 flex-1 overflow-y-auto space-y-2 font-mono text-xs">
         <div className="text-[#94a3b8]">[00:00:00] System initialized. Awaiting command.</div>
-        <div className="text-[#f59e0b]">[00:00:05] Tehri Dam scenario loaded.</div>
-        <div className="text-[#ef4444] opacity-50">[00:10:00] (Simulated) Bridge B-04 compromised.</div>
+        {status === 'running' && <div className="text-[#f59e0b]">[00:00:01] Simulation started.</div>}
+        {alerts.map((alert, i) => (
+          <div key={i} className="text-[#ef4444]">
+            [{alert.timestamp.toString().padStart(6, '0')}] {alert.message}
+          </div>
+        ))}
       </div>
     </motion.div>
   );

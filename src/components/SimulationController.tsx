@@ -4,17 +4,27 @@ import React, { useEffect, useRef } from 'react';
 import { useSimulationStore } from '@/store/simulationStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 
+import { runAnalytics } from '@/lib/analytics';
+
 export default function SimulationController() {
-  const { activeScenario } = useScenarioStore();
-  const { status, currentStep, breachWidth, releaseRate, simulationSpeed, updateSimulationOutput } = useSimulationStore();
+  const { activeScenario, infrastructureData, evacuationData } = useScenarioStore();
+  const { status, currentStep, breachWidth, releaseRate, simulationSpeed, updateSimulationOutput, updateImpacts } = useSimulationStore();
   
   const workerRef = useRef<Worker | null>(null);
   const elevationRef = useRef<Float32Array | null>(null);
   const waterDepthRef = useRef<Float32Array | null>(null);
+  
+  // Analytics state
+  const previouslyFloodedIds = useRef<Set<string>>(new Set());
+  const stepsSinceAnalytics = useRef(0);
 
   // Initialize Worker and Elevation Data
   useEffect(() => {
     if (!activeScenario) return;
+
+    // Reset analytics state on scenario change
+    previouslyFloodedIds.current.clear();
+    stepsSinceAnalytics.current = 0;
 
     // Create worker
     workerRef.current = new Worker(new URL('../../simulation/floodWorker.ts', import.meta.url));
@@ -43,6 +53,24 @@ export default function SimulationController() {
         const { waterDepth, arrivalTime } = e.data.payload;
         waterDepthRef.current = waterDepth;
         updateSimulationOutput(currentStep + 1, waterDepth, arrivalTime);
+
+        // Run analytics every 10 steps
+        stepsSinceAnalytics.current++;
+        if (stepsSinceAnalytics.current >= 10) {
+          stepsSinceAnalytics.current = 0;
+          const { impacts, newAlerts, newlyFloodedIds } = runAnalytics(
+            waterDepth,
+            activeScenario.gridSize,
+            activeScenario.bbox,
+            infrastructureData,
+            evacuationData,
+            previouslyFloodedIds.current,
+            currentStep + 1
+          );
+
+          newlyFloodedIds.forEach(id => previouslyFloodedIds.current.add(id));
+          updateImpacts(impacts, newAlerts);
+        }
       }
     };
 
