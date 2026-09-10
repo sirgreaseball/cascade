@@ -238,7 +238,7 @@ export default function MapView() {
                 <span className="text-xs font-bold bg-black px-1 mt-1 rounded">{activeScenario.name}</span>
               </div>
             </Marker>
-            <NavigationControl position="bottom-right" />
+            
           </Map>
         )}
       </DeckGL>

@@ -43,3 +43,7 @@ body {
 .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
   border-top-color: var(--color-secondary) !important;
 }
+
+/* Mute maplibre attribution */
+.maplibregl-ctrl-attrib { background-color: rgba(15, 23, 42, 0.5) !important; color: #64748b !important; }
+.maplibregl-ctrl-attrib a { color: #64748b !important; }
