@@ -65,6 +65,14 @@ export default function SimulationController() {
       }
 
       elevationRef.current = elevation;
+      let minE = Infinity;
+      let maxE = -Infinity;
+      for (let i=0; i<elevation.length; i++) {
+        if (elevation[i] < minE) minE = elevation[i];
+        if (elevation[i] > maxE) maxE = elevation[i];
+      }
+      console.log(`TERRAIN GRID: min=${minE.toFixed(2)} max=${maxE.toFixed(2)} cells=${elevation.length} bbox=${activeScenario.bbox}`);
+
       useSimulationStore.getState().setElevation(elevation);
       waterDepthRef.current = new Float32Array(gridSize * gridSize); // Initial empty water
 

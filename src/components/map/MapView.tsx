@@ -39,6 +39,8 @@ export default function MapView() {
         ...prev,
         longitude: activeScenario.center[0],
         latitude: activeScenario.center[1],
+        pitch: 55,
+        bearing: -20
       }));
     }
   }, [activeScenario]);
@@ -138,15 +140,16 @@ export default function MapView() {
       elevationScale: 4,
       getPosition: (d: any) => d.position,
       getElevation: (d: any) => d.elevation,
+      opacity: 1,
       getFillColor: (d: any) => {
         // Deep slate valleys to lighter ridge tops
         const e = d.elevation;
-        if (e < 500) return [15, 23, 42]; // slate-900
-        if (e < 800) return [30, 41, 59]; // slate-800
-        if (e < 1200) return [51, 65, 85]; // slate-700
-        if (e < 1600) return [71, 85, 105]; // slate-600
-        if (e < 2000) return [100, 116, 139]; // slate-500
-        return [148, 163, 184]; // slate-400
+        if (e < 500) return [30, 41, 59]; // slate-800 (#1e293b)
+        if (e < 800) return [51, 65, 85]; // slate-700
+        if (e < 1200) return [71, 85, 105]; // slate-600
+        if (e < 1600) return [100, 116, 139]; // slate-500
+        if (e < 2000) return [148, 163, 184]; // slate-400 (#94a3b8)
+        return [203, 213, 225]; // slate-300
       },
     }),
     new GridCellLayer({

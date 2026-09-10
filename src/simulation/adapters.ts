@@ -1,23 +1,63 @@
 import { SolverAdapter } from './SolverAdapter';
+import { stepSolver } from './solver';
 
 export class CASolverAdapter implements SolverAdapter {
   private worker: Worker | null = null;
+  private isFallback = false;
+  private elevation: Float32Array | null = null;
+  private arrivalTime: Float32Array | null = null;
+  private stepCounter = 0;
+  private gridSize = 0;
 
   async init(gridSize: number, elevation: Float32Array): Promise<void> {
+    this.gridSize = gridSize;
+    this.elevation = elevation;
+    this.arrivalTime = new Float32Array(gridSize * gridSize).fill(-1);
+    this.stepCounter = 0;
+
     return new Promise((resolve) => {
-      this.worker = new Worker(new URL('./floodWorker.ts', import.meta.url));
-      this.worker.postMessage({
-        type: 'INIT',
-        payload: { gridSize, elevation }
-      });
-      
-      const onReady = (e: MessageEvent) => {
-        if (e.data.type === 'READY') {
-          this.worker?.removeEventListener('message', onReady);
+      try {
+        this.worker = new Worker(new URL('./floodWorker.ts', import.meta.url), { type: 'module' });
+        
+        const timeout = setTimeout(() => {
+          console.warn("Worker init timed out. Falling back to main thread solver.");
+          console.log("SOLVER MODE: main-thread-fallback");
+          this.isFallback = true;
+          this.worker?.terminate();
+          this.worker = null;
           resolve();
-        }
-      };
-      this.worker.addEventListener('message', onReady);
+        }, 3000);
+
+        const onReady = (e: MessageEvent) => {
+          if (e.data.type === 'READY') {
+            clearTimeout(timeout);
+            this.worker?.removeEventListener('message', onReady);
+            console.log("SOLVER MODE: worker");
+            resolve();
+          }
+        };
+        
+        this.worker.addEventListener('message', onReady);
+        this.worker.addEventListener('error', (e) => {
+          clearTimeout(timeout);
+          console.warn("Worker error. Falling back to main thread solver.", e);
+          console.log("SOLVER MODE: main-thread-fallback");
+          this.isFallback = true;
+          this.worker?.terminate();
+          this.worker = null;
+          resolve();
+        });
+
+        this.worker.postMessage({
+          type: 'INIT',
+          payload: { gridSize, elevation }
+        });
+      } catch (err) {
+        console.warn("Worker creation failed. Falling back to main thread solver.", err);
+        console.log("SOLVER MODE: main-thread-fallback");
+        this.isFallback = true;
+        resolve();
+      }
     });
   }
 
@@ -29,6 +69,16 @@ export class CASolverAdapter implements SolverAdapter {
     friction: number,
     timeStep: number
   ): Promise<{ waterDepth: Float32Array; arrivalTime: Float32Array }> {
+    if (this.isFallback) {
+      this.stepCounter++;
+      const result = stepSolver(
+        this.gridSize, this.elevation!, this.arrivalTime!, waterDepth,
+        breachPoint, releaseRate, friction, timeStep, this.stepCounter
+      );
+      this.arrivalTime = result.arrivalTime;
+      return Promise.resolve(result);
+    }
+
     return new Promise((resolve) => {
       if (!this.worker) throw new Error("Worker not initialized");
 

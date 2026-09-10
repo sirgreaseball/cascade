@@ -1,3 +1,5 @@
+import { stepSolver } from './solver';
+
 type SimMessage = 
   | { type: 'INIT'; payload: { gridSize: number; elevation: Float32Array } }
   | { type: 'STEP'; payload: { 
@@ -29,65 +31,17 @@ self.onmessage = (e: MessageEvent<SimMessage>) => {
   else if (msg.type === 'STEP') {
     if (!elevation || !arrivalTime) return;
     
-    const { waterDepth, breachPoint, releaseRate, friction, timeStep } = msg.payload;
-    const nextWaterDepth = new Float32Array(waterDepth);
-    
     stepCounter++;
+    const { waterDepth, arrivalTime: newArrival } = stepSolver(
+      gridSize, elevation, arrivalTime,
+      msg.payload.waterDepth, msg.payload.breachPoint, msg.payload.releaseRate,
+      msg.payload.friction, msg.payload.timeStep, stepCounter
+    );
+    arrivalTime = newArrival; // keep ref
 
-    // Inject water at breach point
-    const bIdx = breachPoint.y * gridSize + breachPoint.x;
-    nextWaterDepth[bIdx] += releaseRate;
-    if (arrivalTime[bIdx] === -1) arrivalTime[bIdx] = stepCounter;
-
-    // Cellular Automata
-    for (let y = 1; y < gridSize - 1; y++) {
-      for (let x = 1; x < gridSize - 1; x++) {
-        const idx = y * gridSize + x;
-        const currentWater = waterDepth[idx];
-        
-        if (currentWater <= 0.01) continue;
-
-        const currentSurface = elevation[idx] + currentWater;
-        
-        const neighbors = [
-          idx - gridSize, // North
-          idx + gridSize, // South
-          idx - 1,        // West
-          idx + 1         // East
-        ];
-
-        let totalOutflow = 0;
-
-        for (const nIdx of neighbors) {
-          const neighborSurface = elevation[nIdx] + waterDepth[nIdx];
-          const diff = currentSurface - neighborSurface;
-          
-          if (diff > 0) {
-            // Transfer water proportional to height difference, clamped by friction and max available
-            const flow = Math.min(diff * (1 - friction) * timeStep, currentWater / 4);
-            if (flow > 0.001) {
-              nextWaterDepth[nIdx] += flow;
-              totalOutflow += flow;
-              
-              if (arrivalTime[nIdx] === -1) {
-                arrivalTime[nIdx] = stepCounter;
-              }
-            }
-          }
-        }
-        
-        nextWaterDepth[idx] -= totalOutflow;
-        // Clamp to 0
-        if (nextWaterDepth[idx] < 0) nextWaterDepth[idx] = 0;
-      }
-    }
-
-    const arrivalTimeClone = new Float32Array(arrivalTime);
-
-    // Transfer back via zero-copy
     (postMessage as any)({ 
       type: 'STEP_RESULT', 
-      payload: { waterDepth: nextWaterDepth, arrivalTime: arrivalTimeClone } 
-    }, [nextWaterDepth.buffer, arrivalTimeClone.buffer]);
+      payload: { waterDepth: waterDepth, arrivalTime: newArrival } 
+    }, [waterDepth.buffer, newArrival.buffer]);
   }
 };
