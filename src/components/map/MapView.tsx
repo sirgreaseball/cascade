@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Map, { NavigationControl, Marker } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
+import { LightingEffect, AmbientLight, _SunLight as SunLight } from '@deck.gl/core';
 import { GridCellLayer, ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -13,6 +14,10 @@ import { ShieldAlert } from 'lucide-react';
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 const TERRAIN_IMAGE = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`;
 
+const ambientLight = new AmbientLight({ color: [255, 255, 255], intensity: 1.0 });
+const sunLight = new SunLight({ timestamp: 1564696800000, color: [255, 255, 255], intensity: 2.0 });
+const lightingEffect = new LightingEffect({ ambientLight, sunLight });
+
 export default function MapView() {
   const { activeScenario, basemap, observedData } = useScenarioStore();
   const { waterDepth, arrivalTime, currentStep } = useSimulationStore();
@@ -21,8 +26,8 @@ export default function MapView() {
     longitude: 78.476,
     latitude: 30.383,
     zoom: 11,
-    pitch: 60,
-    bearing: 0
+    pitch: 55,
+    bearing: -20
   });
 
   const onViewStateChange = useCallback(({ viewState }: any) => {
@@ -130,10 +135,10 @@ export default function MapView() {
       maxZoom: 23,
       strategy: 'no-overlap',
       elevationDecoder: {
-        rScaler: 256,
-        gScaler: 1,
-        bScaler: 1 / 256,
-        offset: -32768
+        rScaler: 384,
+        gScaler: 1.5,
+        bScaler: 1.5 / 256,
+        offset: -49152
       },
       elevationData: TERRAIN_IMAGE,
       texture: basemap === 'satellite' 
@@ -216,6 +221,7 @@ export default function MapView() {
   return (
     <div className="absolute inset-0 w-full h-full bg-[#0f172a]">
       <DeckGL
+        effects={[lightingEffect]}
         layers={layers}
         viewState={viewState}
         onViewStateChange={onViewStateChange}
