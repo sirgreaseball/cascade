@@ -12,6 +12,7 @@ import { assessAssets, summarizeImpacts } from '@/lib/analytics';
 import { buildLayers, exportGeoJson, exportKml, exportPlacesCsv, exportRasterZip, exportShapefileZip } from '@/lib/export';
 import type { ExportContext, ExportLayers } from '@/lib/export';
 import { download } from '@/lib/export/formats';
+import { exportCap } from '@/lib/export/cap';
 import { formatDischarge, formatDuration } from '@/lib/format';
 import { Segmented, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ const FORMATS = [
   { id: 'geojson', title: 'GeoJSON', sub: 'All vector layers in one file', ext: 'geojson', mime: 'application/geo+json' },
   { id: 'raster', title: 'Rasters', sub: 'Peak depth, arrival, velocity, hazard as ESRI ASCII grids', ext: 'zip', mime: 'application/zip' },
   { id: 'csv', title: 'Places table', sub: 'Evacuation list sorted by arrival time (CSV)', ext: 'csv', mime: 'text/csv' },
+  { id: 'cap', title: 'CAP alert', sub: 'Common Alerting Protocol 1.2 (SACHET), English and Hindi, marked as an exercise', ext: 'xml', mime: 'application/xml' },
 ] as const;
 
 export default function ExportSheet() {
@@ -81,8 +83,18 @@ export default function ExportSheet() {
       const f = FORMATS.find((x) => x.id === id)!;
       const base = `cascade_${config.id}_${eng}`;
       const payload =
-        id === 'kml' ? exportKml(ctx, layers) : id === 'shp' ? exportShapefileZip(ctx, layers) : id === 'geojson' ? exportGeoJson(ctx, layers) : id === 'raster' ? exportRasterZip(ctx, layers) : exportPlacesCsv(ctx, layers);
-      const suffix = id === 'shp' ? '_shapefile' : id === 'raster' ? '_rasters' : id === 'csv' ? '_places' : '';
+        id === 'cap'
+          ? exportCap(ctx)
+          : id === 'kml'
+            ? exportKml(ctx, layers)
+            : id === 'shp'
+              ? exportShapefileZip(ctx, layers)
+              : id === 'geojson'
+                ? exportGeoJson(ctx, layers)
+                : id === 'raster'
+                  ? exportRasterZip(ctx, layers)
+                  : exportPlacesCsv(ctx, layers);
+      const suffix = id === 'shp' ? '_shapefile' : id === 'raster' ? '_rasters' : id === 'csv' ? '_places' : id === 'cap' ? '_alert' : '';
       download(payload, `${base}${suffix}.${f.ext}`, f.mime);
       setDone((d) => [...new Set([...d, id])]);
     } catch (err) {

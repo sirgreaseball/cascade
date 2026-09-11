@@ -252,6 +252,25 @@ export function assessAssets(
   return out;
 }
 
+/**
+ * Loss of life over the flooded settlements for a given warning: issued `warningLead` seconds
+ * before the breach (0: as it begins), or none at all when negative. The Impact panel uses it
+ * to show what an earlier warning would change.
+ */
+export function lossOfLife(index: ExposureIndex, statuses: AssetStatus[], warningLead: number): { low: number; central: number; high: number } {
+  let low = 0;
+  let central = 0;
+  let high = 0;
+  statuses.forEach((s, i) => {
+    if (index.assets[i].kind !== 'settlement' || s.maxDepth < FLOOD_THRESHOLD || s.peopleExposed <= 0) return;
+    const r = grahamFatalityRate(s.maxDepthVelocity, warningLead < 0 ? 0 : Math.max(0, s.arrival) + warningLead);
+    low += s.peopleExposed * r.low;
+    central += s.peopleExposed * r.rate;
+    high += s.peopleExposed * r.high;
+  });
+  return { low, central, high };
+}
+
 export interface ImpactSummary {
   peopleExposed: number;
   /** Graham (1999) loss-of-life estimate and range, warning issued as the breach begins. */

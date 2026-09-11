@@ -8,13 +8,51 @@ import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import { usePrimaryEngine, useImpacts } from '@/components/useSimView';
-import { Divider, Dot, Section, Stat, Tag } from '@/components/ui/primitives';
+import { Divider, Dot, Section, Segmented, Stat, Tag } from '@/components/ui/primitives';
 import { LineChart } from '@/components/ui/charts';
 import { HAZARD_COLORS, IDENTITY } from '@/components/map/colormaps';
 import { extentAgreement, depthDifference } from '@/lib/compare';
 import { formatArea, formatClock, formatCompact, formatDepth, formatDischarge, formatINR, formatNumber, formatVolume } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { displayName } from '@/lib/text';
+import { lossOfLife } from '@/lib/analytics';
+import type { AssetStatus } from '@/lib/analytics';
+
+const WARNING_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: '0', label: 'At breach' },
+  { value: '1800', label: '30 min early' },
+  { value: '3600', label: '1 h early' },
+];
+
+/** Graham (1999) loss-of-life estimate, and what an earlier warning would change. */
+function LifeLossCard({ statuses }: { statuses: AssetStatus[] }) {
+  const exposure = useScenarioStore((s) => s.exposure);
+  const [warning, setWarning] = useState('0');
+  const lead = warning === 'none' ? -1 : Number(warning);
+  const estimate = useMemo(() => (exposure ? lossOfLife(exposure, statuses, lead) : null), [exposure, statuses, lead]);
+  const unwarned = useMemo(() => (exposure ? lossOfLife(exposure, statuses, -1) : null), [exposure, statuses]);
+  if (!estimate || !unwarned) return null;
+  const fmt = (v: number) => (v < 1 ? '< 1' : formatNumber(Math.round(v)));
+  const saved = unwarned.central - estimate.central;
+  const when = lead < 0 ? 'with no warning' : lead === 0 ? 'with the warning issued as the breach begins' : `with the warning issued ${lead / 60} min before the breach`;
+  return (
+    <div className="space-y-2.5 rounded-2xl bg-fill/70 px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-[12px] text-muted">Estimated loss of life</div>
+        <div className="tnum text-[20px] font-semibold tracking-[-0.02em]">{fmt(estimate.central)}</div>
+      </div>
+      <div>
+        <div className="mb-1 text-[11px] text-muted">Warning issued</div>
+        <Segmented size="sm" layoutId="warning-lead" value={warning} onChange={(v: string) => setWarning(v)} options={WARNING_OPTIONS} />
+      </div>
+      <div className="text-[11px] leading-snug text-faint">
+        Range {fmt(estimate.low)}–{fmt(estimate.high)}
+        {lead >= 0 && saved >= 1 ? `; about ${formatNumber(Math.round(saved))} fewer than with no warning` : ''}. Graham (1999) fatality rates by flood severity and warning time, {when}.
+      </div>
+    </div>
+  );
+}
 
 function HazardBadge({ level }: { level: number }) {
   if (!level) return <span className="text-[11px] text-faint">—</span>;
@@ -218,17 +256,7 @@ export default function RightPanel() {
                       )}
                     </div>
                   </div>
-                  {i.peopleExposed > 0 && (
-                    <div className="rounded-2xl bg-fill/70 px-3 py-2.5">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <div className="text-[12px] text-muted">Estimated loss of life</div>
-                        <div className="tnum text-[20px] font-semibold tracking-[-0.02em]">{i.lossOfLife < 1 ? '< 1' : formatNumber(Math.round(i.lossOfLife))}</div>
-                      </div>
-                      <div className="mt-0.5 text-[11px] leading-snug text-faint">
-                        Range {formatNumber(Math.round(i.lossOfLifeLow))}–{formatNumber(Math.round(i.lossOfLifeHigh))}. Graham (1999) fatality rates by flood severity and warning time, with the warning issued as the breach begins.
-                      </div>
-                    </div>
-                  )}
+                  {i.peopleExposed > 0 && <LifeLossCard statuses={impacts.statuses} />}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     <Stat
                       label="Flooded now"
