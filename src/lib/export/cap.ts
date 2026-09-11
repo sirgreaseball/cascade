@@ -39,6 +39,8 @@ export function exportCap(ctx: ExportContext, now = Date.now()): string {
   const kind = ctx.eventSummary.split(/[,;]/)[0].trim() || 'Dam break';
   const dam = ctx.dam.name;
   const people = formatNumber(ctx.impact.peopleExposed);
+  // All flooded settlements, not just the (at most 60) that get an <area>.
+  const settlements = formatNumber(ctx.impact.settlementsFlooded);
   const first = places[0];
 
   const text = {
@@ -46,7 +48,7 @@ export function exportCap(ctx: ExportContext, now = Date.now()): string {
       event: `${kind} flood`,
       headline: `${kind} flood from ${dam}: move to high ground now`,
       description:
-        `Simulated scenario (exercise), not an official warning. ${ctx.eventSummary}. The model (${ctx.engineLabel}) floods ${places.length} settlements ` +
+        `Simulated scenario (exercise), not an official warning. ${ctx.eventSummary}. The model (${ctx.engineLabel}) floods ${settlements} settlements ` +
         `with about ${people} people` +
         (first ? `; the water first reaches ${first.a.name} ${span(first.s.arrival, 'en')} after the breach.` : '.'),
       instruction: 'Leave low ground near the river now and move to high ground. Do not cross bridges, causeways or flooded roads. Follow instructions from the district administration.',
@@ -57,7 +59,7 @@ export function exportCap(ctx: ExportContext, now = Date.now()): string {
       event: EVENT_HI[kind] ?? 'बाढ़',
       headline: `${dam} से ${EVENT_HI[kind] ?? 'बाढ़'}: तुरंत ऊँचे स्थान पर जाएँ`,
       description:
-        `यह एक अभ्यास (सिमुलेशन) परिदृश्य है, आधिकारिक चेतावनी नहीं। मॉडल के अनुसार ${places.length} बस्तियाँ और लगभग ${people} लोग प्रभावित हो सकते हैं` +
+        `यह एक अभ्यास (सिमुलेशन) परिदृश्य है, आधिकारिक चेतावनी नहीं। मॉडल के अनुसार ${settlements} बस्तियाँ और लगभग ${people} लोग प्रभावित हो सकते हैं` +
         (first ? `; पानी सबसे पहले ${first.a.name} में बांध टूटने के ${span(first.s.arrival, 'hi')} बाद पहुँचेगा।` : '।'),
       instruction: 'नदी के पास के निचले इलाकों को तुरंत छोड़ें और ऊँचे स्थान पर जाएँ। पुल, रपटे या पानी से भरी सड़कें पार न करें। ज़िला प्रशासन के निर्देशों का पालन करें।',
       sender: `Cascade सिमुलेशन: ${ctx.scenarioName}`,

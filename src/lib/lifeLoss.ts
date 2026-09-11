@@ -26,14 +26,19 @@ export function warningClass(seconds: number): Warning {
 }
 
 /**
- * Fatality rate for a place reached `warningSeconds` after the breach with a peak depth ×
- * velocity of `dv`. High severity (the flood sweeps the area clean) applies only where buildings
- * collapse before a warning could help; with 15 minutes or more people can reach refuge, so
- * such places are treated as medium severity.
+ * Fatality rate for a place with peak depth × velocity `dv`, flooded `arrivalSeconds` after
+ * the breach, whose people were warned `warningSeconds` before the water reached them. High
+ * severity (the flood sweeps the area clean) is kept, as Graham advises, for places hit within
+ * minutes of a sudden failure, where buildings collapse; further downstream, even with no
+ * warning, the flood that arrives is treated as medium severity.
  */
-export function grahamFatalityRate(dv: number, warningSeconds: number): { severity: Severity; warning: Warning; low: number; rate: number; high: number } {
+export function grahamFatalityRate(
+  dv: number,
+  warningSeconds: number,
+  arrivalSeconds: number,
+): { severity: Severity; warning: Warning; low: number; rate: number; high: number } {
   const warning = warningClass(Math.max(0, warningSeconds));
-  const severity: Severity = dv >= HIGH_DV && warning === 'none' ? 'high' : dv >= MEDIUM_DV ? 'medium' : 'low';
+  const severity: Severity = dv >= HIGH_DV && arrivalSeconds < 15 * 60 ? 'high' : dv >= MEDIUM_DV ? 'medium' : 'low';
   const [low, rate, high] = severity === 'high' ? HIGH : RATES[severity][warning];
   return { severity, warning, low, rate, high };
 }

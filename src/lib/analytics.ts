@@ -233,7 +233,7 @@ export function assessAssets(
     }
     const hazard = maxDepth > 0 ? Math.max(1, hazardClass(maxDepth, maxSpeed, maxDV)) : 0;
     const people = a.kind === 'settlement' ? Math.round(a.population * share) : 0;
-    const fatality = people > 0 ? grahamFatalityRate(maxDV, arrival) : null;
+    const fatality = people > 0 ? grahamFatalityRate(maxDV, arrival, arrival) : null;
     out.push({
       arrival,
       maxDepth,
@@ -263,7 +263,8 @@ export function lossOfLife(index: ExposureIndex, statuses: AssetStatus[], warnin
   let high = 0;
   statuses.forEach((s, i) => {
     if (index.assets[i].kind !== 'settlement' || s.maxDepth < FLOOD_THRESHOLD || s.peopleExposed <= 0) return;
-    const r = grahamFatalityRate(s.maxDepthVelocity, warningLead < 0 ? 0 : Math.max(0, s.arrival) + warningLead);
+    const arrival = Math.max(0, s.arrival);
+    const r = grahamFatalityRate(s.maxDepthVelocity, warningLead < 0 ? 0 : arrival + warningLead, arrival);
     low += s.peopleExposed * r.low;
     central += s.peopleExposed * r.rate;
     high += s.peopleExposed * r.high;
