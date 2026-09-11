@@ -10,6 +10,7 @@ import {
 import type { ScenarioConfig, ScenarioData, ScenarioMeta } from '@/lib/scenario';
 import { buildExposureIndex } from '@/lib/analytics';
 import { fetchDamLine } from '@/lib/osm';
+import { catalogCrestLine } from '@/lib/dams';
 import type { ExposureIndex } from '@/lib/analytics';
 import type { ObservedExtent } from '@/lib/importers';
 import { results } from '@/simulation/results';
@@ -44,7 +45,17 @@ const LAST_KEY = 'cascade:last-scenario';
  * line the dam axis is detected from the DEM.
  */
 async function withCrestLine(config: ScenarioConfig, data: ScenarioData, custom: boolean): Promise<ScenarioConfig> {
-  if (config.dam.crestLine !== undefined || config.event === 'lake-outburst') return config;
+  if (config.event === 'lake-outburst') return config;
+  // A catalogue dam's stored crest is definitive and needs no network; it also replaces any
+  // line an earlier live lookup picked (for example a saddle dyke next to the main dam).
+  const known = catalogCrestLine(config.dam.lng, config.dam.lat);
+  if (known) {
+    if (JSON.stringify(known) === JSON.stringify(config.dam.crestLine)) return config;
+    const next = { ...config, dam: { ...config.dam, crestLine: known } };
+    if (custom) await saveCustomScenario(next, data).catch(() => undefined);
+    return next;
+  }
+  if (config.dam.crestLine !== undefined) return config;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return config;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 10_000);

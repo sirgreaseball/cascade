@@ -13,7 +13,10 @@ interface UiState {
   leftTab: 'event' | 'model' | 'observe';
   exportOpen: boolean;
   pickingDam: boolean;
+  /** True once the map has drawn its first terrain or basemap: ends the loading screen. */
+  mapReady: boolean;
   toasts: Toast[];
+  setMapReady: (v: boolean) => void;
   setLeftOpen: (v: boolean) => void;
   setRightOpen: (v: boolean) => void;
   setLeftTab: (t: UiState['leftTab']) => void;
@@ -31,7 +34,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   leftTab: 'event',
   exportOpen: false,
   pickingDam: false,
+  mapReady: false,
   toasts: [],
+  setMapReady: (mapReady) => set({ mapReady }),
   setLeftOpen: (leftOpen) => set({ leftOpen }),
   setRightOpen: (rightOpen) => set({ rightOpen }),
   setLeftTab: (leftTab) => set({ leftTab }),

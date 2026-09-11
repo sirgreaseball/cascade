@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, Crosshair, FileUp, Search, X } from 'lucide-react';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useUiStore } from '@/store/uiStore';
-import { DAM_CATALOG } from '@/lib/dams';
+import { catalogCrestLine, DAM_CATALOG } from '@/lib/dams';
 import type { DamCatalogEntry } from '@/lib/dams';
 import { autoStudyArea } from '@/lib/aoi';
 import { gridForBBox, gridGeometry } from '@/lib/geo/grid';
@@ -195,9 +195,12 @@ export default function ScenarioBuilder() {
         ({ assets, roads } = parseExposureGeoJson(await exposureFile.text()));
         exposureSource = exposureFile.name;
       }
-      // The real crest from OpenStreetMap, so the modelled dam sits where the imagery shows it.
+      // The real crest, so the modelled dam sits where the imagery shows it: stored for catalogue
+      // dams, otherwise looked up in OpenStreetMap.
       const crestLine =
-        form.event === 'lake-outburst' ? undefined : await fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined);
+        form.event === 'lake-outburst'
+          ? undefined
+          : (catalogCrestLine(form.lng, form.lat) ?? (await fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined)));
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
       const today = new Date().toISOString().slice(0, 10);

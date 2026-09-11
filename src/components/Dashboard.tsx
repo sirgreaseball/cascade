@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
@@ -16,7 +16,6 @@ import LeftPanel from './panels/LeftPanel';
 import RightPanel from './panels/RightPanel';
 import ScenarioBuilder from './panels/ScenarioBuilder';
 import ExportSheet from './panels/ExportSheet';
-import { Spinner } from './ui/primitives';
 import { cn } from '@/lib/utils';
 
 const MapView = dynamic(() => import('./map/MapView'), {
@@ -150,21 +149,81 @@ function Toasts() {
   );
 }
 
+const LOADING_STEPS = ['Starting Cascade', 'Loading the scenario', 'Drawing the terrain', 'Ready'];
+/** On first load the loading screen stays at least this long, so it never just flashes… */
+const MIN_VEIL_MS = 1800;
+/** …and stops waiting for the map after this long (slow tiles, offline). */
+const MAX_VEIL_MS = 9000;
+const EASE = [0.22, 1, 0.36, 1] as const;
+const WAVES = [
+  'M7 12.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2',
+  'M7 17c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2',
+  'M7 21.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2',
+];
+
+/** The logo, its three waves dimming in turn like water running over a weir. */
+function AnimatedLogo() {
+  return (
+    <motion.svg
+      viewBox="0 0 32 32"
+      className="h-14 w-14 shadow-float [border-radius:16px]"
+      aria-hidden
+      animate={{ y: [0, -3, 0] }}
+      transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+    >
+      <rect width="32" height="32" rx="9" fill="#1d1d1f" />
+      {WAVES.map((d, i) => {
+        const base = 1 - i * 0.28;
+        return (
+          <motion.path
+            key={d}
+            d={d}
+            stroke="#fff"
+            strokeWidth="2"
+            fill="none"
+            strokeLinecap="round"
+            initial={{ opacity: base }}
+            animate={{ opacity: [base, base * 0.3, base] }}
+            transition={{ duration: 1.8, repeat: Infinity, delay: i * 0.25, ease: 'easeInOut' }}
+          />
+        );
+      })}
+    </motion.svg>
+  );
+}
+
 function LoadingVeil() {
   const status = useScenarioStore((s) => s.status);
   const error = useScenarioStore((s) => s.error);
   const index = useScenarioStore((s) => s.index);
   const select = useScenarioStore((s) => s.select);
-  const show = status === 'loading' || status === 'error' || status === 'idle';
+  const mapReady = useUiStore((s) => s.mapReady);
+  const [minElapsed, setMinElapsed] = useState(false);
+  const [waitedEnough, setWaitedEnough] = useState(false);
+  useEffect(() => {
+    const a = setTimeout(() => setMinElapsed(true), MIN_VEIL_MS);
+    const b = setTimeout(() => setWaitedEnough(true), MAX_VEIL_MS);
+    return () => {
+      clearTimeout(a);
+      clearTimeout(b);
+    };
+  }, []);
+  // Both conditions only ever become true, so after the first load this stays false and a
+  // scenario switch shows the lighter, translucent version.
+  const booting = !(minElapsed && (mapReady || waitedEnough));
+  const show = status === 'loading' || status === 'error' || status === 'idle' || (status === 'ready' && booting);
+  const step = status === 'ready' ? (mapReady ? 3 : 2) : status === 'loading' ? 1 : 0;
   return (
     <AnimatePresence>
       {show && (
         <motion.div
-          initial={{ opacity: 0 }}
+          key="veil"
+          // Painted opaque from the first frame (no fade-in), so it can never flash.
+          initial={false}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.5 }}
-          className="absolute inset-0 z-40 flex items-center justify-center bg-canvas/70 backdrop-blur-md"
+          exit={{ opacity: 0, scale: 1.015, filter: 'blur(4px)' }}
+          transition={{ duration: 0.7, ease: EASE }}
+          className={cn('absolute inset-0 z-40 flex items-center justify-center', booting ? 'bg-canvas' : 'bg-canvas/70 backdrop-blur-md')}
         >
           {status === 'error' ? (
             <div className="glass-strong max-w-sm rounded-panel p-6 text-center shadow-panel">
@@ -177,12 +236,31 @@ function LoadingVeil() {
               )}
             </div>
           ) : (
-            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="flex flex-col items-center gap-4">
-              <Logo className="h-12 w-12 shadow-float [border-radius:14px]" />
-              <div className="text-[17px] font-semibold tracking-[-0.02em]">Cascade</div>
-              <div className="flex items-center gap-2 text-[12.5px] text-muted">
-                <Spinner />
-                Preparing terrain and exposure data…
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-col items-center gap-4">
+              <AnimatedLogo />
+              <div className="text-[19px] font-semibold tracking-[-0.02em]">Cascade</div>
+              <div className="h-[3px] w-44 overflow-hidden rounded-full bg-black/[0.07]">
+                <motion.div
+                  className="h-full rounded-full bg-ink"
+                  initial={{ width: '8%' }}
+                  animate={{ width: `${((step + 1) / LOADING_STEPS.length) * 100}%` }}
+                  transition={{ duration: 0.9, ease: EASE }}
+                />
+              </div>
+              <div className="relative h-4 w-60 text-center text-[12.5px] text-muted">
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={step}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.25 }}
+                    className="absolute inset-0"
+                  >
+                    {LOADING_STEPS[step]}
+                    {step < LOADING_STEPS.length - 1 ? '…' : ''}
+                  </motion.span>
+                </AnimatePresence>
               </div>
             </motion.div>
           )}

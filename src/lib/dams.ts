@@ -3,6 +3,8 @@
 // the river on the DEM when a scenario is built, and every value is editable. Verify against
 // the dam owner's data before any operational use.
 
+import { DAM_CRESTS } from './damCrests.ts';
+
 export interface DamCatalogEntry {
   id: string;
   name: string;
@@ -36,3 +38,23 @@ export const DAM_CATALOG: DamCatalogEntry[] = [
   { id: 'idukki', name: 'Idukki', river: 'Periyar', state: 'Kerala', lng: 76.976, lat: 9.843, height: 169, crestLength: 366, volumeMCM: 1996, type: 'Arch' },
   { id: 'mullaperiyar', name: 'Mullaperiyar', river: 'Periyar', state: 'Kerala', lng: 77.144, lat: 9.529, height: 54, crestLength: 366, volumeMCM: 443, type: 'Masonry' },
 ];
+
+/**
+ * The stored crest line (from OpenStreetMap) of the catalogue dam within 5 km of a site, if
+ * any: lets scenarios on known dams place the dam exactly, with no network lookup or guessing.
+ */
+export function catalogCrestLine(lng: number, lat: number): [number, number][] | null {
+  const kx = 111_320 * Math.cos((lat * Math.PI) / 180);
+  let best: [number, number][] | null = null;
+  let bestDistance = 5000;
+  for (const dam of DAM_CATALOG) {
+    const line = DAM_CRESTS[dam.id];
+    if (!line) continue;
+    const d = Math.hypot((dam.lng - lng) * kx, (dam.lat - lat) * 110_574);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = line;
+    }
+  }
+  return best;
+}

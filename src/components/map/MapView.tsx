@@ -60,12 +60,6 @@ const LIGHT_STYLE = {
     { id: 'labels', type: 'raster' as const, source: 'labels' },
   ],
 };
-/** Under 3D world terrain the basemap is invisible; draw only a sky-coloured background. */
-const BLANK_STYLE = {
-  version: 8 as const,
-  sources: {},
-  layers: [{ id: 'background', type: 'background' as const, paint: { 'background-color': '#e4e9ee' } }],
-};
 /** Copied from node_modules by scripts/copy-workers.mjs: terrain meshing off the main thread. */
 const TERRAIN_WORKER_URL = '/workers/terrain-worker.js';
 /** Rendering resolution cap: full sharpness on normal screens, 1.5× on high-DPI ones. */
@@ -77,8 +71,6 @@ const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularCol
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 const GPU = detectGpu();
-/** Share of the study-area size that 3D world terrain extends beyond it on every side. */
-const TERRAIN_MARGIN = 0.6;
 
 /**
  * Only the places layer takes part in picking. Letting the terrain and the layers draped on it
@@ -153,6 +145,10 @@ export default function MapView() {
       setTerrainWorker(false);
     } else if (tileErrors.current > 6) setTerrainMode('local');
   }, [terrainWorker]);
+  /** The first terrain tile on screen tells the loading screen the map is drawn. */
+  const onTerrainTile = useCallback(() => {
+    if (!useUiStore.getState().mapReady) useUiStore.getState().setMapReady(true);
+  }, []);
   const terrain = useLocalTerrain(terrainMode === 'local' && view.terrain3d);
 
   const [viewState, setViewState] = useState<MapViewState>({ longitude: 78.44, latitude: 30.22, zoom: 9.6, pitch: 55, bearing: -20 });
@@ -292,29 +288,6 @@ export default function MapView() {
     );
   }, [data, exposure]);
 
-  // The study-area edge, where the model ends. Water reaching it leaves through an open
-  // boundary, so a flood that stops in a straight line there has left the model, not vanished.
-  const boundary = useMemo(() => {
-    if (!data) return null;
-    const g = data.grid;
-    const [w, s, e, n] = g.bbox;
-    const step = Math.max(1, Math.round(Math.max(g.cols, g.rows) / 200));
-    const zAt = (c: number, r: number) => data.dem[r * g.cols + c] + SKIN_LIFT + 2;
-    const pts: [number, number, number][] = [];
-    const edge = (count: number, f: (i: number) => [number, number, number]) => {
-      for (let i = 0; i < count; i += step) pts.push(f(i));
-    };
-    edge(g.cols, (c) => [w + c * g.lngStep, n, zAt(c, 0)]);
-    edge(g.rows, (r) => [e, n - r * g.latStep, zAt(g.cols - 1, r)]);
-    edge(g.cols, (c) => [e - c * g.lngStep, s, zAt(g.cols - 1 - c, g.rows - 1)]);
-    edge(g.rows, (r) => [w, s + r * g.latStep, zAt(0, g.rows - 1 - r)]);
-    pts.push(pts[0]);
-    return {
-      lifted: [{ path: pts }],
-      flat: [{ path: pts.map(([x, y]) => [x, y, 0] as [number, number, number]) }],
-    };
-  }, [data]);
-
   // ---- Particles (SPH) -------------------------------------------------------------------
   const particles = useMemo(() => {
     if (!engines.sph || !view.showParticles || (view.engine !== 'sph' && view.engine !== 'overlay')) return null;
@@ -374,27 +347,21 @@ export default function MapView() {
       ? { loadOptions: { terrain: { workerUrl: TERRAIN_WORKER_URL } } }
       : { loaders: [TerrainLoader], loadOptions: { worker: false } };
     if (view.terrain3d && terrainMode === 'world') {
-      // Close in, terrain stops a margin beyond the study area instead of running to the
-      // horizon: distant ground filled a large part of the screen and of the GPU frame. Zoomed
-      // out past the scenario's framing, tiles are coarse and cheap, so the landscape runs on
-      // instead of ending in a void.
-      const mw = (bbox[2] - bbox[0]) * TERRAIN_MARGIN;
-      const mh = (bbox[3] - bbox[1]) * TERRAIN_MARGIN;
-      const zoomedOut = zoomStep < (config.view?.zoom ?? 10) - 0.5;
+      const texture = view.basemap === 'satellite' ? IMAGERY_URL : MAP_TILES_URL;
       list.push(
         new TerrainLayer({
           id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
-          texture: view.basemap === 'satellite' ? IMAGERY_URL : MAP_TILES_URL,
+          texture,
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 14,
           meshMaxError: 8,
-          extent: zoomedOut ? undefined : [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
           ...meshing,
           material: TERRAIN_MATERIAL,
           onTileError: onTerrainError,
+          onTileLoad: onTerrainTile,
         } as never),
       );
     } else if (view.terrain3d && terrain && terrain.id === config.id) {
@@ -439,20 +406,6 @@ export default function MapView() {
       );
     }
 
-    if (boundary) {
-      list.push(
-        new PathLayer({
-          id: 'study-area',
-          data: view.terrain3d ? boundary.lifted : boundary.flat,
-          getPath: (d: { path: [number, number, number][] }) => d.path,
-          getColor: view.basemap === 'satellite' ? [255, 255, 255, 150] : [60, 60, 67, 120],
-          getWidth: 1.5,
-          widthUnits: 'pixels',
-          updateTriggers: { getColor: [view.basemap] },
-        }),
-      );
-    }
-
     if (exposure && view.showRoads) {
       const cut = impacts?.impact.roadCut;
       list.push(
@@ -485,62 +438,6 @@ export default function MapView() {
           radiusMaxPixels: 2.2,
           stroked: false,
           parameters: { depthTest: view.terrain3d },
-        }),
-      );
-    }
-
-    // Dam: an extruded wall along the real crest line (OpenStreetMap) when known, else the
-    // detected axis; embankment and debris dams are drawn thicker than concrete, masonry and
-    // arch dams.
-    if (setup) {
-      const line = setup.site.crestLine;
-      const mLng = 111_320 * Math.cos((line[0][1] * Math.PI) / 180);
-      const half = /concrete|masonry|arch/i.test(config.dam.type ?? '') ? 20 : 45;
-      const z = view.terrain3d ? setup.site.bed.elevation : 0;
-      // One outline around the whole crest, each point offset along the average of its two
-      // segments' normals, so a curved dam is one smooth wall rather than notched blocks.
-      const normals = line.map((_, i) => {
-        let nx = 0;
-        let ny = 0;
-        for (const j of [i - 1, i]) {
-          if (j < 0 || j + 1 >= line.length) continue;
-          const ex = (line[j + 1][0] - line[j][0]) * mLng;
-          const ey = (line[j + 1][1] - line[j][1]) * 110_574;
-          const len = Math.hypot(ex, ey) || 1;
-          nx -= ey / len;
-          ny += ex / len;
-        }
-        const len = Math.hypot(nx, ny) || 1;
-        return [nx / len, ny / len];
-      });
-      const off = (i: number, s: number): [number, number, number] => [
-        line[i][0] + (normals[i][0] * half * s) / mLng,
-        line[i][1] + (normals[i][1] * half * s) / 110_574,
-        z,
-      ];
-      const polygon = [...line.map((_, i) => off(i, 1)), ...line.map((_, i) => off(line.length - 1 - i, -1))];
-      list.push(
-        new SolidPolygonLayer({
-          id: 'dam',
-          data: [{ polygon }],
-          getPolygon: (d: { polygon: [number, number, number][] }) => d.polygon,
-          extruded: view.terrain3d,
-          getElevation: config.dam.height,
-          getFillColor: [236, 234, 228, 255],
-          material: { ambient: 0.7, diffuse: 0.6 },
-        }),
-      );
-      list.push(
-        new ScatterplotLayer({
-          id: 'breach',
-          data: [setup.site.bed],
-          getPosition: (d: { lng: number; lat: number; elevation: number }) => [d.lng, d.lat, view.terrain3d ? d.elevation + config.dam.height + 20 : 0],
-          getFillColor: [208, 59, 59, 255],
-          getLineColor: [255, 255, 255, 255],
-          lineWidthMinPixels: 2,
-          stroked: true,
-          radiusMinPixels: 5,
-          radiusMaxPixels: 5,
         }),
       );
     }
@@ -602,9 +499,75 @@ export default function MapView() {
         }),
       );
     }
+    // The dam: a red marker with its name, raised on a thin stem in 3D, drawn over everything.
+    // The imagery shows the structure itself; the marker says where the breach is.
+    if (setup) {
+      const bed = setup.site.bed;
+      const z = view.terrain3d ? bed.elevation + config.dam.height + 80 : 0;
+      const at = [{ position: [bed.lng, bed.lat, z] as [number, number, number] }];
+      const position = (d: { position: [number, number, number] }) => d.position;
+      if (view.terrain3d) {
+        list.push(
+          new PathLayer({
+            id: 'dam-stem',
+            data: [{ path: [[bed.lng, bed.lat, bed.elevation], [bed.lng, bed.lat, z]] }],
+            getPath: (d: { path: [number, number, number][] }) => d.path,
+            getColor: [208, 59, 59, 230],
+            getWidth: 2,
+            widthUnits: 'pixels',
+          }),
+        );
+      }
+      list.push(
+        new ScatterplotLayer({
+          id: 'dam-halo',
+          data: at,
+          getPosition: position,
+          getRadius: 17,
+          radiusUnits: 'pixels',
+          getFillColor: [208, 59, 59, 55],
+          stroked: true,
+          getLineColor: [208, 59, 59, 150],
+          getLineWidth: 1.5,
+          lineWidthUnits: 'pixels',
+          parameters: { depthTest: false },
+        }),
+        new ScatterplotLayer({
+          id: 'dam-dot',
+          data: at,
+          getPosition: position,
+          getRadius: 7,
+          radiusUnits: 'pixels',
+          getFillColor: [208, 59, 59, 255],
+          stroked: true,
+          getLineColor: [255, 255, 255, 255],
+          getLineWidth: 2.5,
+          lineWidthUnits: 'pixels',
+          parameters: { depthTest: false },
+        }),
+        new TextLayer({
+          id: 'dam-label',
+          data: at,
+          getPosition: position,
+          getText: () => config.dam.name,
+          getSize: 12.5,
+          getColor: [255, 255, 255, 255],
+          getPixelOffset: [0, -31],
+          fontFamily: 'Inter, system-ui, sans-serif',
+          fontWeight: 600,
+          background: true,
+          getBackgroundColor: [29, 29, 31, 235],
+          backgroundPadding: [9, 5],
+          backgroundBorderRadius: 7,
+          characterSet: 'auto',
+          parameters: { depthTest: false },
+          updateTriggers: { getText: [config.dam.name] },
+        } as never),
+      );
+    }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, image, skin, roadPaths3d, boundary, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -721,11 +684,15 @@ export default function MapView() {
         pickingRadius={6}
         getCursor={({ isDragging, isHovering }) => (pickingDam ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab')}
       >
+        {/* In 3D the flat basemap stays under the terrain: wherever terrain tiles are still
+            loading (a quick zoom out, a new area) the map shows imagery instead of a void. */}
         <MapGL
           reuseMaps
-          mapStyle={view.terrain3d && terrainMode === 'world' ? (BLANK_STYLE as never) : view.basemap === 'satellite' ? (SATELLITE_STYLE as never) : (LIGHT_STYLE as never)}
+          mapStyle={view.basemap === 'satellite' ? (SATELLITE_STYLE as never) : (LIGHT_STYLE as never)}
           attributionControl={false}
           pixelRatio={PIXEL_RATIO}
+          // In 3D world mode the first terrain tile marks the map ready instead.
+          onLoad={() => !(view.terrain3d && terrainMode === 'world') && useUiStore.getState().setMapReady(true)}
         />
       </DeckGL>
       {hover && (
