@@ -379,6 +379,14 @@ function ModelTab() {
             <li>SPH solver: the same equations carried by particles with variable smoothing length (after Vacondio et al., 2012).</li>
           </ul>
         </div>
+        <div className="space-y-1.5 rounded-2xl bg-fill/70 p-3">
+          <div className="text-[12.5px] font-medium">Why a second, particle solver</div>
+          <p className="text-[11px] leading-snug text-muted">
+            The grid solver is the reference. SPH solves the same equations on parcels of water that move with the flow instead of on fixed cells, so its wet–dry front is not smeared across a
+            cell and it needs no grid at all. The two methods fail in different ways, so where they agree the result does not depend on the choice of method; where they differ, the gap is a
+            measure of model uncertainty. The Both view and the Difference layer show that gap on the map.
+          </p>
+        </div>
         <Validation />
       </Section>
 

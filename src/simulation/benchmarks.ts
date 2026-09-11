@@ -2,6 +2,9 @@
 // Model tab runs them live in the browser, so the numbers a jury sees are computed on the spot.
 //  · Ritter (1892): instantaneous dam break onto a dry, frictionless bed, with an exact solution,
 //    and the same case on finer and coarser cells to show the error shrinking (convergence).
+//  · Stoker (1957): the same break onto still water downstream, which forms a moving bore (a
+//    shock) whose height and speed are known exactly. Real rivers are wet, so this is the case
+//    that tests the scheme's shock capturing.
 //  · Lake at rest over rough terrain: a well-balanced scheme must keep the water perfectly still.
 
 import { ShallowWaterSolver } from './swe.ts';
@@ -45,24 +48,29 @@ interface RitterErrors {
   massError: number;
 }
 
-/** Ritter's dam break: depth h0 behind a dam at x0, dry frictionless bed ahead, after t seconds. */
-function ritter(h0: number, t: number, dx: number): RitterErrors {
-  const x0 = 2000;
+/** A one-cell-wide channel between two high walls, 4 km long: depth h0 behind a dam at x0, h1 ahead. */
+function channel(h0: number, h1: number, dx: number, x0: number) {
   const cols = Math.round((2 * x0) / dx);
   const rows = 3;
-  // A one-cell-wide channel between two high walls.
   const z = new Float32Array(cols * rows);
   for (let c = 0; c < cols; c++) {
     z[c] = 1000;
     z[2 * cols + c] = 1000;
   }
   const s = new ShallowWaterSolver(flatConfig(cols, rows, dx, z));
-  for (let c = 0; c < x0 / dx; c++) s.h[cols + c] = h0;
+  for (let c = 0; c < cols; c++) s.h[cols + c] = c < x0 / dx ? h0 : h1;
   const volume = () => {
     let v = 0;
     for (let c = 0; c < cols; c++) v += s.h[cols + c];
     return v;
   };
+  return { s, cols, volume };
+}
+
+/** Ritter's dam break: depth h0 behind a dam at x0, dry frictionless bed ahead, after t seconds. */
+function ritter(h0: number, t: number, dx: number): RitterErrors {
+  const x0 = 2000;
+  const { s, cols, volume } = channel(h0, 0, dx, x0);
   const v0 = volume();
   while (s.t < t - 1e-9) s.step(t - s.t);
 
@@ -122,6 +130,70 @@ export function ritterConvergence(h0 = 10, t = 60): BenchmarkResult {
   };
 }
 
+/**
+ * Stoker's (1957) exact solution for a dam break onto still water: the depth hm and speed um of
+ * the plateau between the rarefaction and the bore, and the bore's speed.
+ */
+function stokerPlateau(h0: number, h1: number) {
+  const c0 = Math.sqrt(G * h0);
+  // The rarefaction gives u = 2(c0 − cm); the bore into still water gives
+  // u = (hm − h1)·√(g(hm + h1)/(2·hm·h1)). The plateau is where the two agree.
+  const gap = (hm: number) => 2 * (c0 - Math.sqrt(G * hm)) - (hm - h1) * Math.sqrt((G * (hm + h1)) / (2 * hm * h1));
+  let lo = h1;
+  let hi = h0;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    if (gap(mid) > 0) lo = mid;
+    else hi = mid;
+  }
+  const hm = (lo + hi) / 2;
+  const um = 2 * (c0 - Math.sqrt(G * hm));
+  return { hm, um, bore: (hm * um) / (hm - h1) };
+}
+
+/** Stoker's dam break: depth h0 released onto h1 of still water, frictionless, after t seconds. */
+export function stokerBenchmark(h0 = 10, h1 = 2, t = 60, dx = 10): BenchmarkResult {
+  const x0 = 2000;
+  const { s, cols, volume } = channel(h0, h1, dx, x0);
+  const v0 = volume();
+  while (s.t < t - 1e-9) s.step(t - s.t);
+
+  const c0 = Math.sqrt(G * h0);
+  const { hm, um, bore } = stokerPlateau(h0, h1);
+  const cm = Math.sqrt(G * hm);
+  const exact = (x: number) => {
+    const xi = (x - x0) / t;
+    if (xi <= -c0) return h0;
+    if (xi <= um - cm) return (2 * c0 - xi) ** 2 / (9 * G);
+    if (xi <= bore) return hm;
+    return h1;
+  };
+  // The bore sits where the depth crosses halfway between the plateau and the still water.
+  const half = (hm + h1) / 2;
+  let se = 0;
+  let n = 0;
+  let front = x0;
+  for (let c = 0; c < cols; c++) {
+    const x = (c + 0.5) * dx;
+    const hn = s.h[cols + c];
+    if (hn >= half) front = x;
+    if (x < x0 - c0 * t - 50 || x > x0 + bore * t + 50) continue;
+    se += (hn - exact(x)) ** 2;
+    n++;
+  }
+  const rmse = Math.sqrt(se / n) / h0;
+  const travel = bore * t;
+  const frontError = front + dx / 2 - (x0 + travel);
+  const plateau = s.h[cols + Math.floor((x0 + ((um - cm + bore) / 2) * t) / dx)];
+  const heightError = Math.abs(plateau - hm) / hm;
+  const massError = Math.abs(volume() - v0) / v0;
+  return {
+    name: 'Stoker dam break onto water (analytical)',
+    detail: `${h0} m of water released onto ${h1} m of still water, ${dx} m cells, ${t} s later: bore ${plateau.toFixed(2)} m deep (exact ${hm.toFixed(2)} m); depth RMSE ${pct(rmse)} of h₀; bore ${frontError >= 0 ? '+' : '−'}${Math.abs(frontError).toFixed(0)} m from the exact ${Math.round(travel)} m (${pct(Math.abs(frontError) / travel)}); volume error ${massError.toExponential(1)}.`,
+    pass: rmse < 0.05 && heightError < 0.02 && Math.abs(frontError) / travel < 0.05 && massError < 1e-9,
+  };
+}
+
 /** A lake at rest over bumpy terrain: the surface must stay flat and the volume unchanged. */
 export function lakeAtRestBenchmark(duration = 1800): BenchmarkResult {
   const cols = 60;
@@ -149,5 +221,5 @@ export function lakeAtRestBenchmark(duration = 1800): BenchmarkResult {
 }
 
 export function runBenchmarks(): BenchmarkResult[] {
-  return [ritterBenchmark(), ritterConvergence(), lakeAtRestBenchmark()];
+  return [ritterBenchmark(), ritterConvergence(), stokerBenchmark(), lakeAtRestBenchmark()];
 }
