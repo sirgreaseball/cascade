@@ -339,6 +339,10 @@ function ModelTab() {
             </div>
           </div>
           <div className="col-span-2 text-[11px] leading-snug text-faint">{config.dem.source ?? 'Uploaded DEM'}</div>
+          <div className="col-span-2 text-[11px] leading-snug text-muted">
+            Features narrower than a {Math.round(g.dx)} m cell — river channels, embankments, levees, bridges and culverts — are not resolved, and the elevation model has no
+            river bathymetry, so read depths and arrival times as indicative. A finer DEM (such as CartoDEM from Bhuvan) can be loaded when building a scenario.
+          </div>
         </div>
         <Button variant={stale || !(runs.swe.frames || runs.sph.frames) ? 'primary' : 'secondary'} className="w-full" disabled={!setup || running} onClick={() => controller.run()}>
           <Play className="h-3.5 w-3.5 fill-current" />

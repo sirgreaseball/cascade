@@ -294,8 +294,11 @@ export default function MapView() {
       r.path.map(([lng, lat]) => {
         const x = (lng - g.bbox[0]) / g.lngStep;
         const y = (g.bbox[3] - lat) / g.latStep;
-        const inside = x >= 0 && y >= 0 && x < g.cols && y < g.rows;
-        return [lng, lat, inside ? sampleBilinear(data.dem, g.cols, g.rows, x, y) + SKIN_LIFT + 4 : 0] as [number, number, number];
+        // Vertices just past the study-area edge take the edge's height: at z = 0 they drew
+        // vertical streaks down to sea level.
+        const cx = Math.min(g.cols - 1, Math.max(0, x));
+        const cy = Math.min(g.rows - 1, Math.max(0, y));
+        return [lng, lat, sampleBilinear(data.dem, g.cols, g.rows, cx, cy) + SKIN_LIFT + 4] as [number, number, number];
       }),
     );
   }, [data, exposure]);
