@@ -30,6 +30,7 @@ export interface SetupInput {
     crestLength: number;
     snapRadius?: number;
     axis?: [[number, number], [number, number]];
+    crestLine?: [number, number][] | null;
   };
   event: EventParams;
   manning: number;
@@ -63,6 +64,7 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     breachWidth: input.event.breachWidth,
     snapRadius: input.dam.snapRadius,
     axis: input.dam.axis,
+    crestLine: input.dam.crestLine,
   });
   const hydrograph = computeHydrograph(input.event, input.duration);
   const outputInterval = outputIntervalFor(input.duration, input.frames);

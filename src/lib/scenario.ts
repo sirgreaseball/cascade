@@ -19,6 +19,12 @@ export interface DamInfo {
   volumeMCM: number;
   waterDepth: number;
   snapRadius?: number;
+  /**
+   * The real crest, abutment to abutment, as [lng, lat] points from OpenStreetMap, so the model
+   * and the map line up with the imagery. null: looked up, none mapped (the axis is detected
+   * from the DEM); undefined: not looked up yet.
+   */
+  crestLine?: [number, number][] | null;
 }
 
 export interface ScenarioConfig {

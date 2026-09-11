@@ -7,6 +7,9 @@ import type { GridGeometry } from '@/lib/geo/grid';
 
 export const IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 export const IMAGERY_ATTRIBUTION = 'Imagery © Esri, Maxar, Earthstar Geographics';
+/** Light, near-monochrome street map (CARTO Positron), draped on the 3D terrain for the Map basemap. */
+export const MAP_TILES_URL = 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
+export const MAP_ATTRIBUTION = 'Map © CARTO, © OpenStreetMap contributors';
 
 function canvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');

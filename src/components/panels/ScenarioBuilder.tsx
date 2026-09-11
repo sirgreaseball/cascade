@@ -12,7 +12,7 @@ import { gridForBBox, gridGeometry } from '@/lib/geo/grid';
 import { fillNoData, sampleTerrariumGrid, TERRARIUM_ATTRIBUTION } from '@/lib/geo/terrarium';
 import { fetchTerrariumTile } from '@/lib/geo/tiles';
 import { crsLabel, readRasterFile, resampleToGrid } from '@/lib/geo/raster';
-import { fetchOsmExposure, OSM_ATTRIBUTION } from '@/lib/osm';
+import { fetchDamLine, fetchOsmExposure, OSM_ATTRIBUTION } from '@/lib/osm';
 import type { AssetCollection, AssetKind, RoadCollection } from '@/lib/osm';
 import { makeScenarioData, unpackageScenario } from '@/lib/scenario';
 import type { ScenarioConfig } from '@/lib/scenario';
@@ -195,6 +195,9 @@ export default function ScenarioBuilder() {
         ({ assets, roads } = parseExposureGeoJson(await exposureFile.text()));
         exposureSource = exposureFile.name;
       }
+      // The real crest from OpenStreetMap, so the modelled dam sits where the imagery shows it.
+      const crestLine =
+        form.event === 'lake-outburst' ? undefined : await fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined);
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
       const today = new Date().toISOString().slice(0, 10);
@@ -221,6 +224,7 @@ export default function ScenarioBuilder() {
           volumeMCM: form.volumeMCM,
           waterDepth: form.height * 0.95,
           snapRadius: 500,
+          crestLine,
         },
         defaults: { manning: 0.045, duration: Math.min(12, Math.max(2, Math.round(area.reachKm / 12) + 2)) * 3600, failureMode: 'overtopping' },
         view: { zoom: Math.max(8.5, Math.min(12, 13.6 - Math.log2(spanKm))), pitch: 55, bearing: 0 },

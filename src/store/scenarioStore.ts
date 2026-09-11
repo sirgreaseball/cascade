@@ -9,6 +9,7 @@ import {
 } from '@/lib/scenario';
 import type { ScenarioConfig, ScenarioData, ScenarioMeta } from '@/lib/scenario';
 import { buildExposureIndex } from '@/lib/analytics';
+import { fetchDamLine } from '@/lib/osm';
 import type { ExposureIndex } from '@/lib/analytics';
 import type { ObservedExtent } from '@/lib/importers';
 import { results } from '@/simulation/results';
@@ -36,6 +37,28 @@ interface ScenarioState {
 }
 
 const LAST_KEY = 'cascade:last-scenario';
+
+/**
+ * Scenarios without a crest line (saved before they existed, or built offline) are aligned with
+ * the real dam from OpenStreetMap once, and the result is remembered on this device. Without a
+ * line the dam axis is detected from the DEM.
+ */
+async function withCrestLine(config: ScenarioConfig, data: ScenarioData, custom: boolean): Promise<ScenarioConfig> {
+  if (config.dam.crestLine !== undefined || config.event === 'lake-outburst') return config;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return config;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 10_000);
+  try {
+    const crestLine = await fetchDamLine(config.dam.lng, config.dam.lat, config.dam.crestLength, fetch, abort.signal);
+    const next = { ...config, dam: { ...config.dam, crestLine } };
+    if (custom) await saveCustomScenario(next, data).catch(() => undefined);
+    return next;
+  } catch {
+    return config;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function activate(config: ScenarioConfig, data: ScenarioData): ExposureIndex {
   const exposure = buildExposureIndex(data.grid, data.assets, data.roads, [config.dam.lng, config.dam.lat]);
@@ -73,7 +96,9 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     set({ status: 'loading', error: null, observed: null, external: null });
     try {
       const meta = get().index.find((m) => m.id === id);
-      const { config, data } = meta?.custom ? await loadCustomScenario(id) : await loadBundledScenario(id);
+      const loaded = meta?.custom ? await loadCustomScenario(id) : await loadBundledScenario(id);
+      const data = loaded.data;
+      const config = await withCrestLine(loaded.config, data, Boolean(meta?.custom));
       const exposure = activate(config, data);
       set({ config, data, exposure, status: 'ready' });
     } catch (err) {

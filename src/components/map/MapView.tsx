@@ -35,7 +35,7 @@ import {
   paintMaxDepth,
   paintVelocity,
 } from './colormaps';
-import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
+import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 import { buildGridMesh } from './waterMesh';
 
 const SATELLITE_STYLE = {
@@ -340,19 +340,24 @@ export default function MapView() {
       ? { loadOptions: { terrain: { workerUrl: TERRAIN_WORKER_URL } } }
       : { loaders: [TerrainLoader], loadOptions: { worker: false } };
     if (view.terrain3d && terrainMode === 'world') {
-      // Terrain stops a margin beyond the study area instead of running to the horizon: distant
-      // ground filled a large part of the screen and a large part of the GPU frame.
+      // Close in, terrain stops a margin beyond the study area instead of running to the
+      // horizon: distant ground filled a large part of the screen and of the GPU frame. Zoomed
+      // out past the scenario's framing, tiles are coarse and cheap, so the landscape runs on
+      // instead of ending in a void.
       const mw = (bbox[2] - bbox[0]) * TERRAIN_MARGIN;
       const mh = (bbox[3] - bbox[1]) * TERRAIN_MARGIN;
+      const zoomedOut = zoomStep < (config.view?.zoom ?? 10) - 0.5;
       list.push(
         new TerrainLayer({
-          id: `terrain-world-${terrainWorker ? 'w' : 'm'}`,
+          id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
-          texture: IMAGERY_URL,
+          texture: view.basemap === 'satellite' ? IMAGERY_URL : MAP_TILES_URL,
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 14,
           meshMaxError: 8,
-          extent: [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
+          extent: zoomedOut ? undefined : [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
+          // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
+          maxRequests: 16,
           ...meshing,
           material: TERRAIN_MATERIAL,
           onTileError: onTerrainError,
@@ -408,7 +413,7 @@ export default function MapView() {
           data: exposure.roads,
           getPath: (d: { path: [number, number][] }, { index }: { index: number }) => (view.terrain3d && roadPaths3d ? roadPaths3d[index] : d.path),
           getColor: (_d: unknown, { index }: { index: number }) =>
-            cut && cut[index] ? [208, 59, 59, 235] : view.basemap === 'satellite' || view.terrain3d ? [255, 255, 255, 110] : [60, 60, 67, 90],
+            cut && cut[index] ? [208, 59, 59, 235] : view.basemap === 'satellite' ? [255, 255, 255, 110] : [60, 60, 67, 90],
           getWidth: (_d: unknown, { index }: { index: number }) => (cut && cut[index] ? 3 : 1.2),
           widthUnits: 'pixels',
           capRounded: true,
@@ -436,25 +441,28 @@ export default function MapView() {
       );
     }
 
-    // Dam: an extruded wall at its real crest length across the detected axis; embankment and
-    // debris dams are drawn thicker than concrete, masonry and arch dams.
+    // Dam: an extruded wall along the real crest line (OpenStreetMap) when known, else the
+    // detected axis; embankment and debris dams are drawn thicker than concrete, masonry and
+    // arch dams.
     if (setup) {
-      const [a, b] = setup.site.crestAxis;
-      const midLat = (a[1] + b[1]) / 2;
-      const mLng = 111_320 * Math.cos((midLat * Math.PI) / 180);
-      const len = Math.hypot((b[0] - a[0]) * mLng, (b[1] - a[1]) * 110_574) || 1;
-      const nx = (-(b[1] - a[1]) * 110_574) / len;
-      const ny = ((b[0] - a[0]) * mLng) / len;
+      const line = setup.site.crestLine;
+      const mLng = 111_320 * Math.cos((line[0][1] * Math.PI) / 180);
       const half = /concrete|masonry|arch/i.test(config.dam.type ?? '') ? 20 : 45;
-      const off = (p: [number, number], s: number): [number, number, number] => [
-        p[0] + (nx * half * s) / mLng,
-        p[1] + (ny * half * s) / 110_574,
-        view.terrain3d ? setup.site.bed.elevation : 0,
-      ];
+      const z = view.terrain3d ? setup.site.bed.elevation : 0;
+      const quads: { polygon: [number, number, number][] }[] = [];
+      for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i];
+        const b = line[i + 1];
+        const len = Math.hypot((b[0] - a[0]) * mLng, (b[1] - a[1]) * 110_574) || 1;
+        const nx = (-(b[1] - a[1]) * 110_574) / len;
+        const ny = ((b[0] - a[0]) * mLng) / len;
+        const off = (p: [number, number], s: number): [number, number, number] => [p[0] + (nx * half * s) / mLng, p[1] + (ny * half * s) / 110_574, z];
+        quads.push({ polygon: [off(a, 1), off(b, 1), off(b, -1), off(a, -1)] });
+      }
       list.push(
         new SolidPolygonLayer({
           id: 'dam',
-          data: [{ polygon: [off(a, 1), off(b, 1), off(b, -1), off(a, -1)] }],
+          data: quads,
           getPolygon: (d: { polygon: [number, number, number][] }) => d.polygon,
           extruded: view.terrain3d,
           getElevation: config.dam.height,
