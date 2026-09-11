@@ -4,9 +4,35 @@
 
 import { ShallowWaterSolver } from './swe.ts';
 import { SPHSolver } from './sph.ts';
+import { GpuShallowWaterSolver } from './sweGpu.ts';
 import type { EngineConfig, EngineInfo, FrameStats, WorkerOutbound } from './types.ts';
 
 type Solver = ShallowWaterSolver | SPHSolver;
+
+/** What the worker and the main-thread fallback drive: the same object on both paths. */
+export interface Runtime {
+  info(): EngineInfo;
+  /** Computes for about `budgetMs`; true once the run is complete. */
+  runSlice(budgetMs: number): boolean | Promise<boolean>;
+  readonly done: boolean;
+  dispose?(): void;
+}
+
+/**
+ * The one place a runtime is chosen, for both the worker and the main-thread fallback: the grid
+ * solver on the GPU when WebGPU is available (and not switched off), otherwise on the CPU.
+ */
+export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void): Promise<Runtime> {
+  if (cfg.engine === 'swe' && cfg.gpu !== false) {
+    try {
+      const solver = await GpuShallowWaterSolver.create(cfg);
+      if (solver) return new GpuEngineRuntime(cfg, solver, emit);
+    } catch (err) {
+      console.warn('[cascade] WebGPU solver unavailable; using the CPU.', err);
+    }
+  }
+  return new EngineRuntime(cfg, emit);
+}
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -22,7 +48,7 @@ function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, di
   return out;
 }
 
-export class EngineRuntime {
+export class EngineRuntime implements Runtime {
   private readonly solver: Solver;
   private frameIndex = 0;
   private nextFrameT = 0;
@@ -171,5 +197,115 @@ export class EngineRuntime {
 
   get time(): number {
     return this.solver.t;
+  }
+}
+
+/**
+ * Drives the GPU grid solver with the same outputs as EngineRuntime: a frame every output
+ * interval, a summary every fifth frame, progress messages. Slices are asynchronous because
+ * each waits for results to come back from the GPU.
+ */
+class GpuEngineRuntime implements Runtime {
+  private frameIndex = 0;
+  private nextFrameT = 0;
+  private wallMs = 0;
+  private msSinceFrame = 0;
+  private stepsAtFrame = 0;
+  private finished = false;
+  private lastProgressAt = 0;
+  private readonly cfg: EngineConfig;
+  private readonly solver: GpuShallowWaterSolver;
+  private readonly emit: (msg: WorkerOutbound) => void;
+
+  constructor(cfg: EngineConfig, solver: GpuShallowWaterSolver, emit: (msg: WorkerOutbound) => void) {
+    this.cfg = cfg;
+    this.solver = solver;
+    this.emit = emit;
+  }
+
+  info(): EngineInfo {
+    return { label: '2D shallow-water finite-volume solver (HLL), on the graphics card', cells: this.cfg.cols * this.cfg.rows, backend: 'gpu' };
+  }
+
+  get done(): boolean {
+    return this.finished;
+  }
+
+  async runSlice(budgetMs: number): Promise<boolean> {
+    if (this.finished) return true;
+    const start = now();
+    const { duration } = this.cfg;
+    if (this.frameIndex === 0) {
+      await this.solver.read(false);
+      this.emitFrame();
+    }
+    while (now() - start < budgetMs) {
+      const t0 = now();
+      await this.solver.advanceTo(Math.min(this.nextFrameT, duration));
+      const last = this.solver.t >= duration - 1e-6;
+      // Envelopes only come back when a summary is due.
+      await this.solver.read(last || (this.frameIndex + 1) % 5 === 0);
+      this.msSinceFrame += now() - t0;
+      this.emitFrame();
+      if (this.frameIndex % 5 === 0) this.emitSummary(false);
+      if (last) {
+        this.wallMs += now() - start;
+        this.finished = true;
+        this.emitSummary(true);
+        this.emit({ type: 'done', engine: this.cfg.engine, t: this.solver.t, wallMs: this.wallMs });
+        return true;
+      }
+    }
+    const end = now();
+    this.wallMs += end - start;
+    if (end - this.lastProgressAt >= 250) {
+      this.lastProgressAt = end;
+      this.emit({ type: 'progress', engine: this.cfg.engine, t: this.solver.t, progress: Math.min(this.solver.t / duration, 1) });
+    }
+    return false;
+  }
+
+  private emitFrame(): void {
+    const s = this.solver;
+    const m = s.measure();
+    const stats: FrameStats = {
+      t: s.t,
+      inflowRate: s.inflowRate,
+      inflowVolume: s.inflowVolume,
+      outflowVolume: s.outflowVolume,
+      storedVolume: m.storedVolume,
+      wetArea: m.wetArea,
+      maxDepth: m.maxDepth,
+      computeMs: this.msSinceFrame,
+      steps: s.steps - this.stepsAtFrame,
+    };
+    // Structured clone (no transfer list): the UI receives its own copy.
+    this.emit({ type: 'frame', engine: this.cfg.engine, index: this.frameIndex, t: s.t, depth: this.toDisplay(s.depthCentimetres()), stats });
+    this.frameIndex++;
+    this.nextFrameT = this.frameIndex * this.cfg.outputInterval;
+    this.stepsAtFrame = s.steps;
+    this.msSinceFrame = 0;
+  }
+
+  private emitSummary(final: boolean): void {
+    const s = this.solver;
+    this.emit({
+      type: 'summary',
+      engine: this.cfg.engine,
+      t: s.t,
+      final,
+      maxDepth: this.toDisplay(s.maxDepth),
+      arrival: this.toDisplay(s.arrival),
+      maxSpeed: this.toDisplay(s.maxSpeed),
+      maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
+    });
+  }
+
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T): T {
+    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.display) : a;
+  }
+
+  dispose(): void {
+    this.solver.dispose();
   }
 }

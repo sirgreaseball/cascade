@@ -49,6 +49,8 @@ export interface EngineConfig {
    * runs the grid solver on coarsened cells and still hands the UI scenario-sized arrays.
    */
   display?: { cols: number; rows: number; factor: number };
+  /** Grid solver: run on the GPU through WebGPU when the browser offers it (else the CPU). */
+  gpu?: boolean;
 }
 
 export interface FrameStats {
@@ -115,4 +117,6 @@ export interface EngineInfo {
   cells: number;
   /** SPH: volume carried by each particle (m³). */
   particleVolume?: number;
+  /** Where the solver runs. */
+  backend?: 'cpu' | 'gpu';
 }

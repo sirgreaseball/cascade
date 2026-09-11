@@ -17,6 +17,8 @@ export interface EngineRun {
   mode: 'worker' | 'main-thread' | null;
   label: string;
   particleVolume?: number;
+  /** Where the engine ran: the grid solver uses the GPU when WebGPU is available. */
+  backend?: 'cpu' | 'gpu';
   error: string | null;
   wallMs: number;
 }
@@ -51,6 +53,8 @@ interface SimState {
   duration: number;
   manning: number;
   resolution: Resolution;
+  /** Run the grid solver on the graphics card (WebGPU) when the browser offers it. */
+  useGpu: boolean;
   engines: Record<EngineId, boolean>;
   setup: SimulationSetup | null;
   setupError: string | null;
@@ -72,6 +76,7 @@ interface SimState {
   setDuration: (s: number) => void;
   setManning: (n: number) => void;
   setResolution: (r: Resolution) => void;
+  setUseGpu: (v: boolean) => void;
   setEngine: (e: EngineId, on: boolean) => void;
   setView: (patch: Partial<ViewSettings>) => void;
   setPlayhead: (t: number) => void;
@@ -90,7 +95,7 @@ interface SimState {
 
 let scenarioRef: { config: ScenarioConfig; data: ScenarioData } | null = null;
 
-function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'resolution'>): { setup: SimulationSetup | null; setupError: string | null } {
+function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'resolution' | 'useGpu'>): { setup: SimulationSetup | null; setupError: string | null } {
   if (!scenarioRef || !state.event) return { setup: null, setupError: null };
   const { config, data } = scenarioRef;
   try {
@@ -104,6 +109,7 @@ function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'res
       manning: state.manning,
       duration: state.duration,
       resolution: state.resolution,
+      gpu: state.useGpu,
     });
     return { setup, setupError: null };
   } catch (err) {
@@ -118,6 +124,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   duration: 21_600,
   manning: 0.045,
   resolution: 'standard',
+  useGpu: true,
   engines: { swe: true, sph: true },
   setup: null,
   setupError: null,
@@ -143,7 +150,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   initForScenario: (config, data) => {
     scenarioRef = { config, data };
     const event = eventDefaults(config);
-    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution };
+    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu };
     set({
       ...base,
       ...recompute(base),
@@ -168,6 +175,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   setDuration: (duration) => set({ duration, ...recompute({ ...get(), duration }), stale: anyResults(get().runs) }),
   setManning: (manning) => set({ manning, ...recompute({ ...get(), manning }), stale: anyResults(get().runs) }),
   setResolution: (resolution) => set({ resolution, ...recompute({ ...get(), resolution }), stale: anyResults(get().runs) }),
+  setUseGpu: (useGpu) => set({ useGpu, ...recompute({ ...get(), useGpu }), stale: anyResults(get().runs) }),
   setEngine: (e, on) => {
     const engines = { ...get().engines, [e]: on };
     if (!engines.swe && !engines.sph) return;

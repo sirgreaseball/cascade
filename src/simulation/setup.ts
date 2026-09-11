@@ -42,6 +42,8 @@ export interface SetupInput {
   /** Target number of frames over the run (sets the output interval). */
   frames?: number;
   wetThreshold?: number;
+  /** Run the grid solver on the GPU when WebGPU is available (default true). */
+  gpu?: boolean;
 }
 
 export interface SimulationSetup {
@@ -135,6 +137,7 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
       display: { cols: grid.cols, rows: grid.rows, factor: f },
     };
   }
+  swe = { ...swe, gpu: input.gpu ?? true };
 
   return {
     grid,

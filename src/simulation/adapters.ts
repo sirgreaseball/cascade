@@ -3,7 +3,8 @@
 // the main thread in small time slices. Messages to and from the worker are structured-cloned;
 // never pass a transfer list here — the UI keeps its own copies of every array.
 
-import { EngineRuntime } from './runtime.ts';
+import { createRuntime } from './runtime.ts';
+import type { Runtime } from './runtime.ts';
 import type { EngineConfig, EngineId, EngineInfo, WorkerInbound, WorkerOutbound } from './types.ts';
 
 export type EngineMode = 'worker' | 'main-thread';
@@ -12,7 +13,7 @@ export class EngineClient {
   mode: EngineMode = 'worker';
   info: EngineInfo | null = null;
   private worker: Worker | null = null;
-  private runtime: EngineRuntime | null = null;
+  private runtime: Runtime | null = null;
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -32,7 +33,7 @@ export class EngineClient {
       console.warn('[cascade] Worker unavailable, running the solver on the main thread.', err);
       this.worker?.terminate();
       this.worker = null;
-      this.runtime = new EngineRuntime(config, (m) => !this.disposed && this.onMessage(m));
+      this.runtime = await createRuntime(config, (m) => !this.disposed && this.onMessage(m));
       this.info = this.runtime.info();
       this.mode = 'main-thread';
     }
@@ -75,10 +76,10 @@ export class EngineClient {
     }
     if (!this.runtime || this.running) return;
     this.running = true;
-    const tick = () => {
+    const tick = async () => {
       if (!this.running || !this.runtime || this.disposed) return;
       try {
-        if (this.runtime.runSlice(12)) {
+        if (await this.runtime.runSlice(12)) {
           this.running = false;
           return;
         }
@@ -89,7 +90,7 @@ export class EngineClient {
       }
       this.timer = setTimeout(tick, 0);
     };
-    tick();
+    void tick();
   }
 
   pause(): void {
@@ -103,6 +104,7 @@ export class EngineClient {
     this.pause();
     this.worker?.terminate();
     this.worker = null;
+    this.runtime?.dispose?.();
     this.runtime = null;
   }
 }

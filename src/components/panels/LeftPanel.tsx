@@ -187,6 +187,7 @@ function Validation() {
   const [bench, setBench] = useState<BenchmarkResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const version = useSimStore((s) => s.resultsVersion);
+  const backend = useSimStore((s) => s.runs.swe.backend);
   const massRow = useMemo((): BenchmarkResult | null => {
     void version;
     const r = results.get('swe');
@@ -195,10 +196,11 @@ function Validation() {
     const error = Math.abs(last.inflowVolume - last.outflowVolume - last.storedVolume) / last.inflowVolume;
     return {
       name: 'Mass balance, this run',
-      detail: `Released ${formatVolume(last.inflowVolume)} = left the area ${formatVolume(last.outflowVolume)} + on the ground ${formatVolume(last.storedVolume)}; error ${(error * 100).toExponential(1)} %.`,
-      pass: error < 1e-8,
+      detail: `Released ${formatVolume(last.inflowVolume)} = left the area ${formatVolume(last.outflowVolume)} + on the ground ${formatVolume(last.storedVolume)}; error ${(error * 100).toExponential(1)} %${backend === 'gpu' ? ' (single precision on the graphics card)' : ''}.`,
+      // The GPU computes in single precision: rounding accumulates to around 1e-6 of the volume.
+      pass: error < (backend === 'gpu' ? 1e-4 : 1e-8),
     };
-  }, [version]);
+  }, [version, backend]);
   const rows = [...(bench ?? []), ...(massRow ? [massRow] : [])];
   return (
     <div className="space-y-2">
@@ -243,6 +245,8 @@ function ModelTab() {
   const runs = useSimStore((s) => s.runs);
   const resolution = useSimStore((s) => s.resolution);
   const setResolution = useSimStore((s) => s.setResolution);
+  const useGpu = useSimStore((s) => s.useGpu);
+  const setUseGpu = useSimStore((s) => s.setUseGpu);
   const duration = useSimStore((s) => s.duration);
   const setDuration = useSimStore((s) => s.setDuration);
   const manning = useSimStore((s) => s.manning);
@@ -282,7 +286,7 @@ function ModelTab() {
               <span>
                 {r.status === 'error' ? <span className="text-critical">{r.error}</span> : r.status === 'done' ? `Finished in ${formatDuration(r.wallMs / 1000)}` : r.status === 'paused' ? 'Paused' : `${Math.round(r.progress * 100)}% computed`}
               </span>
-              <span>{r.mode === 'worker' ? 'Background worker' : r.mode === 'main-thread' ? 'Main thread' : ''}</span>
+              <span>{r.backend === 'gpu' ? 'Graphics card (WebGPU)' : r.mode === 'worker' ? 'Background worker' : r.mode === 'main-thread' ? 'Main thread' : ''}</span>
             </div>
             {id === 'sph' && r.particleVolume && <div className="text-[11px] text-faint">{formatNumber(r.particleVolume)} m³ of water per particle</div>}
           </div>
@@ -314,6 +318,13 @@ function ModelTab() {
             ? `Grid solver on cells twice the size (${formatNumber(g.dx * 2, 0)} m), about 8× faster; SPH with ${formatNumber(PARTICLE_BUDGET.fast)} particles. For a first look — use Standard for reported results.`
             : `Grid solver on the scenario's ${formatNumber(g.dx, 0)} m cells; SPH with ${formatNumber(PARTICLE_BUDGET[resolution])} particles.`}
         </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[12.5px] text-ink-2">Grid solver on the graphics card</div>
+            <div className="text-[11px] leading-snug text-faint">WebGPU, many times faster; the processor takes over where it is unavailable.</div>
+          </div>
+          <Switch checked={useGpu} onChange={setUseGpu} disabled={running} label="Run the grid solver on the graphics card" />
+        </div>
         <Slider label="Simulated time" value={duration} min={1800} max={12 * 3600} step={900} onChange={setDuration} format={formatDuration} />
         <Slider
           label="Manning roughness"

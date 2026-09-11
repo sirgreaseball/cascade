@@ -46,6 +46,7 @@ class SimulationController {
             mode,
             label: client.info?.label ?? engine,
             particleVolume: client.info?.particleVolume,
+            backend: client.info?.backend,
           });
           client.start();
         } catch (err) {
