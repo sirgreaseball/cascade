@@ -8,6 +8,7 @@ import { COORDINATE_SYSTEM, FlyToInterpolator } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
 import { BitmapLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
+import { HiResTerrainLayer } from './hiResTerrain';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 // Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
 // fetched from a CDN at runtime (and fail offline).
@@ -277,6 +278,23 @@ export default function MapView() {
       painted = true;
     }
     if (!painted) return null;
+    // Soften the last cells at the study-area edge: water leaving through the open boundary
+    // fades out instead of stopping on a hard straight line.
+    const FEATHER = 8;
+    const fade = (k: number, d: number) => {
+      if (d < FEATHER) out[k * 4 + 3] = Math.round((out[k * 4 + 3] * (d + 0.5)) / FEATHER);
+    };
+    for (let r = 0; r < rows; r++) {
+      const dr = Math.min(r, rows - 1 - r);
+      if (dr < FEATHER) {
+        for (let c = 0; c < cols; c++) fade(r * cols + c, Math.min(dr, c, cols - 1 - c));
+        continue;
+      }
+      for (let c = 0; c < FEATHER; c++) {
+        fade(r * cols + c, c);
+        fade(r * cols + cols - 1 - c, c);
+      }
+    }
     return new ImageData(out, cols, rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, primary, playhead, version, view.layer, external, observed, view.showObserved]);
@@ -377,13 +395,16 @@ export default function MapView() {
       const mh = (bbox[3] - bbox[1]) * TERRAIN_MARGIN;
       const zoomedOut = zoomStep < (config.view?.zoom ?? 10) - 0.5;
       list.push(
-        new TerrainLayer({
+        // High-resolution terrain: tiles to zoom 17 (heights cut from Terrarium's zoom 15) with
+        // textures stitched from imagery one zoom deeper, down to ~0.5 m per pixel.
+        new HiResTerrainLayer({
           id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
           texture,
+          textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
           elevationDecoder: TERRARIUM_DECODER,
-          maxZoom: 14,
-          meshMaxError: 8,
+          maxZoom: 17,
+          meshMaxError: 4,
           extent: zoomedOut ? undefined : [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
