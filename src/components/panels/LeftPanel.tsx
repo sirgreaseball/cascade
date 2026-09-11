@@ -12,6 +12,8 @@ import { froehlich2008 } from '@/simulation/hydrograph';
 import type { EventKind, FailureMode } from '@/simulation/hydrograph';
 import type { Resolution } from '@/simulation/setup';
 import { PARTICLE_BUDGET } from '@/simulation/setup';
+import { runBenchmarks } from '@/simulation/benchmarks';
+import type { BenchmarkResult } from '@/simulation/benchmarks';
 import { Button, Divider, Dot, Field, Progress, Section, Segmented, Slider, Switch, Tag, TextInput } from '@/components/ui/primitives';
 import { LineChart } from '@/components/ui/charts';
 import type { ChartSeries } from '@/components/ui/charts';
@@ -69,7 +71,10 @@ function EventTab() {
   const head = event.waterDepth - (event.damHeight - event.breachDepth);
   const modelledPeak = (() => {
     const r = results.get('swe');
-    return r && r.stats.length ? Math.max(...r.stats.map((s) => s.inflowRate)) : null;
+    if (!r || !r.stats.length) return null;
+    let best = 0;
+    for (let i = 1; i < r.stats.length; i++) if (r.stats[i].inflowRate > r.stats[best].inflowRate) best = i;
+    return { q: r.stats[best].inflowRate, t: r.times[best] };
   })();
 
   return (
@@ -152,12 +157,14 @@ function EventTab() {
         {h && (
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <div className="text-[11px] text-muted">{modelledPeak ? 'Modelled peak' : 'Peak (free)'}</div>
-              <div className="text-[14px] font-semibold">{formatDischarge(modelledPeak ?? h.peak)}</div>
+              <div className="text-[11px] text-muted">Modelled peak</div>
+              <div className="text-[14px] font-semibold">{modelledPeak ? formatDischarge(modelledPeak.q) : '—'}</div>
+              <div className="text-[10.5px] text-faint">{modelledPeak ? `at ${formatDuration(modelledPeak.t)}, with tailwater` : 'after a run'}</div>
             </div>
             <div>
-              <div className="text-[11px] text-muted">Time to peak</div>
-              <div className="text-[14px] font-semibold">{formatDuration(h.timeToPeak)}</div>
+              <div className="text-[11px] text-muted">{release ? 'Peak' : 'Free-outflow bound'}</div>
+              <div className="text-[14px] font-semibold">{formatDischarge(h.peak)}</div>
+              <div className="text-[10.5px] text-faint">at {formatDuration(h.timeToPeak)}</div>
             </div>
             <div>
               <div className="text-[11px] text-muted">Released</div>
@@ -167,10 +174,61 @@ function EventTab() {
         )}
         {!release && h?.froehlichPeak && (
           <p className="text-[11px] leading-snug text-faint">
-            Empirical peak estimates for comparison: Froehlich (1995) {formatDischarge(h.froehlichPeak)}, MacDonald & Langridge-Monopolis (1984) {formatDischarge(mlmPeak(event.volume, head))}. The routed value depends strongly on breach width and formation time.
+            The free-outflow bound drains the reservoir as if nothing stood below the dam; the modelled peak is what the grid solver lets through against the water already downstream. Empirical estimates for comparison: Froehlich (1995) {formatDischarge(h.froehlichPeak)}, MacDonald & Langridge-Monopolis (1984) {formatDischarge(mlmPeak(event.volume, head))}.
           </p>
         )}
       </Section>
+    </div>
+  );
+}
+
+/** Benchmarks run live in the browser, plus the current run's mass balance. */
+function Validation() {
+  const [bench, setBench] = useState<BenchmarkResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const version = useSimStore((s) => s.resultsVersion);
+  const massRow = useMemo((): BenchmarkResult | null => {
+    void version;
+    const r = results.get('swe');
+    const last = r?.stats[r.stats.length - 1];
+    if (!last || last.inflowVolume <= 0) return null;
+    const error = Math.abs(last.inflowVolume - last.outflowVolume - last.storedVolume) / last.inflowVolume;
+    return {
+      name: 'Mass balance, this run',
+      detail: `Released ${formatVolume(last.inflowVolume)} = left the area ${formatVolume(last.outflowVolume)} + on the ground ${formatVolume(last.storedVolume)}; error ${(error * 100).toExponential(1)} %.`,
+      pass: error < 1e-8,
+    };
+  }, [version]);
+  const rows = [...(bench ?? []), ...(massRow ? [massRow] : [])];
+  return (
+    <div className="space-y-2">
+      {rows.length > 0 && (
+        <div className="divide-y divide-black/[0.06] rounded-2xl bg-fill/70 px-3">
+          {rows.map((b) => (
+            <div key={b.name} className="flex items-start gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-medium">{b.name}</div>
+                <div className="mt-0.5 text-[11px] leading-snug text-muted">{b.detail}</div>
+              </div>
+              <Tag tone={b.pass ? 'accent' : 'warning'}>{b.pass ? 'Pass' : 'Check'}</Tag>
+            </div>
+          ))}
+        </div>
+      )}
+      <Button
+        className="w-full"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          // Let the button repaint before the (sub-second) computation blocks the thread.
+          setTimeout(() => {
+            setBench(runBenchmarks());
+            setBusy(false);
+          }, 30);
+        }}
+      >
+        {busy ? 'Running benchmarks…' : bench ? 'Run the benchmarks again' : 'Run analytical benchmarks'}
+      </Button>
     </div>
   );
 }
@@ -286,6 +344,27 @@ function ModelTab() {
           <Play className="h-3.5 w-3.5 fill-current" />
           {runs.swe.frames || runs.sph.frames ? (stale ? 'Settings changed — run again' : 'Run again') : 'Run simulation'}
         </Button>
+      </Section>
+
+      <Divider />
+
+      <Section title="Method and validation">
+        <div className="space-y-2 rounded-2xl bg-fill/70 p-3">
+          <div className="text-[12.5px] font-medium">2D shallow-water equations</div>
+          <div className="tnum text-[11.5px] leading-relaxed text-ink-2">
+            ∂h/∂t + ∇·(h<b>u</b>) = 0
+            <br />
+            ∂(h<b>u</b>)/∂t + ∇·(h<b>u</b>⊗<b>u</b>) + g h ∇(h + z) = −g n² |<b>u</b>| <b>u</b> / h<sup>1/3</sup>
+          </div>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-snug text-muted">
+            <li>Godunov finite volumes with HLL Riemann fluxes (Toro, 2001): captures bores and hydraulic jumps.</li>
+            <li>Hydrostatic reconstruction (Audusse et al., 2004): still water stays still, depths stay positive at wet–dry fronts.</li>
+            <li>Explicit time step at CFL 0.45; point-implicit Manning friction; open outflow boundaries.</li>
+            <li>Breach geometry and timing from Froehlich (2008); the reservoir drains as a level pool against the live tailwater.</li>
+            <li>SPH solver: the same equations carried by particles with variable smoothing length (after Vacondio et al., 2012).</li>
+          </ul>
+        </div>
+        <Validation />
       </Section>
 
       <Divider />

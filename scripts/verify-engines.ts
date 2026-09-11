@@ -13,6 +13,7 @@ import path from 'node:path';
 import { EngineRuntime } from '../src/simulation/runtime.ts';
 import { ShallowWaterSolver } from '../src/simulation/swe.ts';
 import { setupSimulation } from '../src/simulation/setup.ts';
+import { ritterBenchmark } from '../src/simulation/benchmarks.ts';
 import type { Resolution } from '../src/simulation/setup.ts';
 import { defaultEventParams } from '../src/simulation/hydrograph.ts';
 import type { EventKind, FailureMode } from '../src/simulation/hydrograph.ts';
@@ -79,6 +80,9 @@ function syntheticTests() {
   const mb = rt.massBalance();
   check(Math.abs(mb.error) / mb.inflow < 1e-9, `inflow = stored + outflow (relative error ${(Math.abs(mb.error) / mb.inflow).toExponential(2)})`);
   check(mb.outflow > 0, `water leaves through the open boundary (${(mb.outflow / 1e6).toFixed(2)} of ${(mb.inflow / 1e6).toFixed(2)} Mm³)`);
+
+  const ritter = ritterBenchmark();
+  check(ritter.pass, `${ritter.name}: ${ritter.detail}`);
 }
 
 async function scenarioRun(id: string, engines: EngineId[], durationOverride: number | null, resolution: Resolution) {

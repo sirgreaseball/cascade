@@ -218,17 +218,27 @@ export class ShallowWaterSolver {
     return this.z[this.thalweg] + this.h[this.thalweg];
   }
 
-  /** Picks up water placed directly in `h` before the first step (initial conditions, tests). */
+  /**
+   * Picks up water placed directly in `h` before the first step (initial conditions, benchmarks)
+   * and the wave speed it implies: without it the first step would run at maxDt and break CFL.
+   */
   private scanWater(): void {
-    const { rows, cols, h, wetLo, wetHi } = this;
+    const { rows, cols, dx, dy, h, hu, hv, wetLo, wetHi } = this;
+    let rate = 0;
     for (let r = 0; r < rows; r++) {
       const base = r * cols;
       for (let c = 0; c < cols; c++) {
-        if (h[base + c] <= DRY) continue;
+        const hk = h[base + c];
+        if (hk <= DRY) continue;
         if (c < wetLo[r]) wetLo[r] = c;
         if (c > wetHi[r]) wetHi[r] = c;
+        const u = hk > VEL_DEPTH ? Math.abs(hu[base + c] / hk) : 0;
+        const v = hk > VEL_DEPTH ? Math.abs(hv[base + c] / hk) : 0;
+        const cw = Math.sqrt(G * hk);
+        rate = Math.max(rate, (u + cw) / dx + (v + cw) / dy);
       }
     }
+    this.rate = Math.max(this.rate, rate);
     this.refreshSpans();
   }
 
