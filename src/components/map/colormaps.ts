@@ -45,7 +45,7 @@ export const DIFF_MID = '#e8e7e3';
 export const DIFF_POS = ['#f4b08a', '#eb6834', '#a8401a'];
 export const DIFF_RANGE = 10;
 
-function buildLut(steps: string[], alphaFrom: number, alphaTo: number): Uint8ClampedArray {
+function buildLut(steps: string[], alphaFrom: number, alphaTo: number, ease: (t: number) => number = (t) => t): Uint8ClampedArray {
   const lut = new Uint8ClampedArray(256 * 4);
   const rgb = steps.map(hexToRgb);
   for (let i = 0; i < 256; i++) {
@@ -54,12 +54,19 @@ function buildLut(steps: string[], alphaFrom: number, alphaTo: number): Uint8Cla
     const k = Math.min(Math.floor(pos), rgb.length - 2);
     const f = pos - k;
     for (let ch = 0; ch < 3; ch++) lut[i * 4 + ch] = rgb[k][ch] + (rgb[k + 1][ch] - rgb[k][ch]) * f;
-    lut[i * 4 + 3] = alphaFrom + (alphaTo - alphaFrom) * t;
+    lut[i * 4 + 3] = alphaFrom + (alphaTo - alphaFrom) * ease(t);
   }
   return lut;
 }
 
-const DEPTH_LUT = buildLut(DEPTH_STEPS, 150, 238);
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+// Soft shorelines: the shallowest water is translucent and reaches full colour by about a metre
+// deep (0.35 on the logarithmic scale), so flood edges fade instead of stopping in hard cells.
+const DEPTH_LUT = buildLut(DEPTH_STEPS, 70, 238, (t) => smoothstep(0, 0.35, t));
 const VELOCITY_LUT = buildLut(VELOCITY_STEPS, 160, 235);
 const DIFF_LUT = buildLut([...DIFF_NEG, DIFF_MID, ...DIFF_POS], 220, 220);
 const LOG_MIN = Math.log(DEPTH_MIN);

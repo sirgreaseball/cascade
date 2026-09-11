@@ -24,6 +24,8 @@ const G = 9.81;
 const WORKGROUP = 256;
 /** Longest batch (simulated seconds) over which the breach inflow is interpolated. */
 const MAX_SPAN = 30;
+/** GPU time per submission (ms): short enough for the map to draw between them. */
+const GPU_SLICE_MS = 8;
 
 const SHADER = /* wgsl */ `
 const G: f32 = 9.81;
@@ -385,6 +387,8 @@ export class GpuShallowWaterSolver {
   private rate = 0;
   /** Steps encoded per submission, adapted to how many a batch needs (always even). */
   private chunk = 32;
+  /** Wall time per step of the last submission (ms), for sizing the next. */
+  private msPerStep = 0;
   private lost: string | null = null;
 
   /** A solver on the GPU, or null when this browser has no WebGPU adapter. */
@@ -536,6 +540,7 @@ export class GpuShallowWaterSolver {
       this.device.queue.writeBuffer(this.state, 0, new Float32Array([0, 0, this.rate, 0, 0, 0, q0, 0]));
       let s: Float32Array;
       for (;;) {
+        const started = performance.now();
         const enc = this.device.createCommandEncoder();
         const pass = enc.beginComputePass();
         for (let i = 0; i < this.chunk; i++) {
@@ -556,11 +561,14 @@ export class GpuShallowWaterSolver {
         s = new Float32Array(this.probe.getMappedRange().slice(0));
         this.probe.unmap();
         if (!Number.isFinite(s[0]) || !Number.isFinite(s[2])) throw new Error('GPU solver produced an invalid time step.');
+        this.msPerStep = (performance.now() - started) / this.chunk;
         if (s[7] > 0.5) break;
       }
       const steps = s[5];
-      // Size the next submission so a batch usually needs one, with a little to spare.
-      this.chunk = Math.min(512, Math.max(8, Math.ceil((steps * 1.25) / 2) * 2));
+      // Size the next submission to fit the batch with a little to spare, but keep each one to
+      // about 8 ms of GPU work: the map shares the GPU and draws between submissions.
+      const budget = this.msPerStep > 0 ? Math.floor(GPU_SLICE_MS / this.msPerStep) : 32;
+      this.chunk = Math.min(512, Math.max(8, Math.ceil(Math.min(steps * 1.25, budget) / 2) * 2));
       const tau = s[0];
       this.t += tau;
       this.steps += steps;

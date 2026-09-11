@@ -10,6 +10,7 @@ import { BitmapLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer 
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
 import { HazeExtension } from './haze';
+import { WaterExtension } from './water';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 // Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
 // fetched from a CDN at runtime (and fail offline).
@@ -95,7 +96,8 @@ const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: 
 const TERRAIN_MATERIAL = { ambient: 0.55, diffuse: 0.6, shininess: 1, specularColor: [0, 0, 0] as [number, number, number] };
 const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
 const HAZE_MAP: [number, number, number] = [0.114, 0.129, 0.153];
-const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [70, 70, 70] as [number, number, number] };
+/** The water shader adds its own sun glints; the material keeps only a soft sheen. */
+const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [25, 25, 25] as [number, number, number] };
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 const GPU = detectGpu();
@@ -387,6 +389,11 @@ export default function MapView() {
 
   // Aerial perspective, coloured like the sky's horizon for the current basemap.
   const haze = useMemo(() => new HazeExtension({ color: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, strength: 0.72 }), [view.basemap]);
+  // The flood's water surface: glints on ripples and the sky mirrored at grazing angles.
+  const water = useMemo(
+    () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP }) : null),
+    [data, view.basemap],
+  );
 
   // ---- Map layers ------------------------------------------------------------------------
   const layers = useMemo(() => {
@@ -449,7 +456,9 @@ export default function MapView() {
           material: WATER_MATERIAL,
           textureParameters: { minFilter: 'linear', magFilter: 'linear' },
           parameters: { depthWriteEnabled: false },
-          extensions: [haze],
+          extensions: water ? [water, haze] : [haze],
+          // Ripples follow simulated time (10-minute units): they move while the flood plays.
+          waterTime: playhead / 600,
         } as never),
       );
     } else if (image) {
@@ -625,7 +634,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water, playhead]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(

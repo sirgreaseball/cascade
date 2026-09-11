@@ -36,14 +36,40 @@ export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutboun
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-/** Repeats each solver cell factor × factor onto the display grid (the Fast setting's coarse grid). */
-function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, display: NonNullable<EngineConfig['display']>): T {
+/**
+ * Solver results onto the display grid (the Fast setting's coarse grid). Smooth fields (depth,
+ * speed) are interpolated bilinearly, so the flood is not drawn in blocks of four cells; arrival
+ * times are copied from the nearest cell, since "never reached" (−1) must not be averaged with
+ * real times.
+ */
+function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, rows: number, display: NonNullable<EngineConfig['display']>, smooth: boolean): T {
   const f = display.factor;
   const out = new (src.constructor as new (n: number) => T)(display.cols * display.rows);
+  if (!smooth) {
+    for (let r = 0; r < display.rows; r++) {
+      const from = Math.min(rows - 1, (r / f) | 0) * cols;
+      const base = r * display.cols;
+      for (let c = 0; c < display.cols; c++) out[base + c] = src[from + Math.min(cols - 1, (c / f) | 0)];
+    }
+    return out;
+  }
+  const round = src instanceof Uint16Array;
   for (let r = 0; r < display.rows; r++) {
-    const from = ((r / f) | 0) * cols;
+    const sy = Math.min(rows - 1, Math.max(0, (r + 0.5) / f - 0.5));
+    const y0 = Math.floor(sy);
+    const y1 = Math.min(rows - 1, y0 + 1);
+    const fy = sy - y0;
     const base = r * display.cols;
-    for (let c = 0; c < display.cols; c++) out[base + c] = src[from + ((c / f) | 0)];
+    for (let c = 0; c < display.cols; c++) {
+      const sx = Math.min(cols - 1, Math.max(0, (c + 0.5) / f - 0.5));
+      const x0 = Math.floor(sx);
+      const x1 = Math.min(cols - 1, x0 + 1);
+      const fx = sx - x0;
+      const top = src[y0 * cols + x0] * (1 - fx) + src[y0 * cols + x1] * fx;
+      const bottom = src[y1 * cols + x0] * (1 - fx) + src[y1 * cols + x1] * fx;
+      const v = top * (1 - fy) + bottom * fy;
+      out[base + c] = round ? Math.round(v) : v;
+    }
   }
   return out;
 }
@@ -169,15 +195,15 @@ export class EngineRuntime implements Runtime {
       t: s.t,
       final,
       maxDepth: this.toDisplay(s.maxDepth),
-      arrival: this.toDisplay(s.arrival),
+      arrival: this.toDisplay(s.arrival, false),
       maxSpeed: this.toDisplay(s.maxSpeed),
       maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
     });
   }
 
   /** Solver arrays as the UI expects them: on the scenario grid. */
-  private toDisplay<T extends Uint16Array | Float32Array>(a: T): T {
-    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.display) : a;
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T, smooth = true): T {
+    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, smooth) : a;
   }
 
   private finish(): void {
@@ -295,14 +321,14 @@ class GpuEngineRuntime implements Runtime {
       t: s.t,
       final,
       maxDepth: this.toDisplay(s.maxDepth),
-      arrival: this.toDisplay(s.arrival),
+      arrival: this.toDisplay(s.arrival, false),
       maxSpeed: this.toDisplay(s.maxSpeed),
       maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
     });
   }
 
-  private toDisplay<T extends Uint16Array | Float32Array>(a: T): T {
-    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.display) : a;
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T, smooth = true): T {
+    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, smooth) : a;
   }
 
   dispose(): void {
