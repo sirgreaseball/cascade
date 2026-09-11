@@ -113,7 +113,77 @@ async function stitchedTexture(template: string, x: number, y: number, z: number
   return canvas.transferToImageBitmap();
 }
 
+/** Sharp, filtered imagery at grazing angles: trilinear mipmaps with 16× anisotropy. */
+const TEXTURE_PARAMETERS = {
+  minFilter: 'linear',
+  magFilter: 'linear',
+  mipmapFilter: 'linear',
+  addressModeU: 'clamp-to-edge',
+  addressModeV: 'clamp-to-edge',
+  maxAnisotropy: 16,
+};
+
+type Mesh = {
+  attributes: { POSITION: { value: Float32Array }; NORMAL?: { value: Float32Array; size: number } };
+  indices?: { value: Uint32Array | Uint16Array };
+};
+
+/**
+ * Per-vertex normals for a terrain tile, so it is lit as a smooth surface rather than triangle
+ * by triangle (deck.gl falls back to flat shading without them, which drew every facet). Computed
+ * in metres east, north and up — the space deck.gl's project_normal expects. Near-vertical
+ * triangles (the skirts that hide seams between tiles) are left out and skirt bottoms point up,
+ * so skirts are lit like the ground next to them instead of showing as dark slivers.
+ */
+function addNormals(mesh: Mesh | null, metresPerUnit: number): Mesh | null {
+  const idx = mesh?.indices?.value;
+  if (!mesh || !idx) return mesh;
+  const pos = mesh.attributes.POSITION.value;
+  const acc = new Float32Array(pos.length);
+  for (let t = 0; t + 2 < idx.length; t += 3) {
+    const a = idx[t] * 3;
+    const b = idx[t + 1] * 3;
+    const c = idx[t + 2] * 3;
+    const e1x = (pos[b] - pos[a]) * metresPerUnit;
+    const e1y = (pos[b + 1] - pos[a + 1]) * metresPerUnit;
+    const e1z = pos[b + 2] - pos[a + 2];
+    const e2x = (pos[c] - pos[a]) * metresPerUnit;
+    const e2y = (pos[c + 1] - pos[a + 1]) * metresPerUnit;
+    const e2z = pos[c + 2] - pos[a + 2];
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len === 0) continue;
+    if (nz < 0) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    if (nz / len < 0.2) continue;
+    // Area-weighted: larger triangles count for more.
+    for (const v of [a, b, c]) {
+      acc[v] += nx;
+      acc[v + 1] += ny;
+      acc[v + 2] += nz;
+    }
+  }
+  for (let v = 0; v < acc.length; v += 3) {
+    const len = Math.hypot(acc[v], acc[v + 1], acc[v + 2]);
+    if (len > 0) {
+      acc[v] /= len;
+      acc[v + 1] /= len;
+      acc[v + 2] /= len;
+    } else {
+      acc[v + 2] = 1;
+    }
+  }
+  mesh.attributes.NORMAL = { value: acc, size: 3 };
+  return mesh;
+}
+
 type TileLoad = Parameters<TerrainLayer['getTiledTerrainData']>[0];
+type SubLayerProps = Parameters<TerrainLayer['renderSubLayers']>[0];
 
 export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number }> {
   static layerName = 'HiResTerrainLayer';
@@ -134,9 +204,17 @@ export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number }>
     const yPad = ((tr[1] - bl[1]) / tileSize) * TILE_OVERLAP_PIXELS;
     const bounds = [bl[0] - xPad, bl[1] - yPad, tr[0] + xPad, tr[1] + yPad];
     const elevationTemplate = elevationData as string;
+    // Metres per projected unit across this tile, for the normals.
+    const midLat = ((bbox.north + bbox.south) / 2) * (Math.PI / 180);
+    const metresPerUnit = ((bbox.east - bbox.west) * 111_320 * Math.cos(midLat)) / Math.max(tr[0] - bl[0], 1e-12);
+    // Finer meshes near the camera (deep tiles), coarser far away: the error doubles every two
+    // zoom levels above Terrarium's last.
+    const tileError = (meshMaxError as number) * 2 ** (Math.max(0, TERRARIUM_MAX_ZOOM - z) / 2);
 
     const terrain = (z <= TERRARIUM_MAX_ZOOM ? Promise.resolve(fill(elevationTemplate, x, y, z)) : deeperTerrarium(elevationTemplate, x, y, z)).then((url) => {
-      const mesh = this.loadTerrain({ elevationData: url, bounds, elevationDecoder, meshMaxError, signal } as never);
+      const mesh = Promise.resolve(this.loadTerrain({ elevationData: url, bounds, elevationDecoder, meshMaxError: tileError, signal } as never)).then((m) =>
+        addNormals(m as unknown as Mesh | null, metresPerUnit),
+      );
       if (url.startsWith('blob:')) {
         // Free the cut-out image whether the tile loads or is cancelled (a cancelled load must
         // not surface as an unhandled rejection).
@@ -150,5 +228,10 @@ export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number }>
       ? stitchedTexture(template, x, y, z, textureMaxZoom, signal).catch(() => bitmap(fill(template, x, y, Math.min(z, textureMaxZoom)), signal).catch(() => null))
       : Promise.resolve(null);
     return Promise.all([terrain, surface]);
+  }
+
+  renderSubLayers(props: SubLayerProps) {
+    const layer = super.renderSubLayers(props);
+    return layer ? layer.clone({ textureParameters: TEXTURE_PARAMETERS } as never) : layer;
   }
 }

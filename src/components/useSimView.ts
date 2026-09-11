@@ -28,9 +28,15 @@ export function usePrimaryEngine(): EngineId {
   return useSimStore((s) => primaryEngine(s.view.engine, s.engines, { swe: s.runs.swe.frames, sph: s.runs.sph.frames }));
 }
 
-/** Latest simulated time any engine has produced. */
+/**
+ * Latest simulated time of the results on screen: the engine the map shows (both, in the overlay
+ * view). Following the fastest engine instead ran the clock past the last frame of the water
+ * being drawn, so the map showed a stale or empty flood while time moved on.
+ */
 export function latestTime(): number {
-  return Math.max(results.latestTime('swe'), results.latestTime('sph'));
+  const s = useSimStore.getState();
+  if (s.view.engine === 'overlay' && s.engines.swe && s.engines.sph) return Math.min(results.latestTime('swe'), results.latestTime('sph'));
+  return results.latestTime(primaryEngine(s.view.engine, s.engines, { swe: s.runs.swe.frames, sph: s.runs.sph.frames }));
 }
 
 export function useLatestTime(): number {

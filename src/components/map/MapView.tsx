@@ -9,6 +9,7 @@ import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
 import { BitmapLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
+import { HazeExtension } from './haze';
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 // Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
 // fetched from a CDN at runtime (and fail offline).
@@ -38,6 +39,10 @@ import {
 } from './colormaps';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 import { buildGridMesh } from './waterMesh';
+
+/** Sky and horizon glow above the 3D terrain; the horizon matches the terrain's haze. */
+const SKY_SATELLITE = { 'sky-color': '#3b6186', 'horizon-color': '#aebfd0', 'fog-color': '#aebfd0', 'sky-horizon-blend': 0.55, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.85 };
+const SKY_MAP = { 'sky-color': '#07080a', 'horizon-color': '#1d2127', 'fog-color': '#1d2127', 'sky-horizon-blend': 0.55, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.85 };
 
 const SATELLITE_STYLE = {
   version: 8 as const,
@@ -72,11 +77,13 @@ const SATELLITE_STYLE_3D = {
   ...SATELLITE_STYLE,
   sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } },
   layers: noFade(SATELLITE_STYLE.layers),
+  sky: SKY_SATELLITE,
 };
 const LIGHT_STYLE_3D = {
   ...LIGHT_STYLE,
   sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 512 } },
   layers: noFade(LIGHT_STYLE.layers.filter((l) => l.id !== 'labels')),
+  sky: SKY_MAP,
 };
 /** Copied from node_modules by scripts/copy-workers.mjs: terrain meshing off the main thread. */
 const TERRAIN_WORKER_URL = '/workers/terrain-worker.js';
@@ -84,10 +91,11 @@ const TERRAIN_WORKER_URL = '/workers/terrain-worker.js';
 const PIXEL_RATIO = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1;
 
 const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: -32768 };
-const TERRAIN_MATERIAL = { ambient: 0.62, diffuse: 0.55, shininess: 8, specularColor: [30, 30, 30] as [number, number, number] };
+/** Matte ground: the imagery carries its own sun and shadow; smooth normals add gentle relief. */
+const TERRAIN_MATERIAL = { ambient: 0.55, diffuse: 0.6, shininess: 1, specularColor: [0, 0, 0] as [number, number, number] };
+const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
+const HAZE_MAP: [number, number, number] = [0.114, 0.129, 0.153];
 const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [70, 70, 70] as [number, number, number] };
-/** Share of the study-area size that close-in 3D terrain extends beyond it on every side. */
-const TERRAIN_MARGIN = 1;
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 const GPU = detectGpu();
@@ -377,6 +385,9 @@ export default function MapView() {
     return out;
   }, [exposure, impacts, selectedAsset, zoomStep]);
 
+  // Aerial perspective, coloured like the sky's horizon for the current basemap.
+  const haze = useMemo(() => new HazeExtension({ color: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, strength: 0.72 }), [view.basemap]);
+
   // ---- Map layers ------------------------------------------------------------------------
   const layers = useMemo(() => {
     if (!config || !data) return [];
@@ -388,15 +399,11 @@ export default function MapView() {
       : { loaders: [TerrainLoader], loadOptions: { worker: false } };
     if (view.terrain3d && terrainMode === 'world') {
       const texture = view.basemap === 'satellite' ? IMAGERY_URL : MAP_TILES_URL;
-      // Close in, detailed terrain stops a margin beyond the study area (distant ground filled
-      // much of the GPU frame) and the flat basemap underneath carries on to the horizon. Zoomed
-      // out past the scenario's framing, tiles are coarse and cheap, so terrain runs everywhere.
-      const mw = (bbox[2] - bbox[0]) * TERRAIN_MARGIN;
-      const mh = (bbox[3] - bbox[1]) * TERRAIN_MARGIN;
-      const zoomedOut = zoomStep < (config.view?.zoom ?? 10) - 0.5;
       list.push(
-        // High-resolution terrain: tiles to zoom 17 (heights cut from Terrarium's zoom 15) with
-        // textures stitched from imagery one zoom deeper, down to ~0.5 m per pixel.
+        // High-resolution terrain everywhere, to the horizon (no margin, so no cliff where it
+        // used to stop): tiles to zoom 17 (heights cut from Terrarium's zoom 15) with textures
+        // stitched from imagery one zoom deeper, down to ~0.5 m per pixel; smooth normals,
+        // finer meshes near the camera, and haze towards the horizon.
         new HiResTerrainLayer({
           id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
@@ -404,8 +411,8 @@ export default function MapView() {
           textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 17,
-          meshMaxError: 4,
-          extent: zoomedOut ? undefined : [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
+          meshMaxError: 2,
+          extensions: [haze],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
           ...meshing,
@@ -442,6 +449,7 @@ export default function MapView() {
           material: WATER_MATERIAL,
           textureParameters: { minFilter: 'linear', magFilter: 'linear' },
           parameters: { depthWriteEnabled: false },
+          extensions: [haze],
         } as never),
       );
     } else if (image) {
@@ -617,7 +625,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
