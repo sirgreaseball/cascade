@@ -12,8 +12,9 @@
 //   ∂(hu)/∂t + ∂(hu² + ½gh²)/∂x + ∂(huv)/∂y = −gh ∂z/∂x − g n² |u| u / h^(1/3)
 //   ∂(hv)/∂t + ∂(huv)/∂x + ∂(hv² + ½gh²)/∂y = −gh ∂z/∂y − g n² |u| v / h^(1/3)
 //
-// Conservative fluxes make mass conservation exact; only the wet bounding box (plus a margin)
-// is iterated, and dry–dry faces are skipped.
+// Conservative fluxes make mass conservation exact; only each row's wet span (plus a margin) is
+// iterated, and dry–dry faces are skipped. A flood running diagonally across the grid touches a
+// thin band of cells, where a bounding box would cover most of the grid.
 
 import { InflowBoundary } from './boundary.ts';
 import type { EngineConfig } from './types.ts';
@@ -92,10 +93,19 @@ export class ShallowWaterSolver {
   private readonly dhv: Float64Array;
   /** max over wet cells of (|u|+c)/dx + (|v|+c)/dy, for the CFL condition. */
   private rate = 0;
+  /** Bounding box of every span so far: what frames and volume measurements read. */
   private r0: number;
   private r1: number;
   private c0: number;
   private c1: number;
+  /** Per-row column span iterated this step: wet columns of rows r ± 2, widened by 2. */
+  private readonly spanLo: Int32Array;
+  private readonly spanHi: Int32Array;
+  /** Per-row column span of cells holding water after the last step. */
+  private readonly wetLo: Int32Array;
+  private readonly wetHi: Int32Array;
+  private activeR0 = 0;
+  private activeR1 = -1;
   private readonly n2: number;
   private readonly cfl = 0.45;
   private readonly maxDt = 10;
@@ -148,6 +158,55 @@ export class ShallowWaterSolver {
     this.r1 = Math.min(rows - 1, r1 + 2);
     this.c0 = Math.max(0, c0 - 2);
     this.c1 = Math.min(cols - 1, c1 + 2);
+    this.spanLo = new Int32Array(rows).fill(cols);
+    this.spanHi = new Int32Array(rows).fill(-1);
+    this.wetLo = new Int32Array(rows).fill(cols);
+    this.wetHi = new Int32Array(rows).fill(-1);
+    this.refreshSpans();
+  }
+
+  /**
+   * Rebuilds the spans iterated next step from the wet spans. Water moves less than a cell per
+   * step (CFL < 1), so a margin of two rows and two columns always contains the cells it can
+   * reach, and every face with water on either side lies inside both adjacent rows' spans.
+   */
+  private refreshSpans(): void {
+    const { rows, cols, wetLo, wetHi, spanLo, spanHi } = this;
+    // Breach cells always take part: the next step adds water there.
+    for (const s of this.cfg.sources) {
+      const r = (s.index / cols) | 0;
+      const c = s.index % cols;
+      if (c < wetLo[r]) wetLo[r] = c;
+      if (c > wetHi[r]) wetHi[r] = c;
+    }
+    let a0 = rows;
+    let a1 = -1;
+    for (let r = 0; r < rows; r++) {
+      let lo = cols;
+      let hi = -1;
+      const rr1 = Math.min(rows - 1, r + 2);
+      for (let rr = Math.max(0, r - 2); rr <= rr1; rr++) {
+        if (wetLo[rr] < lo) lo = wetLo[rr];
+        if (wetHi[rr] > hi) hi = wetHi[rr];
+      }
+      if (hi < 0) {
+        spanLo[r] = cols;
+        spanHi[r] = -1;
+        continue;
+      }
+      lo = Math.max(0, lo - 2);
+      hi = Math.min(cols - 1, hi + 2);
+      spanLo[r] = lo;
+      spanHi[r] = hi;
+      if (r < a0) a0 = r;
+      a1 = r;
+      if (r < this.r0) this.r0 = r;
+      if (r > this.r1) this.r1 = r;
+      if (lo < this.c0) this.c0 = lo;
+      if (hi > this.c1) this.c1 = hi;
+    }
+    this.activeR0 = a0;
+    this.activeR1 = a1;
   }
 
   /** Breach inflow over the last step (m³/s). */
@@ -159,8 +218,23 @@ export class ShallowWaterSolver {
     return this.z[this.thalweg] + this.h[this.thalweg];
   }
 
+  /** Picks up water placed directly in `h` before the first step (initial conditions, tests). */
+  private scanWater(): void {
+    const { rows, cols, h, wetLo, wetHi } = this;
+    for (let r = 0; r < rows; r++) {
+      const base = r * cols;
+      for (let c = 0; c < cols; c++) {
+        if (h[base + c] <= DRY) continue;
+        if (c < wetLo[r]) wetLo[r] = c;
+        if (c > wetHi[r]) wetHi[r] = c;
+      }
+    }
+    this.refreshSpans();
+  }
+
   /** Advances one explicit step of at most `limit` seconds; returns the step taken. */
   step(limit: number): number {
+    if (this.steps === 0) this.scanWater();
     const { cols, rows, dx, dy, z, h, hu, hv, dh, dhu, dhv, cellArea } = this;
     const sources = this.cfg.sources;
     const tail = this.tailwater();
@@ -193,22 +267,28 @@ export class ShallowWaterSolver {
       this.inflowVolume += vol;
     }
 
-    const { r0, r1, c0, c1 } = this;
-    for (let r = r0; r <= r1; r++) {
+    const { spanLo, spanHi, activeR0, activeR1 } = this;
+    for (let r = activeR0; r <= activeR1; r++) {
+      const lo = spanLo[r];
+      const hi = spanHi[r];
+      if (hi < lo) continue;
       const base = r * cols;
-      dh.fill(0, base + c0, base + c1 + 1);
-      dhu.fill(0, base + c0, base + c1 + 1);
-      dhv.fill(0, base + c0, base + c1 + 1);
+      dh.fill(0, base + lo, base + hi + 1);
+      dhu.fill(0, base + lo, base + hi + 1);
+      dhv.fill(0, base + lo, base + hi + 1);
     }
     const sx = dt / dx;
     const sy = dt / dy;
     const halfG = 0.5 * G;
     let edgeOut = 0;
 
-    // x-direction faces (normal velocity u).
-    for (let r = r0; r <= r1; r++) {
+    // x-direction faces (normal velocity u), within each row's span.
+    for (let r = activeR0; r <= activeR1; r++) {
+      const lo = spanLo[r];
+      const hi = spanHi[r];
+      if (hi < lo) continue;
       const rowC = r * cols;
-      for (let c = c0 + 1; c <= c1; c++) {
+      for (let c = lo + 1; c <= hi; c++) {
         const L = rowC + c - 1;
         const R = L + 1;
         const hL = h[L];
@@ -231,7 +311,7 @@ export class ShallowWaterSolver {
         dhu[R] += sx * (F1 + halfG * (hR * hR - hRs * hRs));
         dhv[R] += sx * F2;
       }
-      if (c0 === 0) {
+      if (lo === 0) {
         const k = rowC;
         const hk = h[k];
         if (hk > DRY) {
@@ -249,7 +329,7 @@ export class ShallowWaterSolver {
           edgeOut -= F0 * dy;
         }
       }
-      if (c1 === cols - 1) {
+      if (hi === cols - 1) {
         const k = rowC + cols - 1;
         const hk = h[k];
         if (hk > DRY) {
@@ -269,9 +349,12 @@ export class ShallowWaterSolver {
       }
     }
 
-    // y-direction faces (normal velocity v, tangential u).
-    for (let r = r0 + 1; r <= r1; r++) {
-      for (let c = c0; c <= c1; c++) {
+    // y-direction faces (normal velocity v, tangential u). A face with water on either side lies
+    // inside both rows' spans, so their overlap covers every face that carries flux.
+    for (let r = activeR0 + 1; r <= activeR1; r++) {
+      const lo = Math.max(spanLo[r - 1], spanLo[r]);
+      const hi = Math.min(spanHi[r - 1], spanHi[r]);
+      for (let c = lo; c <= hi; c++) {
         const N = (r - 1) * cols + c;
         const S = N + cols;
         const hN = h[N];
@@ -295,8 +378,8 @@ export class ShallowWaterSolver {
         dhu[S] += sy * F2;
       }
     }
-    if (r0 === 0) {
-      for (let c = c0; c <= c1; c++) {
+    if (activeR0 === 0) {
+      for (let c = spanLo[0]; c <= spanHi[0]; c++) {
         const k = c;
         const hk = h[k];
         if (hk <= DRY) continue;
@@ -314,8 +397,8 @@ export class ShallowWaterSolver {
         edgeOut -= F0 * dx;
       }
     }
-    if (r1 === rows - 1) {
-      for (let c = c0; c <= c1; c++) {
+    if (activeR1 === rows - 1) {
+      for (let c = spanLo[rows - 1]; c <= spanHi[rows - 1]; c++) {
         const k = (rows - 1) * cols + c;
         const hk = h[k];
         if (hk <= DRY) continue;
@@ -340,13 +423,12 @@ export class ShallowWaterSolver {
     const wet = this.wet;
     const n2 = this.n2;
     let rate = 0;
-    let wr0 = rows;
-    let wr1 = -1;
-    let wc0 = cols;
-    let wc1 = -1;
-    const { maxDepth, arrival, maxSpeed, maxDepthVelocity } = this;
-    for (let r = r0; r <= r1; r++) {
-      for (let c = c0; c <= c1; c++) {
+    const { maxDepth, arrival, maxSpeed, maxDepthVelocity, wetLo, wetHi } = this;
+    for (let r = activeR0; r <= activeR1; r++) {
+      const hi = spanHi[r];
+      let wl = cols;
+      let wh = -1;
+      for (let c = spanLo[r]; c <= hi; c++) {
         const k = r * cols + c;
         let hk = h[k] + dh[k];
         if (hk <= 0) {
@@ -383,11 +465,9 @@ export class ShallowWaterSolver {
         h[k] = hk;
         hu[k] = qx;
         hv[k] = qy;
-        if (hk > VEL_DEPTH) {
-          if (r < wr0) wr0 = r;
-          if (r > wr1) wr1 = r;
-          if (c < wc0) wc0 = c;
-          if (c > wc1) wc1 = c;
+        if (hk > DRY) {
+          if (wl > c) wl = c;
+          wh = c;
         }
         if (hk > maxDepth[k]) maxDepth[k] = hk;
         if (hk >= wet) {
@@ -398,14 +478,11 @@ export class ShallowWaterSolver {
         }
         hk = 0;
       }
+      wetLo[r] = wl;
+      wetHi[r] = wh;
     }
     this.rate = rate;
-    if (wr1 >= 0) {
-      this.r0 = Math.min(this.r0, Math.max(0, wr0 - 2));
-      this.r1 = Math.max(this.r1, Math.min(rows - 1, wr1 + 2));
-      this.c0 = Math.min(this.c0, Math.max(0, wc0 - 2));
-      this.c1 = Math.max(this.c1, Math.min(cols - 1, wc1 + 2));
-    }
+    this.refreshSpans();
     this.t = tNext;
     this.steps++;
     this.lastDt = dt;

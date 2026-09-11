@@ -11,6 +11,13 @@ let engine: EngineId = 'swe';
 
 const post = (msg: WorkerOutbound) => (self as unknown as Worker).postMessage(msg);
 
+// Yield between slices through a MessageChannel: chained setTimeout(0) calls are clamped to
+// 4 ms, which idled the solver about a tenth of the time. Pause and stop messages still get
+// through between slices.
+const channel = new MessageChannel();
+channel.port1.onmessage = () => loop();
+const next = () => channel.port2.postMessage(null);
+
 function loop(): void {
   if (!running || !runtime) return;
   try {
@@ -24,7 +31,7 @@ function loop(): void {
     post({ type: 'error', engine, message: err instanceof Error ? err.message : String(err) });
     return;
   }
-  setTimeout(loop, 0);
+  next();
 }
 
 self.onmessage = (event: MessageEvent<WorkerInbound>) => {
