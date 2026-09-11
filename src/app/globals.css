@@ -95,21 +95,22 @@
   /* Liquid glass over the live map, after the splash page's frosted cards: a dark translucent
      fill under a soft sheen from the top, with a Gaussian backdrop blur. The light rim comes
      from --shadow-panel / --shadow-float. */
-  /* Readability first: a fairly solid fill and a heavy blur, so the map behind reads as soft
-     colour rather than detail competing with the text. */
+  /* Deep frosted glass: a very strong blur that also darkens and saturates what lies behind,
+     under a light tint. The map glows through as soft colour while every detail is blurred
+     away, so text stays readable without an opaque fill hiding the blur. */
   .glass {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.012) 30%, rgba(255, 255, 255, 0) 60%),
-      rgba(13, 13, 15, 0.8);
-    backdrop-filter: blur(44px) saturate(135%);
-    -webkit-backdrop-filter: blur(44px) saturate(135%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 30%, rgba(255, 255, 255, 0) 60%),
+      rgba(12, 12, 14, 0.44);
+    backdrop-filter: blur(72px) saturate(190%) brightness(0.72);
+    -webkit-backdrop-filter: blur(72px) saturate(190%) brightness(0.72);
   }
   .glass-pill {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015)),
-      rgba(15, 15, 17, 0.76);
-    backdrop-filter: blur(36px) saturate(140%);
-    -webkit-backdrop-filter: blur(36px) saturate(140%);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02)),
+      rgba(14, 14, 16, 0.42);
+    backdrop-filter: blur(56px) saturate(190%) brightness(0.72);
+    -webkit-backdrop-filter: blur(56px) saturate(190%) brightness(0.72);
     box-shadow: var(--shadow-float);
   }
   /* Menus, sheets and hover cards: more opaque, since a menu inside another glass surface
