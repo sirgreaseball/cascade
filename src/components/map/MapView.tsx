@@ -64,11 +64,18 @@ const LIGHT_STYLE = {
  * Under 3D terrain the flat basemap only shows where terrain tiles are still loading or beyond
  * the terrain's reach, so 512-px tiles (a quarter as many) and no labels keep it cheap.
  */
-const SATELLITE_STYLE_3D = { ...SATELLITE_STYLE, sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } } };
+/** No fade-in under 3D terrain: each fading tile repainted the map for 300 ms. */
+const noFade = <T extends { type: string; paint?: object }>(layers: T[]) =>
+  layers.map((l) => (l.type === 'raster' ? { ...l, paint: { ...l.paint, 'raster-fade-duration': 0 } } : l));
+const SATELLITE_STYLE_3D = {
+  ...SATELLITE_STYLE,
+  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } },
+  layers: noFade(SATELLITE_STYLE.layers),
+};
 const LIGHT_STYLE_3D = {
   ...LIGHT_STYLE,
   sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 512 } },
-  layers: LIGHT_STYLE.layers.filter((l) => l.id !== 'labels'),
+  layers: noFade(LIGHT_STYLE.layers.filter((l) => l.id !== 'labels')),
 };
 /** Copied from node_modules by scripts/copy-workers.mjs: terrain meshing off the main thread. */
 const TERRAIN_WORKER_URL = '/workers/terrain-worker.js';
@@ -721,7 +728,9 @@ export default function MapView() {
                 : LIGHT_STYLE) as never
           }
           attributionControl={false}
-          pixelRatio={PIXEL_RATIO}
+          // Under 3D terrain the flat basemap is mostly hidden or far off at the horizon: half
+          // resolution (a quarter of the pixels) keeps it cheap next to the frosted panels.
+          pixelRatio={view.terrain3d && terrainMode === 'world' ? 0.5 : PIXEL_RATIO}
           // In 3D world mode the first terrain tile marks the map ready instead.
           onLoad={() => !(view.terrain3d && terrainMode === 'world') && useUiStore.getState().setMapReady(true)}
         />
