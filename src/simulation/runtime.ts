@@ -10,6 +10,18 @@ type Solver = ShallowWaterSolver | SPHSolver;
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Repeats each solver cell factor × factor onto the display grid (the Fast setting's coarse grid). */
+function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, display: NonNullable<EngineConfig['display']>): T {
+  const f = display.factor;
+  const out = new (src.constructor as new (n: number) => T)(display.cols * display.rows);
+  for (let r = 0; r < display.rows; r++) {
+    const from = ((r / f) | 0) * cols;
+    const base = r * display.cols;
+    for (let c = 0; c < display.cols; c++) out[base + c] = src[from + ((c / f) | 0)];
+  }
+  return out;
+}
+
 export class EngineRuntime {
   private readonly solver: Solver;
   private frameIndex = 0;
@@ -113,7 +125,7 @@ export class EngineRuntime {
       engine: this.cfg.engine,
       index: this.frameIndex,
       t: s.t,
-      depth: s.depthCentimetres(),
+      depth: this.toDisplay(s.depthCentimetres()),
       stats,
       particles,
     });
@@ -130,11 +142,16 @@ export class EngineRuntime {
       engine: this.cfg.engine,
       t: s.t,
       final,
-      maxDepth: s.maxDepth,
-      arrival: s.arrival,
-      maxSpeed: s.maxSpeed,
-      maxDepthVelocity: s.maxDepthVelocity,
+      maxDepth: this.toDisplay(s.maxDepth),
+      arrival: this.toDisplay(s.arrival),
+      maxSpeed: this.toDisplay(s.maxSpeed),
+      maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
     });
+  }
+
+  /** Solver arrays as the UI expects them: on the scenario grid. */
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T): T {
+    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.display) : a;
   }
 
   private finish(): void {

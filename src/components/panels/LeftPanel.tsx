@@ -251,7 +251,11 @@ function ModelTab() {
             { value: 'high', label: 'Detailed' },
           ]}
         />
-        <p className="-mt-1 text-[11px] text-faint">SPH particle budget: {formatNumber(PARTICLE_BUDGET[resolution])}. The grid is fixed by the scenario.</p>
+        <p className="-mt-1 text-[11px] text-faint">
+          {resolution === 'fast'
+            ? `Grid solver on cells twice the size (${formatNumber(g.dx * 2, 0)} m), about 8× faster; SPH with ${formatNumber(PARTICLE_BUDGET.fast)} particles. For a first look — use Standard for reported results.`
+            : `Grid solver on the scenario's ${formatNumber(g.dx, 0)} m cells; SPH with ${formatNumber(PARTICLE_BUDGET[resolution])} particles.`}
+        </p>
         <Slider label="Simulated time" value={duration} min={1800} max={12 * 3600} step={900} onChange={setDuration} format={formatDuration} />
         <Slider
           label="Manning roughness"

@@ -44,6 +44,11 @@ export interface EngineConfig {
     /** Particle budget; particle volume is derived from it and the hydrograph volume. */
     targetParticles: number;
   };
+  /**
+   * Emit results on this finer grid, each solver cell repeated factor × factor. The Fast setting
+   * runs the grid solver on coarsened cells and still hands the UI scenario-sized arrays.
+   */
+  display?: { cols: number; rows: number; factor: number };
 }
 
 export interface FrameStats {
