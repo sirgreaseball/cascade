@@ -218,6 +218,17 @@ export default function RightPanel() {
                       )}
                     </div>
                   </div>
+                  {i.peopleExposed > 0 && (
+                    <div className="rounded-2xl bg-fill/70 px-3 py-2.5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <div className="text-[12px] text-muted">Estimated loss of life</div>
+                        <div className="tnum text-[20px] font-semibold tracking-[-0.02em]">{i.lossOfLife < 1 ? '< 1' : formatNumber(Math.round(i.lossOfLife))}</div>
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-faint">
+                        Range {formatNumber(Math.round(i.lossOfLifeLow))}–{formatNumber(Math.round(i.lossOfLifeHigh))}. Graham (1999) fatality rates by flood severity and warning time, with the warning issued as the breach begins.
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     <Stat label="Flooded now" value={formatArea(impacts.floodedArea)} />
                     <Stat label="Outflow now" value={formatDischarge(impacts.inflowRate)} sub={`${formatVolume(impacts.released)} released`} />

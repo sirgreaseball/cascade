@@ -7,6 +7,7 @@ import { haversine, lngLatToCell } from './geo/grid';
 import type { GridGeometry } from './geo/grid';
 import type { AssetCollection, AssetKind, RoadCollection } from './osm';
 import { assetLoss, hazardClass, roadLoss } from './damage';
+import { grahamFatalityRate } from './lifeLoss';
 import type { SummaryMessage } from '@/simulation/types';
 
 export const FLOOD_THRESHOLD = 0.1;
@@ -188,6 +189,10 @@ export interface AssetStatus {
   hazard: number;
   loss: number;
   peopleExposed: number;
+  /** Expected fatalities among the people exposed, with Graham's (1999) low–high range. */
+  lifeLoss: number;
+  lifeLossLow: number;
+  lifeLossHigh: number;
 }
 
 export function assessAssets(
@@ -227,6 +232,8 @@ export function assessAssets(
       }
     }
     const hazard = maxDepth > 0 ? Math.max(1, hazardClass(maxDepth, maxSpeed, maxDV)) : 0;
+    const people = a.kind === 'settlement' ? Math.round(a.population * share) : 0;
+    const fatality = people > 0 ? grahamFatalityRate(maxDV, arrival) : null;
     out.push({
       arrival,
       maxDepth,
@@ -236,7 +243,10 @@ export function assessAssets(
       maxDepthVelocity: maxDV,
       hazard,
       loss: assetLoss(a.kind, a.population, maxDepth, share, maxDV),
-      peopleExposed: a.kind === 'settlement' ? Math.round(a.population * share) : 0,
+      peopleExposed: people,
+      lifeLoss: fatality ? people * fatality.rate : 0,
+      lifeLossLow: fatality ? people * fatality.low : 0,
+      lifeLossHigh: fatality ? people * fatality.high : 0,
     });
   }
   return out;
@@ -244,6 +254,10 @@ export function assessAssets(
 
 export interface ImpactSummary {
   peopleExposed: number;
+  /** Graham (1999) loss-of-life estimate and range, warning issued as the breach begins. */
+  lossOfLife: number;
+  lossOfLifeLow: number;
+  lossOfLifeHigh: number;
   settlementsFlooded: number;
   facilitiesFlooded: number;
   bridgesFlooded: number;
@@ -257,6 +271,9 @@ export interface ImpactSummary {
 
 export function summarizeImpacts(index: ExposureIndex, statuses: AssetStatus[], frame: FrameExposure | undefined): ImpactSummary {
   let people = 0;
+  let lol = 0;
+  let lolLow = 0;
+  let lolHigh = 0;
   let settlements = 0;
   let facilities = 0;
   let bridges = 0;
@@ -270,6 +287,9 @@ export function summarizeImpacts(index: ExposureIndex, statuses: AssetStatus[], 
     if (a.kind === 'settlement') {
       settlements++;
       people += s.peopleExposed;
+      lol += s.lifeLoss;
+      lolLow += s.lifeLossLow;
+      lolHigh += s.lifeLossHigh;
       if (s.arrival >= 0 && (first === null || s.arrival < first)) {
         first = s.arrival;
         firstPlace = a.name;
@@ -295,6 +315,9 @@ export function summarizeImpacts(index: ExposureIndex, statuses: AssetStatus[], 
   }
   return {
     peopleExposed: people,
+    lossOfLife: lol,
+    lossOfLifeLow: lolLow,
+    lossOfLifeHigh: lolHigh,
     settlementsFlooded: settlements,
     facilitiesFlooded: facilities,
     bridgesFlooded: bridges,
