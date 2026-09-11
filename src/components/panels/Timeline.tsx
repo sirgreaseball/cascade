@@ -126,12 +126,12 @@ export default function Timeline() {
               <button
                 onClick={togglePlay}
                 aria-label={follow || playing ? 'Pause' : 'Play'}
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-ink text-white transition-transform active:scale-95"
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-ink text-canvas transition-transform active:scale-95"
               >
                 {follow || playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="ml-0.5 h-5 w-5 fill-current" />}
               </button>
               {running ? (
-                <button onClick={() => controller.reset()} aria-label="Stop the run" title="Stop the run" className="flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-black/[0.06]">
+                <button onClick={() => controller.reset()} aria-label="Stop the run" title="Stop the run" className="flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]">
                   <Square className="h-3.5 w-3.5 fill-current" />
                 </button>
               ) : (
@@ -139,7 +139,7 @@ export default function Timeline() {
                   onClick={() => controller.run()}
                   aria-label="Run again with the current settings"
                   title={stale ? 'Settings changed — run again' : 'Run again'}
-                  className={cn('relative flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-black/[0.06]', stale && 'text-accent')}
+                  className={cn('relative flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]', stale && 'text-accent')}
                 >
                   <RotateCcw className="h-4 w-4" />
                   {stale && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />}
@@ -195,8 +195,8 @@ export default function Timeline() {
                   <rect x="0" y="0" width={(Math.min(latest, duration) / duration) * W} height={H} />
                 </clipPath>
               </defs>
-              <rect x="0" y={H - 0.5} width={W} height="1" fill="rgba(0,0,0,0.12)" />
-              {area && <path d={area} fill="rgba(0,0,0,0.07)" />}
+              <rect x="0" y={H - 0.5} width={W} height="1" fill="rgba(255,255,255,0.14)" />
+              {area && <path d={area} fill="rgba(255,255,255,0.08)" />}
               {area && hasResults && <path d={area} fill={IDENTITY.swe} fillOpacity={0.22} clipPath="url(#computed)" />}
             </svg>
             {/* Hour ticks */}
@@ -218,10 +218,10 @@ export default function Timeline() {
               </div>
             )}
             {hoverT !== null && (
-              <div className="pointer-events-none absolute -top-9 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-white" style={{ left: `${hoverX! * 100}%` }}>
+              <div className="pointer-events-none absolute -top-9 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-canvas" style={{ left: `${hoverX! * 100}%` }}>
                 <span className="tnum">T+{formatClock(hoverT)}</span>
-                {hoverQ !== null && <span className="tnum text-white/70"> · {formatDischarge(hoverQ)}</span>}
-                {series && !series.modelled && <span className="text-white/50"> preview</span>}
+                {hoverQ !== null && <span className="tnum text-canvas/70"> · {formatDischarge(hoverQ)}</span>}
+                {series && !series.modelled && <span className="text-canvas/50"> preview</span>}
               </div>
             )}
           </div>

@@ -203,7 +203,7 @@ function Validation() {
   return (
     <div className="space-y-2">
       {rows.length > 0 && (
-        <div className="divide-y divide-black/[0.06] rounded-2xl bg-fill/70 px-3">
+        <div className="divide-y divide-white/[0.08] rounded-2xl bg-fill/70 px-3">
           {rows.map((b) => (
             <div key={b.name} className="flex items-start gap-3 py-2.5">
               <div className="min-w-0 flex-1">
@@ -626,7 +626,7 @@ export default function LeftPanel() {
                   { value: 'observe', label: 'Observe' },
                 ]}
               />
-              <button onClick={() => setOpen(false)} aria-label="Hide panel" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-black/[0.06] hover:text-ink">
+              <button onClick={() => setOpen(false)} aria-label="Hide panel" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-white/[0.08] hover:text-ink">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             </div>

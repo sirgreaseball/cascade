@@ -5,31 +5,33 @@
   --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 
-  --color-canvas: #f5f5f7;
-  --color-surface: #ffffff;
-  --color-ink: #1d1d1f;
-  --color-ink-2: #424245;
-  --color-muted: #6e6e73;
-  --color-faint: #86868b;
-  --color-hairline: rgba(0, 0, 0, 0.08);
-  --color-fill: #f0f0f2;
-  --color-fill-2: #e8e8ed;
-  --color-accent: #0071e3;
-  --color-accent-strong: #0062c4;
+  /* Dark, after the splash page: near-black ground, off-white type, amber accent. */
+  --color-canvas: #050505;
+  --color-surface: #0e0e10;
+  --color-ink: #f2f2f2;
+  --color-ink-2: #c7c7cc;
+  --color-muted: #98989d;
+  --color-faint: #7d7d83;
+  --color-hairline: rgba(255, 255, 255, 0.09);
+  --color-fill: rgba(255, 255, 255, 0.06);
+  --color-fill-2: rgba(255, 255, 255, 0.12);
+  --color-accent: #f59e0b;
+  --color-accent-strong: #fbbf24;
 
   --color-swe: #2a78d6;
   --color-sph: #eb6834;
   --color-ext: #1baf7a;
   --color-obs: #4a3aa7;
 
-  --color-good: #0ca30c;
-  --color-warning: #fab219;
-  --color-serious: #ec835a;
-  --color-critical: #d03b3b;
+  --color-good: #30d158;
+  --color-warning: #fbbf24;
+  --color-serious: #f08a5d;
+  --color-critical: #ef4444;
 
-  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 12px 48px -12px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.04);
-  --shadow-float: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 6px 24px -6px rgba(0, 0, 0, 0.18);
-  --shadow-knob: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 3px 8px rgba(0, 0, 0, 0.16);
+  /* Glass edges: a light hairline and a brighter top rim (inset), then a deep drop shadow. */
+  --shadow-panel: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 24px 64px -16px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-float: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-knob: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 3px 8px rgba(0, 0, 0, 0.45);
 
   --radius-panel: 22px;
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
@@ -56,6 +58,7 @@
     border-color: var(--color-hairline);
   }
   html {
+    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -80,7 +83,7 @@
     border-radius: 8px;
   }
   ::selection {
-    background: rgba(0, 113, 227, 0.18);
+    background: rgba(245, 158, 11, 0.35);
   }
   input[type='date']::-webkit-calendar-picker-indicator {
     opacity: 0.45;
@@ -89,21 +92,42 @@
 }
 
 @layer components {
-  /* Large surfaces over the live map: no backdrop blur (re-blurring an animating WebGL canvas
-     every frame costs integrated GPUs ~5 fps); near-opaque white reads the same. */
+  /* Liquid glass over the live map, after the splash page's frosted cards: a dark translucent
+     fill under a soft sheen from the top, with a Gaussian backdrop blur. The light rim comes
+     from --shadow-panel / --shadow-float. */
   .glass {
-    background: rgba(255, 255, 255, 0.93);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 30%, rgba(255, 255, 255, 0) 60%),
+      rgba(14, 14, 16, 0.62);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
   }
-  /* Small floating pills keep a light frosted blur. */
   .glass-pill {
-    background: rgba(255, 255, 255, 0.84);
-    backdrop-filter: saturate(170%) blur(14px);
-    -webkit-backdrop-filter: saturate(170%) blur(14px);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+      rgba(16, 16, 18, 0.58);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: var(--shadow-float);
   }
+  /* Menus, sheets and hover cards: more opaque, since a menu inside another glass surface
+     cannot blur what lies behind that surface. */
   .glass-strong {
-    background: rgba(255, 255, 255, 0.92);
-    backdrop-filter: saturate(180%) blur(28px);
-    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0) 45%),
+      rgba(18, 18, 20, 0.92);
+    backdrop-filter: blur(30px) saturate(160%);
+    -webkit-backdrop-filter: blur(30px) saturate(160%);
+  }
+  /* Systems that ask for less transparency get solid panels. */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass,
+    .glass-pill,
+    .glass-strong {
+      background: #111113;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
   .tnum {
     font-variant-numeric: tabular-nums;
@@ -116,13 +140,13 @@
   }
   .scroll-soft {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
   }
   .scroll-soft::-webkit-scrollbar {
     width: 8px;
   }
   .scroll-soft::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.16);
     border-radius: 8px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -140,12 +164,12 @@
   .range::-webkit-slider-runnable-track {
     height: 4px;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--color-ink) var(--fill), var(--color-fill-2) var(--fill));
+    background: linear-gradient(90deg, var(--color-accent) var(--fill), var(--color-fill-2) var(--fill));
   }
   .range::-moz-range-track {
     height: 4px;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--color-ink) var(--fill), var(--color-fill-2) var(--fill));
+    background: linear-gradient(90deg, var(--color-accent) var(--fill), var(--color-fill-2) var(--fill));
   }
   .range::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -172,7 +196,7 @@
 
 /* MapLibre chrome, restyled to match. */
 .maplibregl-ctrl-attrib {
-  background: rgba(255, 255, 255, 0.72) !important;
+  background: rgba(10, 10, 12, 0.6) !important;
   backdrop-filter: blur(12px);
   border-radius: 8px !important;
   font-size: 10px !important;

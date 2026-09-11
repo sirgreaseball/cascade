@@ -128,27 +128,27 @@ export function LineChart({
             <path key={s.id} d={path(s.points)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           ))}
           {marker !== null && marker !== undefined && marker <= xMax && (
-            <line x1={sx(marker)} x2={sx(marker)} y1={padT} y2={padT + ih} stroke="#1d1d1f" strokeWidth={1} />
+            <line x1={sx(marker)} x2={sx(marker)} y1={padT} y2={padT + ih} stroke="#f2f2f2" strokeWidth={1} />
           )}
           {hover !== null && (
             <g>
-              <line x1={sx(hover)} x2={sx(hover)} y1={padT} y2={padT + ih} stroke="#1d1d1f" strokeOpacity={0.35} strokeWidth={1} />
+              <line x1={sx(hover)} x2={sx(hover)} y1={padT} y2={padT + ih} stroke="#f2f2f2" strokeOpacity={0.35} strokeWidth={1} />
               {hoverValues.map(({ s, v }) => (
-                <circle key={s.id} cx={sx(hover)} cy={sy(v as number)} r={4} fill={s.color} stroke="#fff" strokeWidth={2} />
+                <circle key={s.id} cx={sx(hover)} cy={sy(v as number)} r={4} fill={s.color} stroke="#0b0b0c" strokeWidth={2} />
               ))}
             </g>
           )}
         </svg>
         {hover !== null && hoverValues.length > 0 && (
           <div
-            className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-lg bg-ink px-2 py-1.5 text-[11px] text-white shadow-float"
+            className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-lg bg-ink px-2 py-1.5 text-[11px] text-canvas shadow-float"
             style={{ left: Math.min(sx(hover) + 10, width - 150) }}
           >
-            <div className="tnum text-white/60">{xFormat(hover)}</div>
+            <div className="tnum text-canvas/60">{xFormat(hover)}</div>
             {hoverValues.map(({ s, v }) => (
               <div key={s.id} className="tnum flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
-                {series.length > 1 && <span className="text-white/70">{s.label}</span>}
+                {series.length > 1 && <span className="text-canvas/70">{s.label}</span>}
                 {yFormat(v as number)}
               </div>
             ))}

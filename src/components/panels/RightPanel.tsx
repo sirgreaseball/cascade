@@ -136,7 +136,7 @@ function PlacesList() {
           <button
             key={a.id}
             onClick={() => selectAsset(i === selected ? null : i)}
-            className={cn('tnum grid w-full grid-cols-[1fr_58px_52px_34px] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-black/[0.04]', i === selected && 'bg-accent/[0.08]')}
+            className={cn('tnum grid w-full grid-cols-[1fr_58px_52px_34px] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-white/[0.06]', i === selected && 'bg-accent/[0.08]')}
           >
             <span className="min-w-0">
               <span className="block truncate font-medium text-ink">{displayName(a.name)}</span>
@@ -235,7 +235,7 @@ export default function RightPanel() {
                   )}
                 </div>
               </div>
-              <button onClick={() => setOpen(false)} aria-label="Hide panel" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-black/[0.06] hover:text-ink">
+              <button onClick={() => setOpen(false)} aria-label="Hide panel" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-white/[0.08] hover:text-ink">
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>

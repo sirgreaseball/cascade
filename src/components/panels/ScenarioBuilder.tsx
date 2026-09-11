@@ -272,7 +272,7 @@ export default function ScenarioBuilder() {
                   <div className="text-[20px] font-semibold tracking-[-0.02em]">New scenario</div>
                   <p className="mt-1 text-[13px] text-muted">Any dam or blockage in India. Terrain and exposure are fetched from open data.</p>
                 </div>
-                <button onClick={() => !building && setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/[0.06] hover:text-ink" aria-label="Close">
+                <button onClick={() => !building && setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-white/[0.08] hover:text-ink" aria-label="Close">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -321,10 +321,10 @@ export default function ScenarioBuilder() {
                               setCatalogId(d.id);
                               set(fromDam(d));
                             }}
-                            className={cn('rounded-xl px-3 py-2 text-left transition-colors', catalogId === d.id ? 'bg-ink text-white' : 'bg-fill hover:bg-fill-2')}
+                            className={cn('rounded-xl px-3 py-2 text-left transition-colors', catalogId === d.id ? 'bg-ink text-canvas' : 'bg-fill hover:bg-fill-2')}
                           >
                             <div className="truncate text-[12.5px] font-medium">{d.name}</div>
-                            <div className={cn('truncate text-[11px]', catalogId === d.id ? 'text-white/70' : 'text-muted')}>
+                            <div className={cn('truncate text-[11px]', catalogId === d.id ? 'text-canvas/70' : 'text-muted')}>
                               {d.river} · {d.state}
                             </div>
                           </button>

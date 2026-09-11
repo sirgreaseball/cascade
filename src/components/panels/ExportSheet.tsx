@@ -120,7 +120,7 @@ export default function ExportSheet() {
                 <div className="text-[20px] font-semibold tracking-[-0.02em]">Export results</div>
                 <p className="mt-1 text-[13px] text-muted">Peak flood envelope of the whole run, in WGS 84 — ready for GIS, Google Earth and briefing packs.</p>
               </div>
-              <button onClick={() => setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/[0.06] hover:text-ink" aria-label="Close">
+              <button onClick={() => setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-white/[0.08] hover:text-ink" aria-label="Close">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -151,7 +151,7 @@ export default function ExportSheet() {
                       <div className="text-[14px] font-semibold">{f.title}</div>
                       <div className="truncate text-[12px] text-muted">{f.sub}</div>
                     </div>
-                    <span className={cn('flex h-8 w-8 items-center justify-center rounded-full', done.includes(f.id) ? 'bg-good/15 text-good' : 'bg-white text-ink shadow-[0_0_0_0.5px_rgba(0,0,0,0.1)]')}>
+                    <span className={cn('flex h-8 w-8 items-center justify-center rounded-full', done.includes(f.id) ? 'bg-good/15 text-good' : 'bg-white/[0.1] text-ink shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]')}>
                       {busy === f.id ? <Spinner /> : done.includes(f.id) ? <Check className="h-4 w-4" /> : <Download className="h-4 w-4" />}
                     </span>
                   </button>

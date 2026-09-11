@@ -50,10 +50,10 @@ export function Button({
         size === 'sm' && 'h-7 px-3 text-[12px]',
         size === 'md' && 'h-9 px-4 text-[13px]',
         size === 'lg' && 'h-11 px-5 text-[15px]',
-        variant === 'primary' && 'bg-ink text-white hover:bg-black',
-        variant === 'accent' && 'bg-accent text-white hover:bg-accent-strong',
-        variant === 'secondary' && 'bg-white text-ink shadow-[0_0_0_0.5px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#fafafa]',
-        variant === 'ghost' && 'text-ink hover:bg-black/[0.05]',
+        variant === 'primary' && 'bg-ink text-canvas hover:bg-white',
+        variant === 'accent' && 'bg-accent text-canvas hover:bg-accent-strong',
+        variant === 'secondary' && 'bg-white/[0.08] text-ink shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12)] hover:bg-white/[0.13]',
+        variant === 'ghost' && 'text-ink hover:bg-white/[0.07]',
         className,
       )}
       {...rest}
@@ -69,8 +69,8 @@ export function IconButton({ className, label, children, active, ...rest }: Reac
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex h-8 w-8 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-black/[0.06] hover:text-ink',
-        active && 'bg-ink text-white hover:bg-ink hover:text-white',
+        'inline-flex h-8 w-8 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-white/[0.08] hover:text-ink',
+        active && 'bg-ink text-canvas hover:bg-ink hover:text-canvas',
         className,
       )}
       {...rest}
@@ -120,7 +120,7 @@ export function Segmented<T extends string>({
             {active && (
               <motion.span
                 layoutId={layoutId ?? `seg-${id}`}
-                className="absolute inset-0 -z-10 rounded-[8px] bg-white shadow-[0_0_0_0.5px_rgba(0,0,0,0.06),0_2px_6px_rgba(0,0,0,0.1)]"
+                className="absolute inset-0 -z-10 rounded-[8px] bg-white/[0.16] shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.2),0_2px_8px_rgba(0,0,0,0.35)]"
                 transition={{ type: 'spring', stiffness: 520, damping: 40 }}
               />
             )}
@@ -239,7 +239,7 @@ export function Tag({ children, className, tone = 'neutral' }: { children: React
         'inline-flex h-5 items-center rounded-full px-2 text-[10.5px] font-medium',
         tone === 'neutral' && 'bg-fill text-muted',
         tone === 'accent' && 'bg-accent/10 text-accent',
-        tone === 'warning' && 'bg-[#fff4e0] text-[#8a5a00]',
+        tone === 'warning' && 'bg-warning/15 text-warning',
         className,
       )}
     >
@@ -262,7 +262,7 @@ export function TextInput({ className, ...rest }: React.InputHTMLAttributes<HTML
   return (
     <input
       className={cn(
-        'tnum h-9 w-full rounded-[10px] bg-fill px-3 text-[13px] text-ink outline-none transition-shadow placeholder:text-faint focus:bg-white focus:shadow-[0_0_0_2px_var(--color-accent)]',
+        'tnum h-9 w-full rounded-[10px] bg-fill px-3 text-[13px] text-ink outline-none transition-shadow placeholder:text-faint focus:bg-white/[0.1] focus:shadow-[0_0_0_2px_var(--color-accent)]',
         className,
       )}
       {...rest}

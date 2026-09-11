@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 const MapView = dynamic(() => import('./map/MapView'), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 bg-[#e9ecee]" />,
+  loading: () => <div className="absolute inset-0 bg-canvas" />,
 });
 
 /** Loads the scenario list and opens the last-used (or first) scenario. */
@@ -111,7 +111,7 @@ function SmallScreenNotice() {
         <Logo className="h-9 w-9" />
         <div className="mt-4 text-[17px] font-semibold tracking-[-0.02em]">Cascade is built for bigger screens</div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">The simulator runs two hydrodynamic solvers and a 3D map side by side. It works best on a laptop or desktop.</p>
-        <button onClick={() => setShow(false)} className="mt-5 h-10 w-full rounded-full bg-ink text-[14px] font-medium text-white">
+        <button onClick={() => setShow(false)} className="mt-5 h-10 w-full rounded-full bg-ink text-[14px] font-medium text-canvas">
           Continue anyway
         </button>
       </div>
@@ -171,14 +171,14 @@ function AnimatedLogo() {
       animate={{ y: [0, -3, 0] }}
       transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
     >
-      <rect width="32" height="32" rx="9" fill="#1d1d1f" />
+      <rect width="32" height="32" rx="9" fill="#f2f2f2" />
       {WAVES.map((d, i) => {
         const base = 1 - i * 0.28;
         return (
           <motion.path
             key={d}
             d={d}
-            stroke="#fff"
+            stroke="#050505"
             strokeWidth="2"
             fill="none"
             strokeLinecap="round"
@@ -239,7 +239,7 @@ function LoadingVeil() {
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }} className="flex flex-col items-center gap-4">
               <AnimatedLogo />
               <div className="text-[19px] font-semibold tracking-[-0.02em]">Cascade</div>
-              <div className="h-[3px] w-44 overflow-hidden rounded-full bg-black/[0.07]">
+              <div className="h-[3px] w-44 overflow-hidden rounded-full bg-white/[0.1]">
                 <motion.div
                   className="h-full rounded-full bg-ink"
                   initial={{ width: '8%' }}

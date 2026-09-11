@@ -44,7 +44,7 @@ const SATELLITE_STYLE = {
     imagery: { type: 'raster' as const, tiles: [IMAGERY_URL], tileSize: 256, maxzoom: 19, attribution: IMAGERY_ATTRIBUTION },
   },
   layers: [
-    { id: 'background', type: 'background' as const, paint: { 'background-color': '#dfe3e6' } },
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#0b0b0c' } },
     { id: 'imagery', type: 'raster' as const, source: 'imagery', paint: { 'raster-saturation': -0.22, 'raster-contrast': 0.04, 'raster-brightness-max': 0.96 } },
   ],
 };
@@ -55,7 +55,7 @@ const LIGHT_STYLE = {
     labels: { type: 'raster' as const, tiles: [MAP_LABELS_URL], tileSize: 256, maxzoom: 16 },
   },
   layers: [
-    { id: 'background', type: 'background' as const, paint: { 'background-color': '#eceeef' } },
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#0b0b0c' } },
     { id: 'base', type: 'raster' as const, source: 'base' },
     { id: 'labels', type: 'raster' as const, source: 'labels' },
   ],
@@ -436,7 +436,7 @@ export default function MapView() {
           data: exposure.roads,
           getPath: (d: { path: [number, number][] }, { index }: { index: number }) => (view.terrain3d && roadPaths3d ? roadPaths3d[index] : d.path),
           getColor: (_d: unknown, { index }: { index: number }) =>
-            cut && cut[index] ? [208, 59, 59, 235] : view.basemap === 'satellite' ? [255, 255, 255, 110] : [60, 60, 67, 90],
+            cut && cut[index] ? [208, 59, 59, 235] : [255, 255, 255, view.basemap === 'satellite' ? 110 : 70],
           getWidth: (_d: unknown, { index }: { index: number }) => (cut && cut[index] ? 3 : 1.2),
           widthUnits: 'pixels',
           capRounded: true,
@@ -491,7 +491,7 @@ export default function MapView() {
             return [255, 255, 255, far && d.subtype !== 'town' && d.subtype !== 'city' ? 120 : 175];
           },
           getLineColor: (_d: unknown, { index }: { index: number }) =>
-            index === selectedAsset ? [0, 113, 227, 255] : flooded(index) ? [255, 255, 255, 255] : [0, 0, 0, 60],
+            index === selectedAsset ? [245, 158, 11, 255] : flooded(index) ? [255, 255, 255, 255] : [0, 0, 0, 60],
           updateTriggers: {
             getPosition: [view.terrain3d, assetZ],
             getRadius: [statuses, far],
@@ -508,13 +508,13 @@ export default function MapView() {
           getPosition: (d: { a: { lng: number; lat: number }; index: number }) => [d.a.lng, d.a.lat, lift(d.index)],
           getText: (d: { a: { name: string } }) => displayName(d.a.name),
           getSize: (d: { a: { subtype: string } }) => (d.a.subtype === 'city' || d.a.subtype === 'town' ? 12.5 : 11),
-          getColor: [29, 29, 31, 255],
+          getColor: [242, 242, 242, 255],
           getPixelOffset: [0, -13],
           fontFamily: 'Inter, system-ui, sans-serif',
           fontWeight: 600,
           fontSettings: { sdf: true, buffer: 6 },
           outlineWidth: 5,
-          outlineColor: [255, 255, 255, 235],
+          outlineColor: [5, 5, 5, 215],
           characterSet: 'auto',
           parameters: { depthTest: false },
           updateTriggers: { getPosition: [view.terrain3d, assetZ] },
@@ -679,8 +679,8 @@ export default function MapView() {
 
   if (!GPU.webgl2) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center bg-[#e9ecee] p-6">
-        <div className="max-w-md rounded-panel bg-white p-7 text-center shadow-panel">
+      <div className="absolute inset-0 flex items-center justify-center bg-canvas p-6">
+        <div className="glass-strong max-w-md rounded-panel p-7 text-center shadow-panel">
           <div className="text-[17px] font-semibold tracking-[-0.02em]">This browser can’t draw the map</div>
           <p className="mt-2 text-[13px] leading-relaxed text-muted">
             Cascade needs WebGL 2. Update to a current version of Chrome, Edge, Firefox or Safari, and make sure hardware acceleration is switched on in the browser settings.

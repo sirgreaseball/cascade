@@ -13,10 +13,10 @@ import { cn } from '@/lib/utils';
 export function Logo({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <rect width="32" height="32" rx="9" fill="#1d1d1f" />
-      <path d="M7 12.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <path d="M7 17c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#fff" strokeOpacity="0.72" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <path d="M7 21.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#fff" strokeOpacity="0.44" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <rect width="32" height="32" rx="9" fill="#f2f2f2" />
+      <path d="M7 12.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#050505" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M7 17c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#050505" strokeOpacity="0.72" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M7 21.5c2.2 0 2.2-2 4.5-2s2.3 2 4.5 2 2.3-2 4.5-2 2.3 2 4.5 2" stroke="#050505" strokeOpacity="0.44" strokeWidth="2" fill="none" strokeLinecap="round" />
     </svg>
   );
 }
@@ -48,7 +48,7 @@ function ScenarioSwitcher() {
   const bundled = index.filter((s) => !s.custom);
   const custom = index.filter((s) => s.custom);
   const item = (s: (typeof index)[number]) => (
-    <div key={s.id} className="group flex items-center rounded-[10px] hover:bg-black/[0.04]">
+    <div key={s.id} className="group flex items-center rounded-[10px] hover:bg-white/[0.06]">
       <button
         className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
         onClick={() => {
@@ -66,7 +66,7 @@ function ScenarioSwitcher() {
       </button>
       {s.custom && (
         <button
-          className="mr-2 hidden h-7 w-7 items-center justify-center rounded-full text-faint hover:bg-black/[0.06] hover:text-critical group-hover:flex"
+          className="mr-2 hidden h-7 w-7 items-center justify-center rounded-full text-faint hover:bg-white/[0.08] hover:text-critical group-hover:flex"
           aria-label={`Delete ${s.name}`}
           onClick={() => removeCustom(s.id)}
         >
@@ -77,7 +77,7 @@ function ScenarioSwitcher() {
   );
   return (
     <div ref={ref} className="relative">
-      <button className="flex items-center gap-2 rounded-full py-1 pl-3 pr-2 transition-colors hover:bg-black/[0.04]" onClick={() => setOpen(!open)}>
+      <button className="flex items-center gap-2 rounded-full py-1 pl-3 pr-2 transition-colors hover:bg-white/[0.06]" onClick={() => setOpen(!open)}>
         <span className="text-left">
           <span className="block max-w-[220px] truncate text-[13px] font-semibold leading-tight">{config?.name ?? 'Loading…'}</span>
           <span className="block max-w-[220px] truncate text-[11px] leading-tight text-muted">{config ? `${config.river} · ${EVENT_LABEL[config.event]}` : ' '}</span>
