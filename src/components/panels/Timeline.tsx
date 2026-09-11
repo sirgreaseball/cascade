@@ -265,7 +265,7 @@ export default function Timeline() {
           basemap === 'satellite' ? 'text-white/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]' : 'text-muted',
         )}
       >
-        {basemap === 'satellite' ? 'Imagery © Esri, Maxar, Earthstar Geographics' : 'Map © CARTO'} · Terrain: AWS Terrain Tiles (SRTM) · Places © OpenStreetMap contributors
+        {basemap === 'satellite' ? 'Imagery © Esri, Maxar, Earthstar Geographics' : 'Map © Esri, HERE, Garmin'} · Terrain: AWS Terrain Tiles (SRTM) · Places © OpenStreetMap contributors
       </div>
     </div>
   );

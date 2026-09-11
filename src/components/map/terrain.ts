@@ -7,9 +7,11 @@ import type { GridGeometry } from '@/lib/geo/grid';
 
 export const IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 export const IMAGERY_ATTRIBUTION = 'Imagery © Esri, Maxar, Earthstar Geographics';
-/** Light, near-monochrome street map (CARTO Positron), draped on the 3D terrain for the Map basemap. */
-export const MAP_TILES_URL = 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
-export const MAP_ATTRIBUTION = 'Map © CARTO, © OpenStreetMap contributors';
+/** Monochrome light-grey map (Esri Light Gray Canvas, no key needed): the Map basemap, 2D and 3D. */
+export const MAP_TILES_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+/** Place names and boundaries drawn over the light-grey map in 2D. */
+export const MAP_LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
+export const MAP_ATTRIBUTION = 'Map © Esri, HERE, Garmin, © OpenStreetMap contributors';
 
 function canvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');

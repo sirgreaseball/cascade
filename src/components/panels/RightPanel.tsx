@@ -230,7 +230,11 @@ export default function RightPanel() {
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                    <Stat label="Flooded now" value={formatArea(impacts.floodedArea)} />
+                    <Stat
+                      label="Flooded now"
+                      value={formatArea(impacts.floodedArea)}
+                      sub={impacts.leftArea > 1e5 ? `${formatVolume(impacts.leftArea)} left the area` : undefined}
+                    />
                     <Stat label="Outflow now" value={formatDischarge(impacts.inflowRate)} sub={`${formatVolume(impacts.released)} released`} />
                     <Stat label="Critical facilities" value={formatNumber(i.facilitiesFlooded)} sub="health, schools, emergency" />
                     <Stat label="Bridges" value={formatNumber(i.bridgesFlooded)} sub="under water" />

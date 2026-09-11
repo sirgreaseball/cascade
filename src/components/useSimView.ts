@@ -58,6 +58,8 @@ export interface ImpactView {
   floodedArea: number;
   inflowRate: number;
   released: number;
+  /** Volume that has flowed out through the study-area edge (m³). */
+  leftArea: number;
 }
 
 // The map, the impact panel and the places list all read the same assessment; compute it once
@@ -81,6 +83,7 @@ function computeImpacts(engine: EngineId, frameIndex: number, exposure: ReturnTy
     floodedArea: stats.wetArea,
     inflowRate: stats.inflowRate,
     released: stats.inflowVolume,
+    leftArea: stats.outflowVolume,
   };
   impactCache = { key, exposure, value };
   return value;

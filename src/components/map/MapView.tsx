@@ -35,7 +35,7 @@ import {
   paintMaxDepth,
   paintVelocity,
 } from './colormaps';
-import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
+import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 import { buildGridMesh } from './waterMesh';
 
 const SATELLITE_STYLE = {
@@ -48,7 +48,18 @@ const SATELLITE_STYLE = {
     { id: 'imagery', type: 'raster' as const, source: 'imagery', paint: { 'raster-saturation': -0.22, 'raster-contrast': 0.04, 'raster-brightness-max': 0.96 } },
   ],
 };
-const LIGHT_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const LIGHT_STYLE = {
+  version: 8 as const,
+  sources: {
+    base: { type: 'raster' as const, tiles: [MAP_TILES_URL], tileSize: 256, maxzoom: 16, attribution: MAP_ATTRIBUTION },
+    labels: { type: 'raster' as const, tiles: [MAP_LABELS_URL], tileSize: 256, maxzoom: 16 },
+  },
+  layers: [
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#eceeef' } },
+    { id: 'base', type: 'raster' as const, source: 'base' },
+    { id: 'labels', type: 'raster' as const, source: 'labels' },
+  ],
+};
 /** Under 3D world terrain the basemap is invisible; draw only a sky-coloured background. */
 const BLANK_STYLE = {
   version: 8 as const,
@@ -281,6 +292,29 @@ export default function MapView() {
     );
   }, [data, exposure]);
 
+  // The study-area edge, where the model ends. Water reaching it leaves through an open
+  // boundary, so a flood that stops in a straight line there has left the model, not vanished.
+  const boundary = useMemo(() => {
+    if (!data) return null;
+    const g = data.grid;
+    const [w, s, e, n] = g.bbox;
+    const step = Math.max(1, Math.round(Math.max(g.cols, g.rows) / 200));
+    const zAt = (c: number, r: number) => data.dem[r * g.cols + c] + SKIN_LIFT + 2;
+    const pts: [number, number, number][] = [];
+    const edge = (count: number, f: (i: number) => [number, number, number]) => {
+      for (let i = 0; i < count; i += step) pts.push(f(i));
+    };
+    edge(g.cols, (c) => [w + c * g.lngStep, n, zAt(c, 0)]);
+    edge(g.rows, (r) => [e, n - r * g.latStep, zAt(g.cols - 1, r)]);
+    edge(g.cols, (c) => [e - c * g.lngStep, s, zAt(g.cols - 1 - c, g.rows - 1)]);
+    edge(g.rows, (r) => [w, s + r * g.latStep, zAt(0, g.rows - 1 - r)]);
+    pts.push(pts[0]);
+    return {
+      lifted: [{ path: pts }],
+      flat: [{ path: pts.map(([x, y]) => [x, y, 0] as [number, number, number]) }],
+    };
+  }, [data]);
+
   // ---- Particles (SPH) -------------------------------------------------------------------
   const particles = useMemo(() => {
     if (!engines.sph || !view.showParticles || (view.engine !== 'sph' && view.engine !== 'overlay')) return null;
@@ -405,6 +439,20 @@ export default function MapView() {
       );
     }
 
+    if (boundary) {
+      list.push(
+        new PathLayer({
+          id: 'study-area',
+          data: view.terrain3d ? boundary.lifted : boundary.flat,
+          getPath: (d: { path: [number, number, number][] }) => d.path,
+          getColor: view.basemap === 'satellite' ? [255, 255, 255, 150] : [60, 60, 67, 120],
+          getWidth: 1.5,
+          widthUnits: 'pixels',
+          updateTriggers: { getColor: [view.basemap] },
+        }),
+      );
+    }
+
     if (exposure && view.showRoads) {
       const cut = impacts?.impact.roadCut;
       list.push(
@@ -449,20 +497,32 @@ export default function MapView() {
       const mLng = 111_320 * Math.cos((line[0][1] * Math.PI) / 180);
       const half = /concrete|masonry|arch/i.test(config.dam.type ?? '') ? 20 : 45;
       const z = view.terrain3d ? setup.site.bed.elevation : 0;
-      const quads: { polygon: [number, number, number][] }[] = [];
-      for (let i = 0; i + 1 < line.length; i++) {
-        const a = line[i];
-        const b = line[i + 1];
-        const len = Math.hypot((b[0] - a[0]) * mLng, (b[1] - a[1]) * 110_574) || 1;
-        const nx = (-(b[1] - a[1]) * 110_574) / len;
-        const ny = ((b[0] - a[0]) * mLng) / len;
-        const off = (p: [number, number], s: number): [number, number, number] => [p[0] + (nx * half * s) / mLng, p[1] + (ny * half * s) / 110_574, z];
-        quads.push({ polygon: [off(a, 1), off(b, 1), off(b, -1), off(a, -1)] });
-      }
+      // One outline around the whole crest, each point offset along the average of its two
+      // segments' normals, so a curved dam is one smooth wall rather than notched blocks.
+      const normals = line.map((_, i) => {
+        let nx = 0;
+        let ny = 0;
+        for (const j of [i - 1, i]) {
+          if (j < 0 || j + 1 >= line.length) continue;
+          const ex = (line[j + 1][0] - line[j][0]) * mLng;
+          const ey = (line[j + 1][1] - line[j][1]) * 110_574;
+          const len = Math.hypot(ex, ey) || 1;
+          nx -= ey / len;
+          ny += ex / len;
+        }
+        const len = Math.hypot(nx, ny) || 1;
+        return [nx / len, ny / len];
+      });
+      const off = (i: number, s: number): [number, number, number] => [
+        line[i][0] + (normals[i][0] * half * s) / mLng,
+        line[i][1] + (normals[i][1] * half * s) / 110_574,
+        z,
+      ];
+      const polygon = [...line.map((_, i) => off(i, 1)), ...line.map((_, i) => off(line.length - 1 - i, -1))];
       list.push(
         new SolidPolygonLayer({
           id: 'dam',
-          data: quads,
+          data: [{ polygon }],
           getPolygon: (d: { polygon: [number, number, number][] }) => d.polygon,
           extruded: view.terrain3d,
           getElevation: config.dam.height,
@@ -544,7 +604,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, image, skin, roadPaths3d, boundary, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -663,7 +723,7 @@ export default function MapView() {
       >
         <MapGL
           reuseMaps
-          mapStyle={view.terrain3d && terrainMode === 'world' ? (BLANK_STYLE as never) : view.basemap === 'satellite' ? (SATELLITE_STYLE as never) : LIGHT_STYLE}
+          mapStyle={view.terrain3d && terrainMode === 'world' ? (BLANK_STYLE as never) : view.basemap === 'satellite' ? (SATELLITE_STYLE as never) : (LIGHT_STYLE as never)}
           attributionControl={false}
           pixelRatio={PIXEL_RATIO}
         />

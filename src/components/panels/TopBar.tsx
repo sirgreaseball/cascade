@@ -127,6 +127,8 @@ const LAYERS: { value: MapLayer; label: string; title: string }[] = [
   { value: 'velocity', label: 'Velocity', title: 'Fastest flow reached' },
   { value: 'difference', label: 'Difference', title: 'SPH minus grid depth' },
 ];
+/** Why Difference is greyed out: it needs two results to subtract. */
+const DIFF_HINT = 'Run both solvers, or import another model’s result in the Model tab, to compare depths';
 
 export default function TopBar() {
   const view = useSimStore((s) => s.view);
@@ -161,7 +163,7 @@ export default function TopBar() {
           layoutId="layer-seg"
           value={view.layer}
           onChange={(layer) => setView({ layer })}
-          options={LAYERS.map((l) => ({ ...l, disabled: l.value === 'difference' ? !diffAvailable : false }))}
+          options={LAYERS.map((l) => (l.value === 'difference' && !diffAvailable ? { ...l, disabled: true, title: DIFF_HINT } : l))}
           className="bg-transparent"
         />
       </div>
