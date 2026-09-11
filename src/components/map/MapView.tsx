@@ -60,6 +60,16 @@ const LIGHT_STYLE = {
     { id: 'labels', type: 'raster' as const, source: 'labels' },
   ],
 };
+/**
+ * Under 3D terrain the flat basemap only shows where terrain tiles are still loading or beyond
+ * the terrain's reach, so 512-px tiles (a quarter as many) and no labels keep it cheap.
+ */
+const SATELLITE_STYLE_3D = { ...SATELLITE_STYLE, sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } } };
+const LIGHT_STYLE_3D = {
+  ...LIGHT_STYLE,
+  sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 512 } },
+  layers: LIGHT_STYLE.layers.filter((l) => l.id !== 'labels'),
+};
 /** Copied from node_modules by scripts/copy-workers.mjs: terrain meshing off the main thread. */
 const TERRAIN_WORKER_URL = '/workers/terrain-worker.js';
 /** Rendering resolution cap: full sharpness on normal screens, 1.5× on high-DPI ones. */
@@ -68,6 +78,8 @@ const PIXEL_RATIO = typeof window !== 'undefined' ? Math.min(window.devicePixelR
 const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: -32768 };
 const TERRAIN_MATERIAL = { ambient: 0.62, diffuse: 0.55, shininess: 8, specularColor: [30, 30, 30] as [number, number, number] };
 const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [70, 70, 70] as [number, number, number] };
+/** Share of the study-area size that close-in 3D terrain extends beyond it on every side. */
+const TERRAIN_MARGIN = 1;
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 const GPU = detectGpu();
@@ -348,6 +360,12 @@ export default function MapView() {
       : { loaders: [TerrainLoader], loadOptions: { worker: false } };
     if (view.terrain3d && terrainMode === 'world') {
       const texture = view.basemap === 'satellite' ? IMAGERY_URL : MAP_TILES_URL;
+      // Close in, detailed terrain stops a margin beyond the study area (distant ground filled
+      // much of the GPU frame) and the flat basemap underneath carries on to the horizon. Zoomed
+      // out past the scenario's framing, tiles are coarse and cheap, so terrain runs everywhere.
+      const mw = (bbox[2] - bbox[0]) * TERRAIN_MARGIN;
+      const mh = (bbox[3] - bbox[1]) * TERRAIN_MARGIN;
+      const zoomedOut = zoomStep < (config.view?.zoom ?? 10) - 0.5;
       list.push(
         new TerrainLayer({
           id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
@@ -356,6 +374,7 @@ export default function MapView() {
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 14,
           meshMaxError: 8,
+          extent: zoomedOut ? undefined : [bbox[0] - mw, bbox[1] - mh, bbox[2] + mw, bbox[3] + mh],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
           ...meshing,
@@ -685,10 +704,19 @@ export default function MapView() {
         getCursor={({ isDragging, isHovering }) => (pickingDam ? 'crosshair' : isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab')}
       >
         {/* In 3D the flat basemap stays under the terrain: wherever terrain tiles are still
-            loading (a quick zoom out, a new area) the map shows imagery instead of a void. */}
+            loading (a quick zoom out, a new area) or the terrain stops, the map shows imagery
+            instead of a void. */}
         <MapGL
           reuseMaps
-          mapStyle={view.basemap === 'satellite' ? (SATELLITE_STYLE as never) : (LIGHT_STYLE as never)}
+          mapStyle={
+            (view.terrain3d && terrainMode === 'world'
+              ? view.basemap === 'satellite'
+                ? SATELLITE_STYLE_3D
+                : LIGHT_STYLE_3D
+              : view.basemap === 'satellite'
+                ? SATELLITE_STYLE
+                : LIGHT_STYLE) as never
+          }
           attributionControl={false}
           pixelRatio={PIXEL_RATIO}
           // In 3D world mode the first terrain tile marks the map ready instead.
