@@ -8,7 +8,7 @@
 //  · Lake at rest over rough terrain: a well-balanced scheme must keep the water perfectly still.
 
 import { ShallowWaterSolver } from './swe.ts';
-import type { EngineConfig } from './types.ts';
+import type { EngineConfig, SourceCell } from './types.ts';
 
 const G = 9.81;
 
@@ -194,6 +194,136 @@ export function stokerBenchmark(h0 = 10, h1 = 2, t = 60, dx = 10): BenchmarkResu
   };
 }
 
+/**
+ * Momentum conservation over a small obstruction, after test 3 of the Environment Agency's
+ * benchmark suite for 2D hydraulic packages (Néelz & Pender, 2013). A wave runs down a 1:200
+ * slope into a depression; the inflow volume is only just enough to fill that depression, yet a
+ * scheme that carries momentum pushes part of it over the 0.25 m obstruction beyond, where it
+ * settles in a second depression. Schemes without inertia leave that second depression dry, which
+ * is exactly what the test is designed to separate.
+ *
+ * The Agency distributes its own DEM and inflow files, which are not redistributable here, so the
+ * terrain is rebuilt from the published description and the inflow is scaled to fill the first
+ * depression exactly. That makes the pass condition independent of the rebuilt geometry: what is
+ * checked is that water crosses the obstruction at all, that both ponds end level, and that no
+ * volume is lost.
+ */
+export function momentumObstacleBenchmark(duration = 900): BenchmarkResult {
+  const dx = 5;
+  const cols = 60; // 300 m along the channel
+  const rows = 20; // 100 m across
+  const crest = 10.0; // obstruction crest at x = 200 m
+  /** Long profile: 1:200 slope, depression, 0.25 m obstruction, second depression, closed end. */
+  const bed = (x: number) => {
+    if (x <= 150) return 10.5 - x / 200;
+    if (x <= 200) return 9.75 + ((x - 150) / 50) * 0.25;
+    if (x <= 250) return crest - ((x - 200) / 50) * 0.3;
+    return 9.7 + ((x - 250) / 50) * 1.0;
+  };
+  const z = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wall = r === 0 || r === rows - 1 || c === 0;
+      z[r * cols + c] = wall ? 100 : bed((c + 0.5) * dx);
+    }
+  }
+
+  // Volume the first depression holds up to the obstruction crest.
+  const cellArea = dx * dx;
+  let storage = 0;
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols; c++) {
+      const x = (c + 0.5) * dx;
+      if (x > 200) continue;
+      storage += Math.max(0, crest - z[r * cols + c]) * cellArea;
+    }
+  }
+  // Trapezoidal hydrograph (0 → peak over 15 s, held to 25 s, back to 0 at 35 s) carrying exactly
+  // that volume: 22.5 s of peak discharge.
+  const peak = storage / 22.5;
+  const sources: SourceCell[] = [];
+  for (let r = 1; r < rows - 1; r++) sources.push({ index: r * cols + 1, weight: 1 / (rows - 2) });
+  const s = new ShallowWaterSolver({
+    ...flatConfig(cols, rows, dx, z),
+    sources,
+    hydrograph: { t: [0, 15, 25, 35, duration], q: [0, peak, peak, 0, 0] },
+    manning: 0.01,
+    wetThreshold: 0.01,
+    duration,
+  });
+  while (s.t < duration - 1e-9) s.step(duration - s.t);
+
+  // Water beyond the obstruction, and how level each pond ended.
+  let beyond = 0;
+  const levels = (from: number, to: number) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let r = 1; r < rows - 1; r++) {
+      for (let c = 1; c < cols; c++) {
+        const x = (c + 0.5) * dx;
+        if (x < from || x > to) continue;
+        const k = r * cols + c;
+        if (s.h[k] < 0.01) continue;
+        const surface = s.z[k] + s.h[k];
+        if (surface < lo) lo = surface;
+        if (surface > hi) hi = surface;
+      }
+    }
+    return hi > lo ? hi - lo : 0;
+  };
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols; c++) {
+      const x = (c + 0.5) * dx;
+      if (x > 200 && s.h[r * cols + c] > beyond) beyond = s.h[r * cols + c];
+    }
+  }
+  const pond1 = levels(0, 200);
+  const pond2 = levels(200, 300);
+  const massError = Math.abs(s.inflowVolume - s.outflowVolume - s.measure().storedVolume) / Math.max(s.inflowVolume, 1);
+  return {
+    name: 'Momentum over an obstruction (EA test 3)',
+    detail: `${Math.round(storage)} m³ released onto a 1:200 slope — just enough to fill the first depression — ${duration / 60} min later: ${(beyond * 100).toFixed(1)} cm of water has carried over the 0.25 m obstruction; ponds level to ${(Math.max(pond1, pond2) * 1000).toFixed(1)} mm; volume error ${massError.toExponential(1)}.`,
+    pass: beyond >= 0.01 && Math.max(pond1, pond2) < 0.02 && massError < 1e-9,
+  };
+}
+
+/**
+ * A sudden inflow onto a dry bed must not create water. The water in a closed basin at the end
+ * has to equal the volume released into it, to rounding. This guards the moment a run is most
+ * exposed: the domain is dry, so there is no wave speed anywhere to size the first time step
+ * from, and the whole of it is decided by the inflow that is about to arrive.
+ */
+export function dryBedInflowBenchmark(duration = 120): BenchmarkResult {
+  const cols = 40;
+  const rows = 20;
+  const dx = 5;
+  const peak = 50;
+  const z = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      // A closed basin: walls all round, so every drop released has to still be there.
+      z[r * cols + c] = r === 0 || c === 0 || r === rows - 1 || c === cols - 1 ? 100 : 10;
+    }
+  }
+  const s = new ShallowWaterSolver({
+    ...flatConfig(cols, rows, dx, z),
+    sources: [{ index: cols + 1, weight: 1 }],
+    hydrograph: { t: [0, 7.5, 15, 22.5, duration], q: [0, peak, peak, 0, 0] },
+    manning: 0.03,
+    duration,
+    wetThreshold: 0.01,
+  });
+  while (s.t < duration - 1e-9) s.step(duration - s.t);
+  let water = 0;
+  for (let k = 0; k < s.h.length; k++) water += s.h[k] * dx * dx;
+  const error = Math.abs(water + s.outflowVolume - s.inflowVolume) / Math.max(s.inflowVolume, 1);
+  return {
+    name: 'Sudden inflow onto a dry bed (mass)',
+    detail: `${Math.round(s.inflowVolume)} m³ released into a dry closed basin, rising from nothing to ${peak} m³/s in 7.5 s: ${Math.round(water)} m³ present ${duration} s later, error ${error.toExponential(1)}.`,
+    pass: error < 1e-9,
+  };
+}
+
 /** A lake at rest over bumpy terrain: the surface must stay flat and the volume unchanged. */
 export function lakeAtRestBenchmark(duration = 1800): BenchmarkResult {
   const cols = 60;
@@ -221,5 +351,5 @@ export function lakeAtRestBenchmark(duration = 1800): BenchmarkResult {
 }
 
 export function runBenchmarks(): BenchmarkResult[] {
-  return [ritterBenchmark(), ritterConvergence(), stokerBenchmark(), lakeAtRestBenchmark()];
+  return [ritterBenchmark(), ritterConvergence(), stokerBenchmark(), momentumObstacleBenchmark(), dryBedInflowBenchmark(), lakeAtRestBenchmark()];
 }

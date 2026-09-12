@@ -13,7 +13,7 @@ import path from 'node:path';
 import { EngineRuntime } from '../src/simulation/runtime.ts';
 import { ShallowWaterSolver } from '../src/simulation/swe.ts';
 import { setupSimulation } from '../src/simulation/setup.ts';
-import { ritterBenchmark, stokerBenchmark } from '../src/simulation/benchmarks.ts';
+import { dryBedInflowBenchmark, momentumObstacleBenchmark, ritterBenchmark, stokerBenchmark } from '../src/simulation/benchmarks.ts';
 import type { Resolution } from '../src/simulation/setup.ts';
 import { defaultEventParams } from '../src/simulation/hydrograph.ts';
 import type { EventKind, FailureMode } from '../src/simulation/hydrograph.ts';
@@ -85,6 +85,10 @@ function syntheticTests() {
   check(ritter.pass, `${ritter.name}: ${ritter.detail}`);
   const stoker = stokerBenchmark();
   check(stoker.pass, `${stoker.name}: ${stoker.detail}`);
+  const momentum = momentumObstacleBenchmark();
+  check(momentum.pass, `${momentum.name}: ${momentum.detail}`);
+  const dryBed = dryBedInflowBenchmark();
+  check(dryBed.pass, `${dryBed.name}: ${dryBed.detail}`);
 }
 
 async function scenarioRun(id: string, engines: EngineId[], durationOverride: number | null, resolution: Resolution) {

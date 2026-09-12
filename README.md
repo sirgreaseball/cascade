@@ -40,7 +40,8 @@ The dashboard is served at `/` and `/dashboard`. Bundled scenarios work offline 
 ## Verify the physics
 
 ```bash
-npm run verify                       # lake-at-rest, mass-balance, Ritter and Stoker tests + Tehri, both solvers
+npm run verify                       # Ritter, Stoker, momentum over an obstruction (EA test 3),
+                                     # mass on a dry bed, lake-at-rest + Tehri, both solvers
 npm run verify -- bhakra --swe       # one scenario, grid solver only
 ```
 
