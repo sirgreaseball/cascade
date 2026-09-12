@@ -251,15 +251,24 @@ export class ShallowWaterSolver {
 
     // CFL time step, tightened for the depth the breach is about to add.
     let dt = Math.min(this.maxDt, limit, this.rate > 0 ? this.cfl / this.rate : this.maxDt);
-    const qEst = this.boundary.estimate(this.t, tail);
-    if (qEst > 0) {
-      const jet = this.boundary.jetVelocity();
-      for (let pass = 0; pass < 2; pass++) {
-        let hs = 0;
-        for (const s of sources) hs = Math.max(hs, h[s.index] + (qEst * dt * s.weight) / cellArea);
-        const c = Math.sqrt(G * hs);
-        dt = Math.min(dt, this.cfl / ((c + jet) / dx + (c + jet) / dy));
-      }
+    // Size the step for the water that will actually arrive during it. The inflow is sampled
+    // across [t, t + dt] — the step itself injects the mean over that window — because reading it
+    // at t alone let a hydrograph starting at zero claim no water was coming: on a dry domain
+    // there is no wave speed to size the step from either, so the first step ran at maxDt and
+    // emptied the whole ramp into one cell, far past CFL. Depths then went negative and were
+    // clamped to zero, which quietly created water.
+    const jet = this.boundary.jetVelocity();
+    for (let pass = 0; pass < 3; pass++) {
+      const qEst = Math.max(
+        this.boundary.estimate(this.t, tail),
+        this.boundary.estimate(this.t + dt * 0.5, tail),
+        this.boundary.estimate(this.t + dt, tail),
+      );
+      if (qEst <= 0) break;
+      let hs = 0;
+      for (const s of sources) hs = Math.max(hs, h[s.index] + (qEst * dt * s.weight) / cellArea);
+      const c = Math.sqrt(G * hs);
+      dt = Math.min(dt, this.cfl / ((c + jet) / dx + (c + jet) / dy));
     }
     dt = Math.max(dt, 1e-4);
 
