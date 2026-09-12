@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cascade — how it works</title>
+<style>
+  :root {
+    --canvas: #050505;
+    --panel: #0f0f11;
+    --panel-2: #16161a;
+    --ink: #f2f2f2;
+    --ink-2: #d4d4d8;
+    --muted: #98989d;
+    --faint: #7d7d83;
+    --accent: #f59e0b;
+    --blue: #2a78d6;
+    --orange: #eb6834;
+    --green: #1baf7a;
+    --hairline: rgba(255, 255, 255, 0.09);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 15px/1.65 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { border-bottom: 1px solid var(--hairline); padding-bottom: 28px; margin-bottom: 8px; }
+  h1 { font-size: 34px; letter-spacing: -0.025em; margin: 0 0 8px; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0; }
+  .tag {
+    display: inline-block; font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 999px;
+    padding: 3px 10px; margin-bottom: 14px;
+  }
+  h2 {
+    font-size: 21px; letter-spacing: -0.02em; margin: 44px 0 14px;
+    padding-top: 14px; border-top: 1px solid var(--hairline);
+  }
+  h3 { font-size: 15.5px; margin: 24px 0 8px; color: var(--ink); }
+  p { margin: 0 0 12px; color: var(--ink-2); }
+  ul, ol { margin: 0 0 14px; padding-left: 20px; color: var(--ink-2); }
+  li { margin-bottom: 6px; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px;
+    background: var(--panel-2); border: 1px solid var(--hairline); border-radius: 5px; padding: 1px 5px;
+  }
+  pre {
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.6; color: var(--ink-2);
+  }
+  pre code { background: none; border: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  td { color: var(--ink-2); }
+  .card {
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: 14px;
+    padding: 16px 18px; margin: 0 0 16px;
+  }
+  .card.accent { border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05); }
+  .lead { font-size: 16px; color: var(--ink); }
+  .toc { background: var(--panel); border: 1px solid var(--hairline); border-radius: 14px; padding: 16px 18px 8px; margin: 28px 0 8px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; }
+  .toc a { color: var(--ink-2); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+  .num { font-variant-numeric: tabular-nums; }
+  .k { color: var(--accent); font-weight: 600; }
+  .q { color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+  @media (max-width: 700px) { .toc ol { columns: 1; } .wrap { padding: 32px 16px 64px; } h1 { font-size: 26px; } }
+  @media print {
+    body { background: #fff; color: #000; }
+    .card, pre, .toc { background: #fff; border-color: #ccc; }
+    p, td, li, .toc a { color: #222; }
+    h2 { border-color: #ccc; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="tag">SIH26161 · NTRO · Disaster Management</div>
+  <h1>Cascade — how it works</h1>
+  <p class="sub">Dam-break inundation modelling for Indian rivers. A complete technical reference: architecture, physics, data, validation and limitations.</p>
+</header>
+
+<div class="toc">
+  <ol>
+    <li><a href="#what">What it is</a></li>
+    <li><a href="#stack">Tech stack</a></li>
+    <li><a href="#arch">Architecture</a></li>
+    <li><a href="#physics">The physics</a></li>
+    <li><a href="#breach">The breach model</a></li>
+    <li><a href="#sph">The second solver (SPH)</a></li>
+    <li><a href="#gpu">The GPU engine</a></li>
+    <li><a href="#resolution">Resolution settings</a></li>
+    <li><a href="#validation">Validation</a></li>
+    <li><a href="#bug">The bug we found</a></li>
+    <li><a href="#ensemble">Uncertainty (ensemble)</a></li>
+    <li><a href="#maps">Maps and rendering</a></li>
+    <li><a href="#data">Data sources</a></li>
+    <li><a href="#impact">Population and impact</a></li>
+    <li><a href="#exports">Exports</a></li>
+    <li><a href="#perf">Performance</a></li>
+    <li><a href="#limits">Known limitations</a></li>
+    <li><a href="#qa">Q&amp;A cheat sheet</a></li>
+  </ol>
+</div>
+
+<h2 id="what">1. What it is</h2>
+<p class="lead">Cascade simulates what happens downstream when a dam breaches, a landslide lake bursts, or a spillway opens: how much water leaves, where it goes, when it arrives, how deep and fast it gets, who and what is in the way — and it checks itself against satellite observation and analytical benchmarks.</p>
+<p>Everything runs <strong>client-side in the browser</strong>. No backend, no server cost, no API keys. That is a deliberate design decision: it means the tool runs on a disconnected laptop in a district office during an emergency.</p>
+
+<h2 id="stack">2. Tech stack</h2>
+<table>
+  <tr><th>Layer</th><th>Choice</th></tr>
+  <tr><td>Framework</td><td><span class="k">Next.js 16.3.4</span> (App Router, Turbopack)</td></tr>
+  <tr><td>UI</td><td>React 19.2.8, TypeScript 5</td></tr>
+  <tr><td>State</td><td>Zustand 5.0.15 — four stores: scenario, simulation, UI, ensemble</td></tr>
+  <tr><td>Styling</td><td>Tailwind CSS 4 (Lightning CSS), Inter, dark “liquid glass” theme</td></tr>
+  <tr><td>Animation</td><td>Framer Motion 13.2</td></tr>
+  <tr><td>Map / rendering</td><td>deck.gl 9.4 (core, layers, geo-layers, mesh-layers, extensions, react) + MapLibre GL 6.9 via react-map-gl 8.1.3</td></tr>
+  <tr><td>Compute</td><td><span class="k">WebGPU</span> (WGSL compute shaders), with a Web Worker CPU fallback</td></tr>
+</table>
+
+<h2 id="arch">3. Architecture</h2>
+<pre><code>Scenario (JSON + elevation.bin + GeoJSON)
+      ↓
+setupSimulation()          ← single source of truth for solver configuration
+      ↓
+EngineClient  →  Web Worker   (or main thread if workers are blocked)
+      ↓
+createRuntime()  →  GPU solver (WebGPU)   or   CPU solver
+      ↓
+frames + envelopes  →  results store  →  React panels + deck.gl layers</code></pre>
+
+<div class="card accent">
+  <p><strong>Two architectural rules we enforce strictly</strong></p>
+  <ol>
+    <li><strong>No Transferable buffers across the worker boundary.</strong> Everything crosses by structured cloning. Transferring detaches the buffer from the sender; in an earlier version that made the water render invisible because React and deck.gl still held a detached array.</li>
+    <li><strong>The worker and the main-thread fallback drive the solvers through one identical call path</strong> (<code>createRuntime</code>), so arguments can never silently drift apart. New solver parameters go into <code>EngineConfig</code>, never into a second hand-maintained argument list.</li>
+  </ol>
+</div>
+
+<h2 id="physics">4. The physics — how water flow is computed</h2>
+<h3>The equations</h3>
+<p>The <strong>2D shallow-water equations</strong> (depth-averaged Navier–Stokes) — the same physics Delft3D-FLOW uses in 2D mode:</p>
+<pre><code>∂h/∂t + ∇·(h·u) = 0                                      (mass)
+∂(h·u)/∂t + ∇·(h·u⊗u) + g·h·∇(h + z) = −g·n²·|u|·u / h^⅓   (momentum)</code></pre>
+<p><code>h</code> = water depth, <code>u</code> = depth-averaged velocity, <code>z</code> = bed elevation, <code>n</code> = Manning roughness, <code>g</code> = 9.81 m/s².</p>
+
+<h3>The numerical method</h3>
+<ul>
+  <li><strong>Godunov finite volumes with HLL Riemann fluxes</strong> (Toro, 2001). At every cell face we solve a Riemann problem — the exact “what happens when two states meet”. This is what lets the scheme capture <strong>bores and hydraulic jumps</strong> as sharp discontinuities instead of smearing them.</li>
+  <li><strong>Hydrostatic reconstruction</strong> (Audusse et al., 2004) makes the scheme <em>well-balanced</em>: still water over uneven ground stays perfectly still, and depths stay positive at wet/dry fronts. Many codes fail this and generate phantom currents.</li>
+  <li><strong>Explicit time stepping at CFL 0.45</strong>, capped at 10 s. The step is recomputed every iteration from the fastest wave speed present, <code>(|u| + √(g·h)) / Δx</code>, so water never crosses more than a fraction of a cell per step.</li>
+  <li><strong>Point-implicit Manning friction</strong>: applied as a damping factor <code>1 + Δt·g·n²·|u| / (h·∛h)</code>, which stays stable in very shallow water where an explicit treatment would blow up.</li>
+  <li><strong>Open outflow boundaries</strong> at the domain edge, with the volume leaving tracked so mass balance always closes.</li>
+  <li>Speed capped at 45 m/s; momentum zeroed below 1 mm depth — numerical hygiene for thin films.</li>
+</ul>
+
+<h3>The speed optimisation</h3>
+<p>The solver tracks <strong>per-row wet spans</strong> with a two-cell halo, iterating only cells that hold water or could receive it next step, instead of sweeping the whole grid — roughly a 1.8× speedup.</p>
+
+<h2 id="breach">5. The breach model — where the water comes from</h2>
+<p>A dam break is not “remove the dam”. We model:</p>
+<ul>
+  <li><strong>Breach geometry and timing from Froehlich (2008)</strong>: average width <code>B = 0.27·k₀·V^0.32·h_b^0.04</code>, formation time <code>t_f = 63.2·√(V / (g·h_b²))</code>, with side slopes by failure mode (overtopping vs piping).</li>
+  <li><strong>Level-pool reservoir routing</strong>: the reservoir drains through the growing breach as a weir, and crucially <strong>against the live tailwater</strong> — water already downstream pushes back and submerges the breach, reducing outflow.</li>
+  <li>For comparison the app shows two published regressions: <strong>Froehlich (1995)</strong> peak <code>0.607·V^0.295·H^1.24</code>, and <strong>MacDonald &amp; Langridge-Monopolis (1984)</strong> <code>1.154·(V·H)^0.412</code>.</li>
+</ul>
+<p>This is why the interface reports a <em>modelled, tailwater-coupled</em> peak first, and labels the free-outflow figure as a bound rather than a prediction.</p>
+
+<h2 id="sph">6. The second solver — SPH</h2>
+<p><strong>SPH-SWE</strong>: smoothed-particle hydrodynamics in shallow-water form with variable smoothing length, after <strong>Vacondio et al. (2012)</strong>. The flood is carried by 3,000 / 6,000 / 12,000 moving parcels of water instead of fixed cells, integrated with symplectic Euler and the same implicit Manning friction.</p>
+<p><strong>Why two solvers:</strong> they fail in different ways. SPH has no fixed grid, so its wet/dry front is not smeared across a cell. Where the two agree, the result does not depend on the choice of method; where they differ, the gap <em>is</em> a measure of model uncertainty. The Difference layer maps that gap.</p>
+
+<h2 id="gpu">7. The GPU engine</h2>
+<p>The grid solver runs on the graphics card through <strong>WebGPU</strong>, as three WGSL compute kernels:</p>
+<table>
+  <tr><th>Kernel</th><th>Job</th></tr>
+  <tr><td><code>prepare</code></td><td>Choose the time step; apply breach inflow</td></tr>
+  <tr><td><code>update</code></td><td>Four face fluxes per cell, update depth and momentum, apply friction, update envelopes, reduce the next CFL rate across the workgroup</td></tr>
+  <tr><td><code>finalize</code></td><td>Combine workgroup partials into the global rate, accumulate outflow, advance the clock</td></tr>
+</table>
+<p>State lives in ping-pong <code>vec4</code> buffers (depth, x-discharge, y-discharge, bed elevation) at 256 threads per workgroup. The reservoir stays on the CPU and couples in batches of ≤30 simulated seconds. Submissions are sized to <strong>about 8 ms of GPU work</strong> so the map keeps drawing between them — that alone took playback from 54 fps to 107 fps.</p>
+<p class="lead">Result: <span class="k">Bhakra in ~58 seconds instead of ~5 minutes.</span></p>
+
+<h2 id="resolution">8. Resolution settings</h2>
+<table>
+  <tr><th>Setting</th><th>Grid</th><th>Cost (Tehri, 6 h simulated)</th></tr>
+  <tr><td>Fast</td><td>cells 2× larger (200 m)</td><td class="num">seconds</td></tr>
+  <tr><td>Standard</td><td>scenario grid (100 m)</td><td class="num">109 s on GPU</td></tr>
+  <tr><td>Detailed</td><td>cells 2× smaller (50 m — 846 × 884), GPU only</td><td class="num">163 s</td></tr>
+</table>
+<p>Detailed pools results back onto the scenario grid (deepest value per block, earliest real arrival), so every panel, layer and export is unchanged. The finer grid keeps the flood in the gorge instead of smearing it across 100 m cells: 20 settlements reached instead of 40, and the front reaches Naramghat at 23:31 instead of 27:21.</p>
+
+<h2 id="validation">9. Validation — what proves the numbers</h2>
+<p>Six benchmarks run <strong>live in the browser</strong>, computed on the spot (Model tab → Run analytical benchmarks):</p>
+<table>
+  <tr><th>Test</th><th>What it proves</th><th>Result</th></tr>
+  <tr><td>Ritter (1892)</td><td>Exact solution for a dam break on a dry frictionless bed</td><td class="num">depth RMSE 1.2 % of h₀; front within 8.9 %</td></tr>
+  <tr><td>Grid convergence</td><td>Errors must shrink as cells shrink (20 → 10 → 5 m)</td><td class="num">RMSE 1.7 → 1.2 → 0.8 %</td></tr>
+  <tr><td>Stoker (1957)</td><td>Dam break onto water already in the channel forms a bore — the realistic case</td><td class="num">bore 5.07 m vs exact 5.08 m; position 0.6 % off</td></tr>
+  <tr><td>EA benchmark test 3</td><td>Momentum conservation over a 0.25 m obstruction</td><td class="num">11.4 cm carried over; ponds level to 3.6 mm</td></tr>
+  <tr><td>Dry-bed inflow</td><td>Mass conservation when a dry domain first takes water</td><td class="num">error 1e-15</td></tr>
+  <tr><td>Lake at rest</td><td>Still water on rough ground must stay perfectly still (well-balanced)</td><td class="num">zero movement, zero volume change</td></tr>
+</table>
+<p>Plus <strong>live mass balance</strong> on every run (Tehri: 4.9e-13 %), <strong>CSI / hit rate / extent ratio / depth RMSE</strong> against an imported HEC-RAS or Delft3D raster, and <strong>Sentinel-1 observed extent</strong> scoring through a generated Google Earth Engine script (UN-SPIDER change-detection method).</p>
+
+<h3>On Malpasset</h3>
+<p>Malpasset (France, 1959) is the classic real-world validation case, but its benchmark topography is a digitised <strong>1931</strong> survey map — used precisely because the Reyran valley was reshaped beyond recognition by the flood and later development. Modern SRTM terrain is the wrong landscape, so a Malpasset run on it would be meaningless however convincing it looked, and the CADAM dataset with the survey-point coordinates is not openly redistributable. We use the reproducible Environment Agency case instead, and say so.</p>
+
+<h2 id="bug">10. The bug we found — and what it demonstrates</h2>
+<div class="card">
+  <p>Building the Environment Agency benchmark exposed a <strong>real mass-conservation failure in our own solver</strong>: a sealed basin finished with <span class="k">10,584 m³ after only 771 m³ was released</span> (+1362 %).</p>
+  <p><strong>Cause.</strong> The time step is chosen from the fastest water present — but at the start the valley is dry, so there is nothing to measure and it fell back to its 10 s ceiling. A safety check existed for incoming water, but it sampled the inflow <em>at the instant the step began</em>, and the hydrograph started at zero, so it concluded nothing was coming. The step then injected the <em>average</em> over those 10 seconds — 333 m³ into a single 25 m² cell, a 13 m column appearing at once. Draining it demanded more water than the cell held, depth went negative, and the safety clamp that zeroes negatives quietly converted that deficit into new water.</p>
+  <p><strong>Fix.</strong> Sample the inflow across the whole step (start, middle, end) and re-check as the step shrinks — which is what the WebGPU kernel already did. Error is now ~1e-15; Tehri is unchanged at 4.9e-13 % with identical arrival times; a permanent regression test locks it.</p>
+  <p><strong>Why it matters:</strong> the tests were not decoration. They caught a genuine defect in our own code, we fixed it, and the suite runs live in the app for anyone to re-run.</p>
+</div>
+
+<h2 id="ensemble">11. Uncertainty — the ensemble</h2>
+<p>Twelve runs of the grid solver over a <strong>Latin hypercube</strong>, varying the three inputs nobody knows before a failure:</p>
+<ul>
+  <li>breach width ×0.6–1.6</li>
+  <li>breach formation time ×0.4–2.5</li>
+  <li>Manning’s n ×0.75–1.35</li>
+</ul>
+<p>Ranges reflect the scatter in published breach predictors (Wahl, 2004). Outputs: a <strong>chance-of-flooding map layer</strong>, a per-place “flooded in X % of runs”, and 10th–90th percentile bands on every headline number.</p>
+<p>Tehri: <span class="num">24.9K people (24.6–25.1K), 76 km², 899 lives, water at Naramghat in 27 min (21–33)</span>.</p>
+
+<h2 id="maps">12. Maps and rendering</h2>
+<ul>
+  <li><strong>Terrain:</strong> a custom <code>HiResTerrainLayer</code> subclassing deck.gl’s TerrainLayer. Heights come from AWS Terrain Tiles (Terrarium PNG encoding, SRTM-derived, native max zoom 15) bilinearly cut to zoom 17; textures are stitched 2 × 2 from one zoom deeper to reach ~0.5 m per pixel. Smooth normals per mesh (skirts excluded), 16× anisotropic filtering.</li>
+  <li><strong>Imagery:</strong> Esri World Imagery to zoom 18, or Esri Dark Gray Canvas plus labels for the map view.</li>
+  <li><strong>Aerial perspective:</strong> a custom <code>HazeExtension</code> injects distance-based haze into every layer’s fragment shader, matched to the sky colour.</li>
+  <li><strong>The water:</strong> the depth raster is painted into an <code>ImageData</code> through a precomputed lookup table (one texture per frame, not one object per cell), drawn on a mesh “skin” lifted above the terrain, with a <code>WaterExtension</code> shader adding three wave trains, a Fresnel sky reflection and a sun glint. Shorelines fade in over the first metre instead of stopping on hard cells.</li>
+  <li><strong>Performance techniques:</strong> the basemap renders at half resolution under 3D terrain; the flood repaints at a fixed ~15 Hz rather than every frame; picking is restricted to the places layer.</li>
+</ul>
+
+<h2 id="data">13. Data sources — what we fetch and how</h2>
+<table>
+  <tr><th>Data</th><th>Source</th><th>How</th></tr>
+  <tr><td>Terrain (DEM)</td><td>AWS Terrain Tiles (SRTM, NASA/USGS)</td><td>Terrarium PNG tiles, decoded and box-filtered to the scenario cell size</td></tr>
+  <tr><td>Satellite imagery</td><td>Esri World Imagery (Maxar, Earthstar)</td><td>XYZ tiles</td></tr>
+  <tr><td>Base map</td><td>Esri Dark Gray Canvas + labels</td><td>XYZ tiles</td></tr>
+  <tr><td>Settlements, hospitals, schools, police and fire</td><td>OpenStreetMap via Overpass API (4 mirrors, with backoff)</td><td><code>node["place"]</code>, <code>nwr["amenity"]</code></td></tr>
+  <tr><td>Roads and bridges</td><td>OpenStreetMap</td><td><code>way["highway"~motorway|trunk|primary|secondary|tertiary]</code>; bridges from <code>bridge=yes</code></td></tr>
+  <tr><td>Dam crest lines</td><td>OpenStreetMap <code>waterway=dam</code></td><td>Fetched and reduced to a centreline; 16 major dams pre-baked into a catalogue</td></tr>
+  <tr><td>Observed flood extent</td><td>Sentinel-1 via Google Earth Engine</td><td>The app generates the script; you run it and import the result</td></tr>
+</table>
+<p>Bundled scenarios (Tehri, Bhakra, Rishi Ganga) ship with this data pre-baked, so they work fully offline.</p>
+
+<h2 id="impact">14. Population and impact — the chain</h2>
+<ol>
+  <li><strong>Population per place</strong> comes from the OpenStreetMap <code>population</code> tag where it exists. Where it does not, typical values by place type are used — city 100,000, town 15,000, suburb 5,000, village 1,000, hamlet 150 — and the interface <strong>marks those as estimated</strong>.</li>
+  <li><strong>A settlement is not a point.</strong> Each has a footprint radius by type: city 1,500 m, town 700 m, suburb 450 m, village 250 m, hamlet 120 m.</li>
+  <li><strong>People exposed = population × the flooded share of that footprint</strong>, sampled every frame — so a half-covered village counts half its people, and the figure grows as the flood spreads.</li>
+  <li><strong>Hazard class</strong> from AIDR Guideline 7-3 (2017), classes H1–H6, combining depth, velocity and depth × velocity. H1 is ≤ 0.3 m with DV ≤ 0.3 (“generally safe”); H6 is above 4 m or DV &gt; 4 (“unsafe for all; all building types vulnerable to failure”).</li>
+  <li><strong>Loss of life</strong> from Graham (1999) fatality rates, chosen by flood severity and warning time. High severity requires DV ≥ 12 (the RESCDAM building-collapse threshold) <em>and</em> arrival under 15 minutes. The panel shows what warning at breach, 30 minutes early and 1 hour early would change.</li>
+  <li><strong>Economic loss</strong> from the JRC global depth–damage curve for Asian residential buildings (Huizinga, de Moel &amp; Szewczyk, 2017) — 0.5 m = 33 % of value, 1 m = 49 %, 2 m = 72 %, 6 m = total — against indicative replacement values (₹10 lakh per household at 4.8 people, hospital ₹25 crore, school ₹2 crore, bridge ₹20 crore). Roads count as cut at ≥ 0.3 m depth.</li>
+</ol>
+
+<h2 id="exports">15. Exports — what each file is and how to open it</h2>
+<p>The <strong>Grid solver / SPH solver</strong> toggle at the top of the export sheet selects which engine’s results to export.</p>
+<table>
+  <tr><th>Format</th><th>What it contains</th><th>How to open it</th></tr>
+  <tr><td>KML</td><td>Depth bands, arrival isochrones and hazard classes as folders, plus places and cut roads</td><td><strong>Google Earth</strong> (desktop or web) — double-click, or drag into earth.google.com</td></tr>
+  <tr><td>Shapefile (.zip)</td><td>Five layers in WGS 84: depth polygons, arrival, hazard, places at risk, cut roads</td><td><strong>QGIS</strong> (free) or ArcGIS — unzip, drag the <code>.shp</code> in</td></tr>
+  <tr><td>GeoJSON</td><td>Every vector layer in one file</td><td>QGIS, or paste into <strong>geojson.io</strong>; also readable as plain text</td></tr>
+  <tr><td>Rasters (.zip)</td><td>Peak depth, arrival time, velocity and hazard as ESRI ASCII grids (<code>.asc</code>)</td><td>QGIS → Add Raster Layer; also ArcGIS, GDAL, or import into HEC-RAS</td></tr>
+  <tr><td>Places table (.csv)</td><td>Evacuation list sorted by arrival time — name, type, people, arrival, peak depth, hazard</td><td>Excel or Google Sheets</td></tr>
+  <tr><td>CAP alert (.xml)</td><td>Common Alerting Protocol 1.2 (SACHET), English and Hindi blocks, marked as an exercise</td><td>Any CAP-aware alerting system (NDMA / SACHET); opens as text in any editor</td></tr>
+</table>
+<div class="card">
+  <p><strong>For a demo:</strong> show the KML in Google Earth (most convincing to a non-GIS audience), have the CSV open in Sheets as the evacuation list, and mention the Shapefile and raster exports as the “hand this to the district GIS cell” answer.</p>
+</div>
+
+<h2 id="perf">16. Performance</h2>
+<table>
+  <tr><th>Measure</th><th>Result (Intel UHD integrated graphics)</th></tr>
+  <tr><td>Map idle</td><td class="num">120 fps</td></tr>
+  <tr><td>Panning</td><td class="num">74–80 fps</td></tr>
+  <tr><td>During flood playback</td><td class="num">107 fps</td></tr>
+  <tr><td>Bhakra, Fast, GPU</td><td class="num">~58 s (vs ~5 min on the processor)</td></tr>
+  <tr><td>Tehri, Standard, 6 h simulated</td><td class="num">109 s</td></tr>
+  <tr><td>Tehri, Detailed (50 m), 6 h simulated</td><td class="num">163 s</td></tr>
+</table>
+<p>The standing requirement is 60 fps minimum including 3D, on ordinary integrated-GPU laptops, measured on real hardware rather than asserted.</p>
+
+<h2 id="limits">17. Known limitations — state these before a judge finds them</h2>
+<ul>
+  <li><strong>DEM resolution.</strong> SRTM at 30 m, resampled to 100 m cells, captured February 2000. Features narrower than a cell — river channels, embankments, levees, bridges, culverts — are not resolved.</li>
+  <li><strong>No river bathymetry.</strong> No satellite DEM sees the channel bed below the water surface, so that storage volume is missing and the valley fills somewhat faster than reality.</li>
+  <li><strong>SRTM is a surface model.</strong> It reflects off treetops and rooftops, so in forested valleys the “ground” can read 10–20 m too high.</li>
+  <li><strong>Roughness is currently a single value</strong> for the whole domain, adjustable in the Model tab.</li>
+  <li><strong>Population is OpenStreetMap-derived</strong>, with typical values where tags are missing — those are flagged as estimated in the interface.</li>
+  <li><strong>Loss of life and economic loss are indicative</strong>, from published rate tables, not a loss adjuster’s assessment.</li>
+  <li><strong>Dam and reservoir figures are approximate public values</strong>; they should be verified with the dam owner before any operational use.</li>
+</ul>
+
+<h2 id="qa">18. Q&amp;A cheat sheet</h2>
+
+<div class="card">
+  <p class="q">“Did you benchmark this?”</p>
+  <p>Six analytical and published benchmarks run live in the app — Ritter, grid convergence, Stoker, Environment Agency test 3, dry-bed mass and lake-at-rest — plus mass balance on every run. They caught a genuine mass-conservation bug in our own solver, which we fixed and locked with a regression test.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Why not Malpasset?”</p>
+  <p>It requires the CADAM 1959 topography — a digitised 1931 survey map — because the valley was reshaped by the flood itself. Modern SRTM would invalidate the comparison, and the dataset is not openly redistributable. We use the reproducible Environment Agency case instead.</p>
+</div>
+
+<div class="card">
+  <p class="q">“That peak discharge looks impossibly large.”</p>
+  <p>The large figure is the free-outflow bound, labelled as a bound. The headline number is the modelled peak, routed through the breach against live tailwater, and we show the Froehlich (1995) and MacDonald &amp; Langridge-Monopolis regressions beside it for comparison.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Why two solvers — isn’t SPH a gimmick?”</p>
+  <p>They fail differently. SPH carries the flood on moving particles with no fixed grid, so its wet/dry front is not smeared across a cell. Agreement means the answer does not depend on method choice; disagreement is a measurable uncertainty, which the Difference layer maps.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Your DEM is too coarse for the plains.”</p>
+  <p>Agreed, and the app says so in the Model tab. The scenario builder already accepts an uploaded GeoTIFF or ASCII DEM — CartoDEM from Bhuvan, FABDEM or Copernicus — so a better surface can be loaded without changing anything else.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Does it work for any river?”</p>
+  <p>Yes. The scenario builder takes any dam or blockage in India by coordinates, fetches terrain and exposure from open data automatically, finds the river direction from the DEM, and aligns the dam to its real crest from OpenStreetMap.</p>
+</div>
+
+<div class="card">
+  <p class="q">“How do you know how many people are affected?”</p>
+  <p>Population from OpenStreetMap tags, with typical values by place type where tags are missing (flagged as estimated). Each settlement is assessed over a footprint sized by type, so exposure is population × the flooded share of that footprint, not a yes/no on a point.</p>
+</div>
+
+</div>
+</body>
+</html>
