@@ -14,6 +14,10 @@ import type { Resolution } from '@/simulation/setup';
 import { PARTICLE_BUDGET } from '@/simulation/setup';
 import { runBenchmarks } from '@/simulation/benchmarks';
 import type { BenchmarkResult } from '@/simulation/benchmarks';
+import { ensemble, ensembleKey, ENSEMBLE_MEMBERS } from '@/simulation/ensembleRunner';
+import { ENSEMBLE_RANGES } from '@/simulation/ensemble';
+import { useEnsembleStore } from '@/store/ensembleStore';
+import { displayName } from '@/lib/text';
 import { Button, Divider, Dot, Field, Progress, Section, Segmented, Slider, Switch, Tag, TextInput } from '@/components/ui/primitives';
 import { LineChart } from '@/components/ui/charts';
 import type { ChartSeries } from '@/components/ui/charts';
@@ -235,6 +239,94 @@ function Validation() {
   );
 }
 
+const squareKm = (m2: number) => `${formatNumber(m2 / 1e6, m2 >= 1e8 ? 0 : 1)} km²`;
+
+/**
+ * The ensemble: the same failure computed many times with the inputs nobody knows in advance
+ * varied over their plausible ranges, giving a band around each number and a chance of flooding
+ * on the map instead of a single line.
+ */
+function Ensemble() {
+  const status = useEnsembleStore((s) => s.status);
+  const done = useEnsembleStore((s) => s.done);
+  const total = useEnsembleStore((s) => s.total);
+  const progress = useEnsembleStore((s) => s.progress);
+  const eta = useEnsembleStore((s) => s.etaSeconds);
+  const error = useEnsembleStore((s) => s.error);
+  const result = useEnsembleStore((s) => s.result);
+  const storedKey = useEnsembleStore((s) => s.key);
+  const backend = useEnsembleStore((s) => s.backend);
+  const runs = useSimStore((s) => s.runs);
+  const event = useSimStore((s) => s.event);
+  const layer = useSimStore((s) => s.view.layer);
+  const setView = useSimStore((s) => s.setView);
+  const busy = status === 'running';
+  const running = isRunning(runs);
+  const stale = !!result && !busy && storedKey !== null && storedKey !== ensembleKey();
+
+  const rows =
+    result && result.members.length > 0
+      ? [
+          { label: 'People in flooded places', value: `${formatCompact(result.people.p50)} (${formatCompact(result.people.p10)}–${formatCompact(result.people.p90)})` },
+          { label: 'Flooded area', value: `${squareKm(result.area.p50)} (${squareKm(result.area.p10)}–${squareKm(result.area.p90)})` },
+          { label: 'Estimated loss of life', value: `${formatNumber(result.lifeLoss.p50)} (${formatNumber(result.lifeLoss.p10)}–${formatNumber(result.lifeLoss.p90)})` },
+          ...(result.firstArrival && result.firstPlace
+            ? [
+                {
+                  label: `Water reaches ${displayName(result.firstPlace)}`,
+                  value: `${formatDuration(result.firstArrival.p50)} (${formatDuration(result.firstArrival.p10)}–${formatDuration(result.firstArrival.p90)})`,
+                },
+              ]
+            : []),
+        ]
+      : [];
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11.5px] leading-snug text-muted">
+        {ENSEMBLE_MEMBERS} runs of the grid solver on the Fast grid, varying the final breach width (×{ENSEMBLE_RANGES.width[0]}–{ENSEMBLE_RANGES.width[1]}), the time the breach takes to
+        form (×{ENSEMBLE_RANGES.formationTime[0]}–{ENSEMBLE_RANGES.formationTime[1]}) and Manning’s n (×{ENSEMBLE_RANGES.manning[0]}–{ENSEMBLE_RANGES.manning[1]}) over a Latin hypercube.
+        Breach predictors scatter by about this much (Wahl, 2004), so a single run is one line through a wide range. Figures below are the median, with the 10th–90th percentile in
+        brackets.
+      </p>
+      {rows.length > 0 && (
+        <div className="divide-y divide-white/[0.08] rounded-2xl bg-fill/70 px-3">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3 py-2">
+              <span className="text-[12px] text-ink-2">{r.label}</span>
+              <span className="tnum text-[12.5px] font-medium">{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {busy && (
+        <div className="space-y-1.5">
+          <Progress value={progress} />
+          <div className="flex justify-between text-[11px] text-muted">
+            <span>
+              Run {Math.min(done + 1, total)} of {total}
+              {backend === 'gpu' ? ' · graphics card' : backend === 'cpu' ? ' · processor' : ''}
+            </span>
+            <span>{eta !== null && eta > 0 ? `about ${formatDuration(eta)} left` : ''}</span>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-[12px] text-critical">{error}</p>}
+      {stale && !busy && <p className="text-[11px] text-faint">The event settings changed after these runs.</p>}
+      <div className="flex gap-2">
+        <Button className="flex-1" variant={result && !stale ? 'secondary' : 'primary'} disabled={running || !event} onClick={() => (busy ? ensemble.cancel() : void ensemble.run())}>
+          {busy ? 'Stop the ensemble' : result ? 'Run the ensemble again' : `Run ${ENSEMBLE_MEMBERS} runs`}
+        </Button>
+        {result && layer !== 'probability' && (
+          <Button variant="secondary" onClick={() => setView({ layer: 'probability' })}>
+            Show on map
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ModelTab() {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
@@ -359,6 +451,12 @@ function ModelTab() {
           <Play className="h-3.5 w-3.5 fill-current" />
           {runs.swe.frames || runs.sph.frames ? (stale ? 'Settings changed — run again' : 'Run again') : 'Run simulation'}
         </Button>
+      </Section>
+
+      <Divider />
+
+      <Section title="Uncertainty" action={<Tag>Ensemble</Tag>}>
+        <Ensemble />
       </Section>
 
       <Divider />

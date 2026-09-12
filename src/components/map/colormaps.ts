@@ -40,6 +40,10 @@ export const VELOCITY_STEPS = ['#e4e1fb', '#c9c3f5', '#aea5ef', '#9085e9', '#726
 export const VELOCITY_MAX = 12;
 export const VELOCITY_TICKS = [0.5, 2, 5, 12];
 
+// Chance of flooding across the ensemble: one hue, light → dark, distinct from the depth blues.
+export const PROBABILITY_STEPS = ['#dff3ef', '#b6e5dd', '#8bd5c9', '#5ec2b4', '#37a99c', '#1f8b81', '#136e66'];
+export const PROBABILITY_TICKS = [10, 25, 50, 75, 100];
+
 export const DIFF_NEG = ['#1c5cab', '#3987e5', '#86b6ef'];
 export const DIFF_MID = '#e8e7e3';
 export const DIFF_POS = ['#f4b08a', '#eb6834', '#a8401a'];
@@ -68,6 +72,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 // deep (0.35 on the logarithmic scale), so flood edges fade instead of stopping in hard cells.
 const DEPTH_LUT = buildLut(DEPTH_STEPS, 70, 238, (t) => smoothstep(0, 0.35, t));
 const VELOCITY_LUT = buildLut(VELOCITY_STEPS, 160, 235);
+const PROBABILITY_LUT = buildLut(PROBABILITY_STEPS, 90, 235);
 const DIFF_LUT = buildLut([...DIFF_NEG, DIFF_MID, ...DIFF_POS], 220, 220);
 const LOG_MIN = Math.log(DEPTH_MIN);
 const LOG_SPAN = Math.log(DEPTH_MAX) - LOG_MIN;
@@ -190,6 +195,21 @@ export function paintVelocity(out: Uint8ClampedArray, maxSpeed: Float32Array, ar
     out[o + 1] = VELOCITY_LUT[i + 1];
     out[o + 2] = VELOCITY_LUT[i + 2];
     out[o + 3] = VELOCITY_LUT[i + 3];
+  }
+}
+
+/** Share of the ensemble's runs that flood each cell (0–1). */
+export function paintProbability(out: Uint8ClampedArray, probability: Float32Array): void {
+  clear(out);
+  for (let k = 0; k < probability.length; k++) {
+    const p = probability[k];
+    if (p <= 0.001) continue;
+    const i = Math.round(Math.min(1, p) * 255) * 4;
+    const o = k * 4;
+    out[o] = PROBABILITY_LUT[i];
+    out[o + 1] = PROBABILITY_LUT[i + 1];
+    out[o + 2] = PROBABILITY_LUT[i + 2];
+    out[o + 3] = PROBABILITY_LUT[i + 3];
   }
 }
 

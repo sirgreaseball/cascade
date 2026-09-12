@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
@@ -113,6 +114,8 @@ function PlacesList() {
   const exposure = useScenarioStore((s) => s.exposure);
   const selected = useSimStore((s) => s.selectedAsset);
   const selectAsset = useSimStore((s) => s.selectAsset);
+  // How often the ensemble floods each place, when one has been run.
+  const chance = useEnsembleStore((s) => s.result?.placeChance ?? null);
   const [all, setAll] = useState(false);
   const rows = useMemo(() => {
     if (!impacts || !exposure) return [];
@@ -142,6 +145,7 @@ function PlacesList() {
               <span className="block truncate font-medium text-ink">{displayName(a.name)}</span>
               <span className="block truncate text-[10.5px] text-muted">
                 {a.kind === 'settlement' ? `${a.subtype} · ${formatCompact(s.peopleExposed)} people` : a.kind === 'bridge' ? 'bridge' : a.subtype.replace('_', ' ')}
+                {chance && chance[i] > 0 ? ` · flooded in ${Math.round(chance[i] * 100)}% of runs` : ''}
               </span>
             </span>
             <span className="text-right text-ink-2">{formatClock(s.arrival)}</span>

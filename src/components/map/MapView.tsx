@@ -15,6 +15,7 @@ import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 // Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
 // fetched from a CDN at runtime (and fail offline).
 import { TerrainLoader } from '@loaders.gl/terrain';
+import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
@@ -36,6 +37,7 @@ import {
   paintDifferenceMetres,
   paintHazard,
   paintMaxDepth,
+  paintProbability,
   paintVelocity,
 } from './colormaps';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
@@ -149,6 +151,7 @@ export default function MapView() {
   const exposure = useScenarioStore((s) => s.exposure);
   const observed = useScenarioStore((s) => s.observed);
   const external = useScenarioStore((s) => s.external);
+  const ensemble = useEnsembleStore((s) => s.result);
   const setup = useSimStore((s) => s.setup);
   const view = useSimStore((s) => s.view);
   const engines = useSimStore((s) => s.engines);
@@ -263,6 +266,11 @@ export default function MapView() {
         paintDifferenceMetres(out, a.summary.maxDepth, external.maxDepth);
         painted = true;
       }
+    } else if (view.layer === 'probability') {
+      if (ensemble) {
+        paintProbability(out, ensemble.probability);
+        painted = true;
+      }
     } else if (r?.summary) {
       const s = r.summary;
       if (view.layer === 'maxDepth') paintMaxDepth(out, s.maxDepth, s.arrival, t);
@@ -307,7 +315,7 @@ export default function MapView() {
     }
     return new ImageData(out, cols, rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, primary, playhead, version, view.layer, external, observed, view.showObserved]);
+  }, [data, primary, playhead, version, view.layer, external, ensemble, observed, view.showObserved]);
 
   // The water skin: the scenario DEM as a mesh, lifted clear of the terrain, textured with the
   // flood, and only where ground lies below the crest (higher ground can never flood).

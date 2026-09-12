@@ -3,6 +3,7 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSimStore } from '@/store/simulationStore';
+import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -14,6 +15,8 @@ import {
   DIFF_POS,
   HAZARD_COLORS,
   IDENTITY,
+  PROBABILITY_STEPS,
+  PROBABILITY_TICKS,
   VELOCITY_STEPS,
   VELOCITY_TICKS,
   VELOCITY_MAX,
@@ -58,6 +61,7 @@ const TITLES: Record<string, string> = {
   hazard: 'Hazard to people (AIDR)',
   velocity: 'Peak flow velocity',
   difference: 'Depth difference',
+  probability: 'Chance of flooding',
 };
 
 export default function Legend() {
@@ -66,12 +70,15 @@ export default function Legend() {
   const observed = useScenarioStore((s) => s.observed);
   const external = useScenarioStore((s) => s.external);
   const bothRan = useSimStore((s) => s.runs.swe.frames > 0 && s.runs.sph.frames > 0);
+  const ensemble = useEnsembleStore((s) => s.result);
   const leftOpen = useUiStore((s) => s.leftOpen);
 
   let body: React.ReactNode = null;
   if (layer === 'depth' || layer === 'maxDepth') body = <Ramp steps={DEPTH_STEPS} ticks={DEPTH_TICKS} position={depthPosition} unit="metres" />;
   else if (layer === 'velocity')
     body = <Ramp steps={VELOCITY_STEPS} ticks={VELOCITY_TICKS} position={(v) => Math.sqrt(v / VELOCITY_MAX)} unit="metres per second" />;
+  else if (layer === 'probability' && ensemble)
+    body = <Ramp steps={PROBABILITY_STEPS} ticks={PROBABILITY_TICKS} position={(v) => v / 100} unit={`% of the ${ensemble.members.length} runs`} />;
   else if (layer === 'arrival') body = <Swatches items={ARRIVAL_BANDS.map((b) => ({ color: b.color, label: b.label }))} />;
   else if (layer === 'hazard') body = <Swatches items={HAZARD_CLASSES.map((h, i) => ({ color: HAZARD_COLORS[i], label: h.label, title: h.description }))} />;
   else if (layer === 'difference') {
@@ -90,7 +97,7 @@ export default function Legend() {
 
   return (
     <AnimatePresence>
-      {hasResults && body && (
+      {(hasResults || (layer === 'probability' && ensemble)) && body && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}

@@ -4,6 +4,7 @@ import { setupSimulation } from '@/simulation/setup';
 import type { Resolution, SimulationSetup } from '@/simulation/setup';
 import type { EngineId } from '@/simulation/types';
 import { eventDefaults } from '@/lib/scenario';
+import { useEnsembleStore } from './ensembleStore';
 import { results } from '@/simulation/results';
 import type { ScenarioConfig, ScenarioData } from '@/lib/scenario';
 
@@ -23,7 +24,7 @@ export interface EngineRun {
   wallMs: number;
 }
 
-export type MapLayer = 'depth' | 'maxDepth' | 'arrival' | 'hazard' | 'velocity' | 'difference';
+export type MapLayer = 'depth' | 'maxDepth' | 'arrival' | 'hazard' | 'velocity' | 'difference' | 'probability';
 export type EngineView = 'swe' | 'sph' | 'overlay';
 
 export interface ViewSettings {
@@ -149,6 +150,8 @@ export const useSimStore = create<SimState>((set, get) => ({
 
   initForScenario: (config, data) => {
     scenarioRef = { config, data };
+    // An ensemble belongs to the scenario it was run for.
+    useEnsembleStore.getState().reset();
     const event = eventDefaults(config);
     const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu };
     set({

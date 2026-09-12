@@ -2,6 +2,7 @@
 // workers), frames into the results store, status into the simulation store.
 
 import { EngineClient } from './adapters';
+import { ensemble } from './ensembleRunner';
 import { results } from './results';
 import type { EngineId, WorkerOutbound } from './types';
 import { useSimStore } from '@/store/simulationStore';
@@ -14,6 +15,8 @@ class SimulationController {
     const sim = useSimStore.getState();
     const setup = sim.setup;
     if (!setup) return;
+    // One run at a time on the GPU: an ensemble in progress would halve both.
+    ensemble.cancel();
     this.stop();
     results.clear();
     sim.resetRuns();
