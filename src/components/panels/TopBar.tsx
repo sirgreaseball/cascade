@@ -129,10 +129,14 @@ const LAYERS: { value: MapLayer; label: string; title: string }[] = [
   { value: 'difference', label: 'Difference', title: 'SPH minus grid depth' },
   { value: 'probability', label: 'Chance', title: 'Share of the ensemble’s runs that flood each place' },
 ];
-/** Why Difference is greyed out: it needs two results to subtract. */
-const DIFF_HINT = 'Run both solvers, or import another model’s result in the Model tab, to compare depths';
-/** Why Chance is greyed out: it needs an ensemble. */
-const PROB_HINT = 'Run the ensemble in the Model tab to map the chance of flooding';
+/**
+ * A layer with nothing to show is left out of the bar rather than greyed out: a dead control
+ * invites a click that does nothing. Difference needs two results to subtract (both solvers, or
+ * an imported model); Chance needs an ensemble.
+ */
+function availableLayers(diff: boolean, ensemble: boolean) {
+  return LAYERS.filter((l) => (l.value === 'difference' ? diff : l.value === 'probability' ? ensemble : true));
+}
 
 export default function TopBar() {
   const view = useSimStore((s) => s.view);
@@ -169,13 +173,7 @@ export default function TopBar() {
           layoutId="layer-seg"
           value={view.layer}
           onChange={(layer) => setView({ layer })}
-          options={LAYERS.map((l) =>
-            l.value === 'difference' && !diffAvailable
-              ? { ...l, disabled: true, title: DIFF_HINT }
-              : l.value === 'probability' && !hasEnsemble
-                ? { ...l, disabled: true, title: PROB_HINT }
-                : l,
-          )}
+          options={availableLayers(diffAvailable, hasEnsemble)}
           className="bg-transparent"
         />
       </div>
@@ -189,8 +187,8 @@ export default function TopBar() {
             onChange={(e) => setView({ layer: e.target.value as MapLayer })}
             className="h-8 cursor-pointer appearance-none rounded-full bg-fill py-0 pl-3 pr-7 text-[12px] font-medium text-ink outline-none transition-colors hover:bg-fill-2"
           >
-            {LAYERS.map((l) => (
-              <option key={l.value} value={l.value} disabled={(l.value === 'difference' && !diffAvailable) || (l.value === 'probability' && !hasEnsemble)}>
+            {availableLayers(diffAvailable, hasEnsemble).map((l) => (
+              <option key={l.value} value={l.value}>
                 {l.label}
               </option>
             ))}
