@@ -6,7 +6,7 @@ import MapGL from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { COORDINATE_SYSTEM, FlyToInterpolator } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
-import { BitmapLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers';
+import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
 import { HazeExtension } from './haze';

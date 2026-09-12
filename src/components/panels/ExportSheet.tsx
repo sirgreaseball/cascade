@@ -20,9 +20,9 @@ import { cn } from '@/lib/utils';
 const FORMATS = [
   { id: 'kml', title: 'KML', sub: 'Google Earth · depth, arrival and hazard folders, places, roads', ext: 'kml', mime: 'application/vnd.google-earth.kml+xml' },
   { id: 'shp', title: 'Shapefile', sub: 'QGIS · ArcGIS · five layers in WGS 84, zipped', ext: 'zip', mime: 'application/zip' },
-  { id: 'geojson', title: 'GeoJSON', sub: 'All vector layers in one file', ext: 'geojson', mime: 'application/geo+json' },
-  { id: 'raster', title: 'Rasters', sub: 'Peak depth, arrival, velocity, hazard as ESRI ASCII grids', ext: 'zip', mime: 'application/zip' },
-  { id: 'csv', title: 'Places table', sub: 'Evacuation list sorted by arrival time (CSV)', ext: 'csv', mime: 'text/csv' },
+  { id: 'geojson', title: 'GeoJSON', sub: 'QGIS · geojson.io · every vector layer in one file', ext: 'geojson', mime: 'application/geo+json' },
+  { id: 'raster', title: 'Rasters', sub: 'QGIS · ArcGIS · HEC-RAS · peak depth, arrival, velocity and hazard as ESRI ASCII grids', ext: 'zip', mime: 'application/zip' },
+  { id: 'csv', title: 'Places table', sub: 'Excel · Sheets · evacuation list sorted by arrival time', ext: 'csv', mime: 'text/csv' },
   { id: 'cap', title: 'CAP alert', sub: 'Common Alerting Protocol 1.2 (SACHET), English and Hindi, marked as an exercise', ext: 'xml', mime: 'application/xml' },
 ] as const;
 
