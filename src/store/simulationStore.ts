@@ -34,6 +34,8 @@ export interface ViewSettings {
   basemap: 'satellite' | 'light';
   showAssets: boolean;
   showRoads: boolean;
+  /** Draw the ways out that stay ahead of the water, alongside the roads it cuts. */
+  showEvacuation: boolean;
   showParticles: boolean;
   showObserved: boolean;
 }
@@ -143,6 +145,7 @@ export const useSimStore = create<SimState>((set, get) => ({
     basemap: 'satellite',
     showAssets: true,
     showRoads: true,
+    showEvacuation: true,
     showParticles: true,
     showObserved: true,
   },

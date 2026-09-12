@@ -23,6 +23,7 @@ import { results } from '@/simulation/results';
 import { lngLatToCell, sampleBilinear } from '@/lib/geo/grid';
 import { TERRARIUM_URL } from '@/lib/geo/terrarium';
 import { hazardClass } from '@/lib/damage';
+import { planEvacuation } from '@/lib/evacuation';
 import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/format';
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
@@ -329,6 +330,30 @@ export default function MapView() {
     return Float32Array.from(exposure.assets, (a) => sampleBilinear(data.dem, g.cols, g.rows, (a.lng - g.bbox[0]) / g.lngStep, (g.bbox[3] - a.lat) / g.latStep));
   }, [data, exposure]);
 
+  // Ways out that stay ahead of the water: only recomputed when a new envelope lands, never per
+  // frame, and lifted onto the terrain so a route is not buried under the hillside in 3D.
+  // Only once the run has finished: summaries land every fifth frame, and rebuilding the road
+  // graph and re-routing every settlement that often would stall playback on the main thread.
+  const routesReady = useSimStore((s) => {
+    void s.resultsVersion;
+    return s.runs[primary].status === 'done' ? results.get(primary)?.summary?.t ?? -1 : -1;
+  });
+  const evacuation = useMemo(() => {
+    if (!data || !exposure || !view.showEvacuation || routesReady < 0) return null;
+    const summary = results.get(primary)?.summary;
+    if (!summary) return null;
+    const g = data.grid;
+    const lift = ([lng, lat]: [number, number]): [number, number, number] => {
+      const x = Math.min(g.cols - 1, Math.max(0, (lng - g.bbox[0]) / g.lngStep));
+      const y = Math.min(g.rows - 1, Math.max(0, (g.bbox[3] - lat) / g.latStep));
+      return [lng, lat, sampleBilinear(data.dem, g.cols, g.rows, x, y) + SKIN_LIFT + 6];
+    };
+    return planEvacuation(exposure, g, summary)
+      .filter((r) => r.status === 'ok' && r.path.length > 1)
+      .map((r) => ({ ...r, path3d: r.path.map(lift) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, exposure, primary, routesReady, view.showEvacuation]);
+
   // Roads carry their own heights in 3D, so nothing has to be draped onto the terrain.
   const roadPaths3d = useMemo(() => {
     if (!data || !exposure) return null;
@@ -517,6 +542,39 @@ export default function MapView() {
       );
     }
 
+    // The way out, drawn over the roads the water cuts: a soft halo so it reads against both the
+    // satellite imagery and the flood, with the route itself thin and bright on top.
+    if (evacuation && evacuation.length > 0) {
+      const [gr, gg, gb] = hexToRgb(IDENTITY.external);
+      const routePath = (d: { path: [number, number][]; path3d: [number, number, number][] }) => (view.terrain3d ? d.path3d : d.path);
+      list.push(
+        new PathLayer({
+          id: 'evacuation-halo',
+          data: evacuation,
+          getPath: routePath,
+          getColor: [gr, gg, gb, 70],
+          getWidth: 7,
+          widthUnits: 'pixels',
+          capRounded: true,
+          jointRounded: true,
+          parameters: { depthTest: false },
+          updateTriggers: { getPath: [view.terrain3d] },
+        }),
+        new PathLayer({
+          id: 'evacuation',
+          data: evacuation,
+          getPath: routePath,
+          getColor: [gr, gg, gb, 245],
+          getWidth: 2.5,
+          widthUnits: 'pixels',
+          capRounded: true,
+          jointRounded: true,
+          parameters: { depthTest: false },
+          updateTriggers: { getPath: [view.terrain3d] },
+        }),
+      );
+    }
+
     if (exposure && view.showAssets) {
       const statuses = impacts?.statuses;
       const hazardRgb = HAZARD_COLORS.map(hexToRgb);
@@ -642,7 +700,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water, playhead]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water, playhead]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
