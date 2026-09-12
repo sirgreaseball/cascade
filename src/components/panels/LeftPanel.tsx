@@ -26,7 +26,7 @@ import { formatCompact, formatDischarge, formatDuration, formatNumber, formatVol
 import { buildGeeScript, defaultGeeDates, GEE_CODE_EDITOR } from '@/lib/gee';
 import type { GeeParams } from '@/lib/gee';
 import { importExternalResult, importObservedExtent } from '@/lib/importers';
-import { extentAgreement } from '@/lib/compare';
+import { depthDifference, extentAgreement } from '@/lib/compare';
 import { packageScenario } from '@/lib/scenario';
 import { download } from '@/lib/export/formats';
 import { cn } from '@/lib/utils';
@@ -354,7 +354,9 @@ function ModelTab() {
   const externalAgreement = useMemo(() => {
     void version;
     const s = results.get('swe')?.summary;
-    return external && s ? extentAgreement(s.maxDepth, external.maxDepth) : null;
+    if (!external || !s) return null;
+    // Extent skill (CSI) and depth error (RMSE, bias) against the imported model.
+    return { extent: extentAgreement(s.maxDepth, external.maxDepth), depth: depthDifference(s.maxDepth, external.maxDepth) };
   }, [external, version]);
 
   if (!config || !data) return null;
@@ -534,20 +536,32 @@ function ModelTab() {
               </button>
             </div>
             {externalAgreement ? (
-              <div className="mt-2 grid grid-cols-3 gap-2 pl-4 text-[12px]">
-                <div>
-                  <div className="text-[11px] text-muted">Agreement</div>
-                  <div className="font-semibold">{externalAgreement.csi.toFixed(2)} CSI</div>
+              <>
+                <div className="mt-2 grid grid-cols-4 gap-2 pl-4 text-[12px]">
+                  <div>
+                    <div className="text-[11px] text-muted">Agreement</div>
+                    <div className="tnum font-semibold">{externalAgreement.extent.csi.toFixed(2)} CSI</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-muted">Hit rate</div>
+                    <div className="tnum font-semibold">{Math.round(externalAgreement.extent.hitRate * 100)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-muted">Extent ratio</div>
+                    <div className="tnum font-semibold">{externalAgreement.extent.bias.toFixed(2)}×</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-muted">Depth RMSE</div>
+                    <div className="tnum font-semibold">{externalAgreement.depth.rmse.toFixed(2)} m</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-[11px] text-muted">Hit rate</div>
-                  <div className="font-semibold">{Math.round(externalAgreement.hitRate * 100)}%</div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-muted">Extent ratio</div>
-                  <div className="font-semibold">{externalAgreement.bias.toFixed(2)}×</div>
-                </div>
-              </div>
+                <p className="mt-1.5 pl-4 text-[11px] leading-snug text-faint">
+                  Peak-depth error over the {formatNumber(externalAgreement.depth.n)} cells either model floods: RMSE {externalAgreement.depth.rmse.toFixed(2)} m, mean{' '}
+                  {externalAgreement.depth.meanSigned >= 0 ? '+' : '−'}
+                  {Math.abs(externalAgreement.depth.meanSigned).toFixed(2)} m ({externalAgreement.depth.meanSigned >= 0 ? 'imported model deeper' : 'grid solver deeper'}), mean absolute{' '}
+                  {externalAgreement.depth.meanAbsolute.toFixed(2)} m.
+                </p>
+              </>
             ) : (
               <p className="mt-2 pl-4 text-[11px] text-faint">Run the grid solver to compare.</p>
             )}
