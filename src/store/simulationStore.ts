@@ -4,6 +4,8 @@ import { setupSimulation } from '@/simulation/setup';
 import type { Resolution, SimulationSetup } from '@/simulation/setup';
 import type { EngineId } from '@/simulation/types';
 import { eventDefaults } from '@/lib/scenario';
+import { applySeason, DEFAULT_SEASON } from '@/simulation/season';
+import type { Season } from '@/simulation/season';
 import { useEnsembleStore } from './ensembleStore';
 import { results } from '@/simulation/results';
 import type { ScenarioConfig, ScenarioData } from '@/lib/scenario';
@@ -55,6 +57,8 @@ interface SimState {
   event: EventParams | null;
   duration: number;
   manning: number;
+  /** Time of year the failure happens in: sets reservoir level, river flow and roughness. */
+  season: Season;
   resolution: Resolution;
   /** Run the grid solver on the graphics card (WebGPU) when the browser offers it. */
   useGpu: boolean;
@@ -76,6 +80,8 @@ interface SimState {
   initForScenario: (config: ScenarioConfig, data: ScenarioData) => void;
   setEvent: (patch: Partial<EventParams>) => void;
   resetEvent: () => void;
+  /** Reservoir level, river flow and roughness for a time of year, rebuilt in one step. */
+  setSeason: (s: Season) => void;
   setDuration: (s: number) => void;
   setManning: (n: number) => void;
   setResolution: (r: Resolution) => void;
@@ -126,6 +132,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   event: null,
   duration: 21_600,
   manning: 0.045,
+  season: DEFAULT_SEASON,
   resolution: 'standard',
   useGpu: true,
   engines: { swe: true, sph: true },
@@ -156,7 +163,9 @@ export const useSimStore = create<SimState>((set, get) => ({
     // An ensemble belongs to the scenario it was run for.
     useEnsembleStore.getState().reset();
     const event = eventDefaults(config);
-    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu };
+    // A season chosen on one dam must not carry its numbers onto the next: every scenario starts
+    // from its own figures.
+    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, season: DEFAULT_SEASON };
     set({
       ...base,
       ...recompute(base),
@@ -177,6 +186,23 @@ export const useSimStore = create<SimState>((set, get) => ({
     if (!scenarioRef) return;
     const event = eventDefaults(scenarioRef.config);
     set({ event, ...recompute({ ...get(), event }), stale: anyResults(get().runs) });
+  },
+  setSeason: (season) => {
+    const s = get();
+    if (!s.event || !scenarioRef) return;
+    // Always from the scenario's own figures, so switching seasons back and forth does not drift.
+    const defaults = eventDefaults(scenarioRef.config);
+    const applied = applySeason(season, {
+      damHeight: s.event.damHeight,
+      waterDepth: defaults.waterDepth,
+      volume: defaults.volume,
+      baseFlow: defaults.baseFlow,
+      manning: scenarioRef.config.defaults.manning,
+      storageExponent: s.event.storageExponent,
+    });
+    const event = { ...s.event, waterDepth: applied.waterDepth, volume: applied.volume, baseFlow: applied.baseFlow };
+    const next = { ...s, event, manning: applied.manning, season };
+    set({ season, event, manning: applied.manning, ...recompute(next), stale: anyResults(s.runs) });
   },
   setDuration: (duration) => set({ duration, ...recompute({ ...get(), duration }), stale: anyResults(get().runs) }),
   setManning: (manning) => set({ manning, ...recompute({ ...get(), manning }), stale: anyResults(get().runs) }),

@@ -9,6 +9,8 @@ import { useUiStore } from '@/store/uiStore';
 import { controller } from '@/simulation/controller';
 import { results } from '@/simulation/results';
 import { froehlich2008 } from '@/simulation/hydrograph';
+import { SEASONS, seasonProfile } from '@/simulation/season';
+import type { Season } from '@/simulation/season';
 import type { EventKind, FailureMode } from '@/simulation/hydrograph';
 import type { Resolution } from '@/simulation/setup';
 import { canRefine, PARTICLE_BUDGET } from '@/simulation/setup';
@@ -42,6 +44,8 @@ function EventTab() {
   const event = useSimStore((s) => s.event);
   const setEvent = useSimStore((s) => s.setEvent);
   const resetEvent = useSimStore((s) => s.resetEvent);
+  const season = useSimStore((s) => s.season);
+  const setSeason = useSimStore((s) => s.setSeason);
   const setup = useSimStore((s) => s.setup);
   const setupError = useSimStore((s) => s.setupError);
   const duration = useSimStore((s) => s.duration);
@@ -101,6 +105,16 @@ function EventTab() {
           </div>
         </div>
         {config.notes && <p className="text-[11px] leading-snug text-faint">{config.notes}</p>}
+      </Section>
+
+      <Section title="Time of year">
+        <Segmented
+          layoutId="season"
+          value={season}
+          onChange={(s: Season) => setSeason(s)}
+          options={SEASONS.map((s) => ({ value: s.id, label: s.label }))}
+        />
+        <p className="-mt-1 text-[11px] leading-snug text-faint">{seasonProfile(season).description}</p>
       </Section>
 
       <Section title="Event">
