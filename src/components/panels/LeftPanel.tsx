@@ -19,6 +19,7 @@ import { ENSEMBLE_RANGES } from '@/simulation/ensemble';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { displayName } from '@/lib/text';
 import { Button, Divider, Dot, Field, Progress, Section, Segmented, Slider, Switch, Tag, TextInput } from '@/components/ui/primitives';
+import HistoricalCheck from '@/components/panels/HistoricalCheck';
 import { LineChart } from '@/components/ui/charts';
 import type { ChartSeries } from '@/components/ui/charts';
 import { IDENTITY } from '@/components/map/colormaps';
@@ -617,6 +618,8 @@ function ObserveTab() {
 
   return (
     <div className="space-y-6">
+      <HistoricalCheck />
+
       <Section title="Near-real-time flood mapping">
         <p className="text-[12.5px] leading-relaxed text-ink-2">
           Map what actually flooded from Sentinel-1 radar — it sees through cloud and at night — using Google Earth Engine, then bring the result back here to check the model.

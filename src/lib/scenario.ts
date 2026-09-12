@@ -27,6 +27,26 @@ export interface DamInfo {
   crestLine?: [number, number][] | null;
 }
 
+/** One place where the real flood was recorded, against which the model can be checked. */
+export interface ObservationPoint {
+  /** Place name as OpenStreetMap spells it, so the point is matched to a settlement. */
+  place: string;
+  distanceKm?: number;
+  /** Reported arrival window after the failure (minutes, low to high). */
+  arrivalMin?: [number, number];
+  /** Reported peak depth range (m, low to high). */
+  peakDepthM?: [number, number];
+  note?: string;
+}
+
+export interface ScenarioObservations {
+  event: string;
+  points: ObservationPoint[];
+  sources: string;
+  /** Why the comparison is a check rather than a calibration. Always shown with the numbers. */
+  caveats: string;
+}
+
 export interface ScenarioConfig {
   id: string;
   name: string;
@@ -48,6 +68,8 @@ export interface ScenarioConfig {
     formationTime?: number;
   };
   view?: { zoom: number; pitch: number; bearing: number };
+  /** What was actually recorded, for scenarios that reconstruct a failure that happened. */
+  observations?: ScenarioObservations;
   notes?: string;
   custom?: boolean;
   createdAt?: string;
