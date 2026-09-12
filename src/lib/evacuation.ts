@@ -48,6 +48,12 @@ export interface EvacuationOptions {
   departAt?: number;
   /** Safety margin required between passing a cell and the water reaching it (s). */
   safetySeconds?: number;
+  /**
+   * How far clear of the water counts as safe (m). Without this, the search stops at the first
+   * dry cell it meets — which on a coarse grid is the far side of the channel, and amounts to
+   * telling a town to walk forty metres.
+   */
+  safeBufferM?: number;
   /** Settlements to route, as indices into exposure.assets. Defaults to every flooded one. */
   assets?: number[];
 }
@@ -58,6 +64,8 @@ interface Graph {
   lat: Float64Array;
   /** Time the water reaches each node (s); Infinity where it never does. */
   floods: Float64Array;
+  /** Somewhere the route can end: dry, and far enough from the water to count as clear of it. */
+  safe: Uint8Array;
   /** Adjacency: for node i, edges are heads[i] … heads[i + 1] − 1. */
   heads: Int32Array;
   to: Int32Array;
@@ -67,10 +75,49 @@ interface Graph {
 const key = (lng: number, lat: number) => `${lng.toFixed(5)},${lat.toFixed(5)}`;
 
 /**
+ * Cells within `bufferM` of anywhere the flood reaches. Dry ground inside this band is not a
+ * destination: standing on the far bank of a flooded channel is not being clear of it. Grown ring
+ * by ring from every flooded cell, so it costs one pass over the grid rather than a search per
+ * node.
+ */
+function nearFloodMask(g: GridGeometry, arrival: Float32Array, maxDepth: Float32Array, bufferM: number): Uint8Array {
+  const { cols, rows } = g;
+  const near = new Uint8Array(cols * rows);
+  let frontier: number[] = [];
+  for (let k = 0; k < near.length; k++) {
+    if (arrival[k] >= 0 || maxDepth[k] >= CUT_DEPTH) {
+      near[k] = 1;
+      frontier.push(k);
+    }
+  }
+  const rings = Math.ceil(bufferM / Math.min(g.dx, g.dy));
+  for (let ring = 0; ring < rings && frontier.length > 0; ring++) {
+    const next: number[] = [];
+    for (const k of frontier) {
+      const r = (k / cols) | 0;
+      const c = k - r * cols;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
+          const n = rr * cols + cc;
+          if (near[n]) continue;
+          near[n] = 1;
+          next.push(n);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return near;
+}
+
+/**
  * Builds the road graph once per run. Vertices shared between ways (junctions) merge because
  * OpenStreetMap gives them identical coordinates.
  */
-function buildGraph(index: ExposureIndex, g: GridGeometry, arrival: Float32Array, maxDepth: Float32Array): Graph {
+function buildGraph(index: ExposureIndex, g: GridGeometry, arrival: Float32Array, maxDepth: Float32Array, bufferM: number): Graph {
   const ids = new Map<string, number>();
   const lng: number[] = [];
   const lat: number[] = [];
@@ -105,12 +152,16 @@ function buildGraph(index: ExposureIndex, g: GridGeometry, arrival: Float32Array
   }
 
   // When each node goes under: the arrival time of its cell, if the water gets deep enough there.
+  // A node is a destination only if it is dry and outside the band around the flood.
+  const near = nearFloodMask(g, arrival, maxDepth, bufferM);
   const floods = new Float64Array(lng.length).fill(Infinity);
+  const safe = new Uint8Array(lng.length);
   for (let i = 0; i < lng.length; i++) {
     const cell = lngLatToCell(g, lng[i], lat[i]);
     if (!cell) continue;
     const t = arrival[cell.index];
     if (t >= 0 && maxDepth[cell.index] >= CUT_DEPTH) floods[i] = t;
+    else if (!near[cell.index]) safe[i] = 1;
   }
 
   // Compressed adjacency.
@@ -127,7 +178,7 @@ function buildGraph(index: ExposureIndex, g: GridGeometry, arrival: Float32Array
     to[slot] = edgesTo[e];
     cost[slot] = edgeCost[e];
   }
-  return { lng: Float64Array.from(lng), lat: Float64Array.from(lat), floods, heads, to, cost };
+  return { lng: Float64Array.from(lng), lat: Float64Array.from(lat), floods, safe, heads, to, cost };
 }
 
 /** Binary heap of (node, time), smallest time first. */
@@ -204,7 +255,7 @@ function route(graph: Graph, start: number, departAt: number, safety: number): {
   while (queue.size > 0) {
     const { node, time } = queue.pop();
     if (time > best[node]) continue;
-    if (graph.floods[node] === Infinity && node !== start) {
+    if (graph.safe[node] && node !== start) {
       // Safe ground: walk the path back.
       const path: number[] = [];
       let at = node;
@@ -245,7 +296,7 @@ export function planEvacuation(
 ): EvacuationRoute[] {
   const departAt = options.departAt ?? 0;
   const safety = options.safetySeconds ?? 300;
-  const graph = buildGraph(index, g, summary.arrival, summary.maxDepth);
+  const graph = buildGraph(index, g, summary.arrival, summary.maxDepth, options.safeBufferM ?? 400);
   if (graph.lng.length === 0) return [];
 
   const wanted =
@@ -254,6 +305,11 @@ export function planEvacuation(
       .map((a, i) => ({ a, i }))
       .filter(({ a }) => {
         if (a.kind !== 'settlement') return false;
+        // Flooded means any part of the settlement's footprint floods — the same test the impact
+        // panel applies. Asking only whether the centre cell floods skipped towns whose middle
+        // happens to stay dry on a coarse grid, Morbi among them: the one place the Machchhu
+        // record is actually about.
+        for (let j = 0; j < a.footprint.length; j++) if (summary.arrival[a.footprint[j]] >= 0) return true;
         const cell = lngLatToCell(g, a.lng, a.lat);
         return !!cell && summary.arrival[cell.index] >= 0;
       })
