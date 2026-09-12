@@ -45,10 +45,12 @@ export interface EngineConfig {
     targetParticles: number;
   };
   /**
-   * Emit results on this finer grid, each solver cell repeated factor × factor. The Fast setting
-   * runs the grid solver on coarsened cells and still hands the UI scenario-sized arrays.
+   * Emit results on this grid rather than the solver's own, so the UI always receives arrays on
+   * the scenario grid. The Fast setting solves on coarser cells and repeats each one back out
+   * ('repeat'); the Detailed setting solves on finer cells and pools each factor × factor block
+   * back down ('pool').
    */
-  display?: { cols: number; rows: number; factor: number };
+  display?: { cols: number; rows: number; factor: number; mode?: 'repeat' | 'pool' };
   /** Grid solver: run on the GPU through WebGPU when the browser offers it (else the CPU). */
   gpu?: boolean;
 }

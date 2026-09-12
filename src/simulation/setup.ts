@@ -21,6 +21,24 @@ export const PARTICLE_BUDGET: Record<Resolution, number> = {
 /** The Fast setting runs the grid solver on cells this many times larger (≈ factor³ faster). */
 export const FAST_GRID_FACTOR = 2;
 
+/** The Detailed setting runs the grid solver on cells this many times smaller. */
+export const DETAILED_GRID_FACTOR = 2;
+
+/** Cells the Detailed grid may not exceed, so its buffers stay within ordinary GPU limits. */
+const DETAILED_MAX_CELLS = 2_000_000;
+
+/**
+ * Detailed cells are worth it only on the graphics card: four times the cells at half the time
+ * step is about eight times the work, which the processor cannot absorb. Without WebGPU the
+ * setting quietly keeps the scenario grid (and its extra SPH particles).
+ */
+export function canRefine(cols: number, rows: number, gpu: boolean | undefined): boolean {
+  if (gpu === false) return false;
+  const f = DETAILED_GRID_FACTOR;
+  if (cols * rows * f * f > DETAILED_MAX_CELLS) return false;
+  return typeof navigator !== 'undefined' && !!(navigator as Navigator & { gpu?: unknown }).gpu;
+}
+
 export interface SetupInput {
   cols: number;
   rows: number;
@@ -78,6 +96,29 @@ function coarsen(dem: Float32Array, cols: number, rows: number, f: number): { de
     }
   }
   return { dem: out, cols: cc, rows: rc };
+}
+
+/** Bilinear resample of a DEM onto cells `f` times smaller, over the same ground. */
+function refine(dem: Float32Array, cols: number, rows: number, f: number): { dem: Float32Array; cols: number; rows: number } {
+  const fc = cols * f;
+  const fr = rows * f;
+  const out = new Float32Array(fc * fr);
+  for (let r = 0; r < fr; r++) {
+    const sy = Math.min(rows - 1, Math.max(0, (r + 0.5) / f - 0.5));
+    const y0 = Math.floor(sy);
+    const y1 = Math.min(rows - 1, y0 + 1);
+    const fy = sy - y0;
+    for (let c = 0; c < fc; c++) {
+      const sx = Math.min(cols - 1, Math.max(0, (c + 0.5) / f - 0.5));
+      const x0 = Math.floor(sx);
+      const x1 = Math.min(cols - 1, x0 + 1);
+      const fx = sx - x0;
+      const top = dem[y0 * cols + x0] * (1 - fx) + dem[y0 * cols + x1] * fx;
+      const bottom = dem[y1 * cols + x0] * (1 - fx) + dem[y1 * cols + x1] * fx;
+      out[r * fc + c] = top * (1 - fy) + bottom * fy;
+    }
+  }
+  return { dem: out, cols: fc, rows: fr };
 }
 
 export function setupSimulation(input: SetupInput): SimulationSetup {
@@ -140,7 +181,30 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
       sources: csite.sources,
       sourceDirection: csite.direction,
       // The breach invert is the real one, from the scenario grid.
-      display: { cols: grid.cols, rows: grid.rows, factor: f },
+      display: { cols: grid.cols, rows: grid.rows, factor: f, mode: 'repeat' },
+    };
+  } else if (input.resolution === 'high' && canRefine(grid.cols, grid.rows, input.gpu)) {
+    // Cells half the size: four times as many, resolving channels and embankments the scenario
+    // grid averages away. Results are pooled back onto the scenario grid for display.
+    const f = DETAILED_GRID_FACTOR;
+    const fine = refine(input.dem, grid.cols, grid.rows, f);
+    const fgrid = gridGeometry({ cols: fine.cols, rows: fine.rows, bbox: grid.bbox });
+    const fsite = prepareDamSite(fgrid, fine.dem, {
+      ...damInput,
+      reference: { direction: site.direction, bedElevation: site.bed.elevation, crestElevation: site.crestElevation },
+    });
+    swe = {
+      ...base,
+      engine: 'swe',
+      cols: fgrid.cols,
+      rows: fgrid.rows,
+      bbox: fgrid.bbox,
+      dx: fgrid.dx,
+      dy: fgrid.dy,
+      elevation: fsite.elevation,
+      sources: fsite.sources,
+      sourceDirection: fsite.direction,
+      display: { cols: grid.cols, rows: grid.rows, factor: f, mode: 'pool' },
     };
   }
   swe = { ...swe, gpu: input.gpu ?? true };

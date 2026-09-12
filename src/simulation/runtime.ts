@@ -36,14 +36,50 @@ export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutboun
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** What a field means when it is resampled: arrival times cannot be averaged or maximised. */
+type Field = 'field' | 'arrival';
+
+/** Solver results onto the display grid, whichever way the two grids differ. */
+function resample<T extends Uint16Array | Float32Array>(src: T, cols: number, rows: number, display: NonNullable<EngineConfig['display']>, kind: Field): T {
+  return display.mode === 'pool' ? pool(src, cols, rows, display, kind) : upsample(src, cols, rows, display, kind);
+}
+
 /**
- * Solver results onto the display grid (the Fast setting's coarse grid). Smooth fields (depth,
- * speed) are interpolated bilinearly, so the flood is not drawn in blocks of four cells; arrival
- * times are copied from the nearest cell, since "never reached" (−1) must not be averaged with
- * real times.
+ * Finer solver cells onto the coarser scenario grid (the Detailed setting): each display cell
+ * takes the deepest or fastest value in its block, so a channel narrower than a scenario cell
+ * still shows, and the earliest real arrival, since −1 ("never reached") must not win over a
+ * time that did happen.
  */
-function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, rows: number, display: NonNullable<EngineConfig['display']>, smooth: boolean): T {
+function pool<T extends Uint16Array | Float32Array>(src: T, cols: number, rows: number, display: NonNullable<EngineConfig['display']>, kind: Field): T {
   const f = display.factor;
+  const out = new (src.constructor as new (n: number) => T)(display.cols * display.rows);
+  for (let r = 0; r < display.rows; r++) {
+    const r1 = Math.min(rows, (r + 1) * f);
+    for (let c = 0; c < display.cols; c++) {
+      const c1 = Math.min(cols, (c + 1) * f);
+      let best = kind === 'arrival' ? -1 : 0;
+      for (let rr = r * f; rr < r1; rr++) {
+        for (let cc = c * f; cc < c1; cc++) {
+          const v = src[rr * cols + cc];
+          if (kind === 'arrival') {
+            if (v >= 0 && (best < 0 || v < best)) best = v;
+          } else if (v > best) best = v;
+        }
+      }
+      out[r * display.cols + c] = best;
+    }
+  }
+  return out;
+}
+
+/**
+ * Coarser solver cells onto the finer scenario grid (the Fast setting). Fields are interpolated
+ * bilinearly, so the flood is not drawn in blocks of four cells; arrival times are copied from
+ * the nearest cell, since "never reached" (−1) must not be averaged with real times.
+ */
+function upsample<T extends Uint16Array | Float32Array>(src: T, cols: number, rows: number, display: NonNullable<EngineConfig['display']>, kind: Field): T {
+  const f = display.factor;
+  const smooth = kind !== 'arrival';
   const out = new (src.constructor as new (n: number) => T)(display.cols * display.rows);
   if (!smooth) {
     for (let r = 0; r < display.rows; r++) {
@@ -195,15 +231,15 @@ export class EngineRuntime implements Runtime {
       t: s.t,
       final,
       maxDepth: this.toDisplay(s.maxDepth),
-      arrival: this.toDisplay(s.arrival, false),
+      arrival: this.toDisplay(s.arrival, 'arrival'),
       maxSpeed: this.toDisplay(s.maxSpeed),
       maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
     });
   }
 
   /** Solver arrays as the UI expects them: on the scenario grid. */
-  private toDisplay<T extends Uint16Array | Float32Array>(a: T, smooth = true): T {
-    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, smooth) : a;
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T, kind: Field = 'field'): T {
+    return this.cfg.display ? resample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, kind) : a;
   }
 
   private finish(): void {
@@ -321,14 +357,14 @@ class GpuEngineRuntime implements Runtime {
       t: s.t,
       final,
       maxDepth: this.toDisplay(s.maxDepth),
-      arrival: this.toDisplay(s.arrival, false),
+      arrival: this.toDisplay(s.arrival, 'arrival'),
       maxSpeed: this.toDisplay(s.maxSpeed),
       maxDepthVelocity: this.toDisplay(s.maxDepthVelocity),
     });
   }
 
-  private toDisplay<T extends Uint16Array | Float32Array>(a: T, smooth = true): T {
-    return this.cfg.display ? upsample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, smooth) : a;
+  private toDisplay<T extends Uint16Array | Float32Array>(a: T, kind: Field = 'field'): T {
+    return this.cfg.display ? resample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, kind) : a;
   }
 
   dispose(): void {

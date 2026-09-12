@@ -11,7 +11,7 @@ import { results } from '@/simulation/results';
 import { froehlich2008 } from '@/simulation/hydrograph';
 import type { EventKind, FailureMode } from '@/simulation/hydrograph';
 import type { Resolution } from '@/simulation/setup';
-import { PARTICLE_BUDGET } from '@/simulation/setup';
+import { canRefine, PARTICLE_BUDGET } from '@/simulation/setup';
 import { runBenchmarks } from '@/simulation/benchmarks';
 import type { BenchmarkResult } from '@/simulation/benchmarks';
 import { ensemble, ensembleKey, ENSEMBLE_MEMBERS } from '@/simulation/ensembleRunner';
@@ -359,6 +359,8 @@ function ModelTab() {
 
   if (!config || !data) return null;
   const g = data.grid;
+  // Finer cells are only offered where WebGPU can carry them.
+  const detailed = canRefine(g.cols, g.rows, useGpu);
   const engineRow = (id: 'swe' | 'sph', title: string, body: string) => {
     const r = runs[id];
     return (
@@ -408,7 +410,11 @@ function ModelTab() {
         <p className="-mt-1 text-[11px] text-faint">
           {resolution === 'fast'
             ? `Grid solver on cells twice the size (${formatNumber(g.dx * 2, 0)} m), about 8× faster; SPH with ${formatNumber(PARTICLE_BUDGET.fast)} particles. For a first look — use Standard for reported results.`
-            : `Grid solver on the scenario's ${formatNumber(g.dx, 0)} m cells; SPH with ${formatNumber(PARTICLE_BUDGET[resolution])} particles.`}
+            : resolution === 'high'
+              ? detailed
+                ? `Grid solver on cells half the size (${formatNumber(g.dx / 2, 0)} m), four times as many, on the graphics card; SPH with ${formatNumber(PARTICLE_BUDGET.high)} particles. Resolves channels and embankments the scenario grid averages away.`
+                : `Finer cells need WebGPU, which this browser does not offer, so the grid solver keeps the scenario's ${formatNumber(g.dx, 0)} m cells; SPH with ${formatNumber(PARTICLE_BUDGET.high)} particles.`
+              : `Grid solver on the scenario's ${formatNumber(g.dx, 0)} m cells; SPH with ${formatNumber(PARTICLE_BUDGET[resolution])} particles.`}
         </p>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
