@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DeckGL from '@deck.gl/react';
 import MapGL from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { COORDINATE_SYSTEM, FlyToInterpolator } from '@deck.gl/core';
+import { AmbientLight, COORDINATE_SYSTEM, DirectionalLight, FlyToInterpolator, LightingEffect } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
 import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
@@ -96,7 +96,9 @@ const PIXEL_RATIO = typeof window !== 'undefined' ? Math.min(window.devicePixelR
 
 const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: -32768 };
 /** Matte ground: the imagery carries its own sun and shadow; smooth normals add gentle relief. */
-const TERRAIN_MATERIAL = { ambient: 0.55, diffuse: 0.6, shininess: 1, specularColor: [0, 0, 0] as [number, number, number] };
+// Rock and vegetation are matte: no specular at all, and with a real sun configured the shape
+// comes from the light rather than from the imagery, so diffuse carries most of the response.
+const TERRAIN_MATERIAL = { ambient: 0.42, diffuse: 0.92, shininess: 1, specularColor: [0, 0, 0] as [number, number, number] };
 const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
 const HAZE_MAP: [number, number, number] = [0.114, 0.129, 0.153];
 /** The water shader adds its own sun glints; the material keeps only a soft sheen. */
@@ -422,6 +424,23 @@ export default function MapView() {
 
   // Aerial perspective, coloured like the sky's horizon for the current basemap.
   const haze = useMemo(() => new HazeExtension({ color: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, strength: 0.72 }), [view.basemap]);
+  // Relief comes from a sun, not from the imagery. One directional light from the same quarter
+  // the water shader puts its glints, so hillshade and glints agree instead of fighting, and a
+  // sky fill tinted towards the horizon colour — kept close to white, because the dark map
+  // basemap's horizon would otherwise leave the hillsides nearly black. The light travels
+  // towards the scene, hence the negated direction.
+  const lighting = useMemo(() => {
+    const satellite = view.basemap === 'satellite';
+    const sky = satellite ? HAZE_SATELLITE : HAZE_MAP;
+    const tint = (c: number) => Math.round(255 * (0.65 + 0.35 * c));
+    return [
+      new LightingEffect({
+        ambient: new AmbientLight({ color: [tint(sky[0]), tint(sky[1]), tint(sky[2])], intensity: 1 }),
+        sun: new DirectionalLight({ color: [255, 250, 240], intensity: satellite ? 1.2 : 1, direction: [0.35, -0.45, -0.82] }),
+      }),
+    ];
+  }, [view.basemap]);
+
   // The flood's water surface: glints on ripples and the sky mirrored at grazing angles.
   const water = useMemo(
     () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP }) : null),
@@ -809,6 +828,7 @@ export default function MapView() {
         controller={{ inertia: 250, scrollZoom: { smooth: true, speed: 0.02 } }}
         layers={layers as never}
         layerFilter={pickOnlyPlaces as never}
+        effects={lighting}
         onHover={onHover}
         onClick={onClick}
         onError={(err) => console.warn('[map]', err.message)}
