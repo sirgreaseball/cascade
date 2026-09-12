@@ -29,6 +29,23 @@ export interface DamSiteInput {
   axis?: [XY, XY];
   /** Search radius (m) for snapping an approximate location to the valley floor. */
   snapRadius?: number;
+  /**
+   * Decisions already taken on a finer grid, to be reused rather than re-derived: which way is
+   * downstream, the riverbed and the crest. Which side of a dam is downstream is a property of
+   * the dam, not of the cell size — but box-averaging a DEM fills a narrow downstream gorge
+   * faster than a wide reservoir valley, so on coarse cells the "lower side" test can flip and
+   * discharge the breach backwards into the reservoir. The Fast setting passes this.
+   */
+  reference?: SiteReference;
+}
+
+export interface SiteReference {
+  /** Downstream unit vector in grid axes (x east, y south). */
+  direction: [number, number];
+  /** Riverbed elevation at the dam (m a.s.l.). */
+  bedElevation: number;
+  /** Crest elevation (m a.s.l.). */
+  crestElevation: number;
 }
 
 export interface DamSite {
@@ -210,7 +227,20 @@ function siteOnLine(g: GridGeometry, dem: Float32Array, input: DamSiteInput, lin
   };
   const clear = 1.5 * cell;
   const far = Math.max(2000, 8 * cell);
-  const side = lowest(1, clear, far).z <= lowest(-1, clear, far).z ? 1 : -1;
+  const ref = input.reference;
+  let side: number;
+  if (ref) {
+    // The side whose outward normal agrees with the direction already established.
+    let tx = 0;
+    let ty = 0;
+    for (const s of stations) {
+      tx += s.tx;
+      ty += s.ty;
+    }
+    side = -ty * ref.direction[0] + tx * ref.direction[1] >= 0 ? 1 : -1;
+  } else {
+    side = lowest(1, clear, far).z <= lowest(-1, clear, far).z ? 1 : -1;
+  }
   const toe = lowest(side, clear, Math.max(800, 5 * cell));
   if (!Number.isFinite(toe.z)) return null;
 
@@ -230,8 +260,8 @@ function siteOnLine(g: GridGeometry, dem: Float32Array, input: DamSiteInput, lin
       centre = { x, y, tx: (x1 - x0) / len, ty: (y1 - y0) / len, d };
     }
   }
-  const bedZ = toe.z;
-  const crest = bedZ + input.height;
+  const bedZ = ref ? ref.bedElevation : toe.z;
+  const crest = ref ? ref.crestElevation : bedZ + input.height;
   const fx = -centre.ty * side;
   const fy = centre.tx * side;
 
@@ -328,6 +358,10 @@ function siteFromTerrain(g: GridGeometry, dem: Float32Array, input: DamSiteInput
   const norm = Math.hypot(fx, fy) || 1;
   fx /= norm;
   fy /= norm;
+  const ref = input.reference;
+  if (ref) {
+    [fx, fy] = ref.direction;
+  }
   const ax = -fy;
   const ay = fx;
 
@@ -340,8 +374,8 @@ function siteFromTerrain(g: GridGeometry, dem: Float32Array, input: DamSiteInput
   }
   const cx = x0 + ax * best.s;
   const cy = y0 + ay * best.s;
-  const bedZ = best.z;
-  const crest = bedZ + input.height;
+  const bedZ = ref ? ref.bedElevation : best.z;
+  const crest = ref ? ref.crestElevation : bedZ + input.height;
 
   // 3. Burn the wall. Walk both ways along the axis until the crest length is covered AND the
   //    ground rises above the crest. The wall never runs further than half a crest length

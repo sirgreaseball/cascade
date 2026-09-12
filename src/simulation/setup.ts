@@ -121,7 +121,13 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     const coarse = coarsen(input.dem, grid.cols, grid.rows, f);
     const cbbox: BBox = [grid.bbox[0], grid.bbox[3] - coarse.rows * f * grid.latStep, grid.bbox[0] + coarse.cols * f * grid.lngStep, grid.bbox[3]];
     const cgrid = gridGeometry({ cols: coarse.cols, rows: coarse.rows, bbox: cbbox });
-    const csite = prepareDamSite(cgrid, coarse.dem, damInput);
+    // The dam itself is grid-independent: reuse the scenario grid's downstream direction, bed and
+    // crest rather than re-deriving them from the averaged DEM, which used to flip the downstream
+    // test in narrow gorges and send the whole flood backwards into the reservoir.
+    const csite = prepareDamSite(cgrid, coarse.dem, {
+      ...damInput,
+      reference: { direction: site.direction, bedElevation: site.bed.elevation, crestElevation: site.crestElevation },
+    });
     swe = {
       ...base,
       engine: 'swe',
@@ -133,7 +139,7 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
       elevation: csite.elevation,
       sources: csite.sources,
       sourceDirection: csite.direction,
-      breach: base.breach && { ...base.breach, datumElevation: csite.bed.elevation + invertAboveBed },
+      // The breach invert is the real one, from the scenario grid.
       display: { cols: grid.cols, rows: grid.rows, factor: f },
     };
   }
