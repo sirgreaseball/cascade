@@ -1,5 +1,6 @@
 [
   { "id": "tehri", "name": "Tehri Dam", "river": "Bhagirathi · Ganga", "event": "dam-break" },
   { "id": "bhakra", "name": "Bhakra Dam", "river": "Sutlej", "event": "dam-break" },
-  { "id": "rishi-ganga", "name": "Rishi Ganga lake outburst", "river": "Rishi Ganga · Dhauliganga", "event": "lake-outburst" }
+  { "id": "rishi-ganga", "name": "Rishi Ganga lake outburst", "river": "Rishi Ganga · Dhauliganga", "event": "lake-outburst" },
+  { "id": "machchhu", "name": "Machchhu II, 1979", "river": "Machchhu · Gujarat", "event": "dam-break" }
 ]

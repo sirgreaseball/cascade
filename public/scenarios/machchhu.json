@@ -1,0 +1,77 @@
+{
+  "id": "machchhu",
+  "name": "Machchhu II, 1979",
+  "river": "Machchhu · Gujarat",
+  "region": "Morbi, Gujarat",
+  "event": "dam-break",
+  "summary": "The failure that actually happened: on 11 August 1979 an inflow of about three times the spillway's design overtopped the earthfill embankments of Machchhu II and carried away 1,127 m of them. The flood reached Morbi, 5 km downstream, in roughly fifteen minutes. This scenario reconstructs it from published figures so the model can be checked against what was recorded.",
+  "bbox": [
+    70.7,
+    22.62,
+    71.02,
+    22.95
+  ],
+  "cellSize": 60,
+  "dam": {
+    "name": "Machchhu II",
+    "lng": 70.8658,
+    "lat": 22.7639,
+    "height": 22.6,
+    "crestLength": 3950,
+    "type": "Earthfill embankments with a masonry spillway",
+    "reservoir": "Machchhu II reservoir",
+    "volumeMCM": 101,
+    "waterDepth": 22.6,
+    "snapRadius": 400
+  },
+  "defaults": {
+    "manning": 0.04,
+    "duration": 21600,
+    "failureMode": "overtopping",
+    "breachWidth": 1127
+  },
+  "observations": {
+    "event": "Machchhu II dam failure, 11 August 1979",
+    "points": [
+      {
+        "place": "Morbi",
+        "distanceKm": 5,
+        "arrivalMin": [
+          15,
+          20
+        ],
+        "peakDepthM": [
+          3.7,
+          9.1
+        ],
+        "note": "The dam gave way in the early afternoon and the flood struck Morbi within fifteen to twenty minutes; reported depths in the town were 12 to 30 feet, reaching about 30 feet within a further fifteen minutes, with low-lying areas under water for some six hours."
+      }
+    ],
+    "sources": "Dam dimensions, storage and the collapsed embankment lengths: 1979 Machchhu dam failure (Wikipedia, citing the Gujarat government inquiry and Y. K. Murthy, 1985). Failure mechanism and released volume: Association of State Dam Safety Officials case study. Depths and timings in Morbi: contemporary reporting and later retrospectives.",
+    "caveats": "Terrain is modern SRTM, not the 1979 surface: the river, its embankments and Morbi itself have changed in the decades since, and no pre-event survey DEM is available. Depths and arrival times come from contemporary accounts rather than a surveyed high-water-mark campaign. Treat agreement as an order-of-magnitude check, not a calibration. The breach formation time was never recorded, so it is left to the Froehlich (2008) regression, which gives about two and a half hours for this reservoir - far slower than an embankment that was overtopped and carried away within minutes. That delay alone holds the front back, which is why the arrival at Morbi reads late while the depth, which depends on how much water eventually arrives rather than how fast the breach opened, lands inside the reported range. The weak link here is the breach predictor, not the routing: drag Breach forms over down towards a few minutes and the front arrives sooner. Tuning it until the arrival matched would turn this check into a calibration, so it is left where the regression puts it."
+  },
+  "defaultsNote": "Breach width is the documented 1,127 m of embankment that was carried away (762 m left, 365 m right). Formation time is left to the Froehlich (2008) estimate, as no timing for the breach growth itself was recorded.",
+  "view": {
+    "zoom": 11,
+    "pitch": 45,
+    "bearing": 20
+  },
+  "notes": "Storage 101,020 dam³ (81,900 acre-feet); the inflow at failure was about 16,307 m³/s against a spillway designed for 5,663 m³/s. Reported death tolls range from 1,800 to 25,000.",
+  "grid": {
+    "cols": 547,
+    "rows": 608
+  },
+  "dem": {
+    "url": "/data/machchhu/elevation.bin",
+    "source": "Terrain Tiles (AWS Open Data; SRTM, NASA / USGS), zoom 13, box-filtered to 60 m",
+    "retrieved": "2026-09-12",
+    "min": 11,
+    "max": 143
+  },
+  "exposure": {
+    "assetsUrl": "/data/machchhu/assets.geojson",
+    "roadsUrl": "/data/machchhu/roads.geojson",
+    "source": "© OpenStreetMap contributors (Overpass API)",
+    "retrieved": "2026-09-12"
+  }
+}
