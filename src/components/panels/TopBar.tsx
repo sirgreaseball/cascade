@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Download, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Download, Plus, Search, Trash2 } from 'lucide-react';
+import { DAM_CATALOG } from '@/lib/dams';
+import type { DamCatalogEntry } from '@/lib/dams';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
@@ -46,8 +48,25 @@ function ScenarioSwitcher() {
       window.removeEventListener('keydown', esc);
     };
   }, []);
-  const bundled = index.filter((s) => !s.custom);
-  const custom = index.filter((s) => s.custom);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const hits = (text: string) => !q || text.toLowerCase().includes(q);
+  const bundled = index.filter((s) => !s.custom && hits(`${s.name} ${s.river}`));
+  const custom = index.filter((s) => s.custom && hits(`${s.name} ${s.river}`));
+  // Dams we hold figures for but have not built a scenario from yet, grouped by state so a
+  // search for "Gujarat" lists that state's dams.
+  const damsByState = useMemo<[string, DamCatalogEntry[]][]>(() => {
+    if (!q) return [] as [string, DamCatalogEntry[]][];
+    const loaded = new Set(index.map((s) => s.id));
+    const byState = new Map<string, DamCatalogEntry[]>();
+    for (const d of DAM_CATALOG) {
+      if (loaded.has(d.id) || !hits(`${d.name} ${d.river} ${d.state}`)) continue;
+      byState.set(d.state, [...(byState.get(d.state) ?? []), d]);
+    }
+    return [...byState.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, index]);
+  const nothing = bundled.length === 0 && custom.length === 0 && damsByState.length === 0;
   const item = (s: (typeof index)[number]) => (
     <div key={s.id} className="group flex items-center rounded-[10px] hover:bg-white/[0.06]">
       <button
@@ -78,7 +97,13 @@ function ScenarioSwitcher() {
   );
   return (
     <div ref={ref} className="relative">
-      <button className="flex items-center gap-2 rounded-full py-1 pl-3 pr-2 transition-colors hover:bg-white/[0.06]" onClick={() => setOpen(!open)}>
+      <button
+        className="flex items-center gap-2 rounded-full py-1 pl-3 pr-2 transition-colors hover:bg-white/[0.06]"
+        onClick={() => {
+          setQuery('');
+          setOpen(!open);
+        }}
+      >
         <span className="text-left">
           <span className="block max-w-[220px] truncate text-[13px] font-semibold leading-tight">{config?.name ?? 'Loading…'}</span>
           <span className="block max-w-[220px] truncate text-[11px] leading-tight text-muted">{config ? `${config.river} · ${EVENT_LABEL[config.event]}` : ' '}</span>
@@ -94,14 +119,54 @@ function ScenarioSwitcher() {
             transition={{ duration: 0.16 }}
             className="glass-strong absolute left-0 top-[calc(100%+10px)] z-50 w-[320px] origin-top-left rounded-2xl p-1.5 shadow-panel"
           >
-            <div className="eyebrow px-3 pb-1 pt-2">Bundled scenarios</div>
-            {bundled.map(item)}
+            <label className="relative mx-1 mb-1 mt-0.5 flex items-center">
+              <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-faint" />
+              <span className="sr-only">Search dams, rivers and states</span>
+              <input
+                value={query}
+                autoFocus
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search a dam, river or state…"
+                className="h-9 w-full rounded-[10px] bg-fill pl-8 pr-3 text-[12.5px] text-ink outline-none transition-colors placeholder:text-faint focus:bg-fill-2"
+              />
+            </label>
+            {bundled.length > 0 && (
+              <>
+                <div className="eyebrow px-3 pb-1 pt-2">{q ? 'Scenarios' : 'Bundled scenarios'}</div>
+                {bundled.map(item)}
+              </>
+            )}
             {custom.length > 0 && (
               <>
                 <div className="eyebrow px-3 pb-1 pt-3">Built on this device</div>
                 {custom.map(item)}
               </>
             )}
+            {damsByState.map(([state, dams]) => (
+              <React.Fragment key={state}>
+                <div className="eyebrow px-3 pb-1 pt-3">{state}</div>
+                {dams.map((d) => (
+                  <button
+                    key={d.id}
+                    className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left hover:bg-white/[0.06]"
+                    onClick={() => {
+                      setOpen(false);
+                      setQuery('');
+                      setBuilderOpen(true, d.id);
+                    }}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink">{d.name}</span>
+                      <span className="block truncate text-[11.5px] text-muted">
+                        {d.river} · {d.height} m · {d.type}
+                      </span>
+                    </span>
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-faint" />
+                  </button>
+                ))}
+              </React.Fragment>
+            ))}
+            {nothing && <div className="px-3 py-3 text-[12.5px] text-muted">Nothing matches “{query.trim()}”.</div>}
             <div className="my-1.5 h-px bg-hairline" />
             <button
               className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/[0.06]"

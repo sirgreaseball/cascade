@@ -28,13 +28,16 @@ interface ScenarioState {
   observed: ObservedExtent | null;
   external: ExternalResult | null;
   builderOpen: boolean;
+  /** Catalogue dam the builder should start on, set when one is picked from search. */
+  builderDam: string | null;
   loadIndex: () => Promise<ScenarioMeta[]>;
   select: (id: string) => Promise<void>;
   addCustom: (config: ScenarioConfig, data: ScenarioData) => Promise<void>;
   removeCustom: (id: string) => Promise<void>;
   setObserved: (o: ObservedExtent | null) => void;
   setExternal: (e: ExternalResult | null) => void;
-  setBuilderOpen: (open: boolean) => void;
+  /** Open the builder, optionally starting on a catalogue dam (from search). */
+  setBuilderOpen: (open: boolean, damId?: string | null) => void;
 }
 
 const LAST_KEY = 'cascade:last-scenario';
@@ -94,6 +97,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   observed: null,
   external: null,
   builderOpen: false,
+  builderDam: null,
 
   loadIndex: async () => {
     const [bundled, custom] = await Promise.all([fetchBundledIndex().catch(() => []), listCustomScenarios()]);
@@ -137,7 +141,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     set({ external });
     useSimStore.getState().bumpResults();
   },
-  setBuilderOpen: (builderOpen) => set({ builderOpen }),
+  setBuilderOpen: (builderOpen, damId = null) => set({ builderOpen, builderDam: builderOpen ? damId : null }),
 }));
 
 export function lastScenarioId(): string | null {

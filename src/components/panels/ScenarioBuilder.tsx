@@ -97,6 +97,7 @@ export default function ScenarioBuilder() {
   const open = useScenarioStore((s) => s.builderOpen);
   const setOpen = useScenarioStore((s) => s.setBuilderOpen);
   const addCustom = useScenarioStore((s) => s.addCustom);
+  const builderDam = useScenarioStore((s) => s.builderDam);
   const pickingDam = useUiStore((s) => s.pickingDam);
   const setPickingDam = useUiStore((s) => s.setPickingDam);
   const toast = useUiStore((s) => s.toast);
@@ -132,6 +133,21 @@ export default function ScenarioBuilder() {
       window.removeEventListener('keydown', onKey);
     };
   }, []);
+
+  // Opened from search on a particular dam: start there rather than on the default. Adjusted
+  // during render rather than in an effect — React's pattern for reacting to a changed input —
+  // so the form never shows the wrong dam for a frame and there is no second render pass.
+  const [appliedDam, setAppliedDam] = useState<string | null>(null);
+  if (open && builderDam && builderDam !== appliedDam) {
+    setAppliedDam(builderDam);
+    const dam = DAM_CATALOG.find((d) => d.id === builderDam);
+    if (dam) {
+      setForm((f) => ({ ...f, ...fromDam(dam) }));
+      setCatalogId(dam.id);
+      setQuery('');
+    }
+  }
+  if (!open && appliedDam) setAppliedDam(null);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
