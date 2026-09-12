@@ -116,6 +116,9 @@ export class EngineRuntime implements Runtime {
   private nextFrameT = 0;
   private stepsSinceFrame = 0;
   private msSinceFrame = 0;
+  /** Inflow volume and clock at the previous frame, for the mean discharge over the interval. */
+  private lastFrameVolume = 0;
+  private lastFrameT = 0;
   private wallMs = 0;
   private finished = false;
   /** Progress is reported at most four times a second (each report re-renders the UI). */
@@ -192,6 +195,7 @@ export class EngineRuntime implements Runtime {
       computeMs: this.msSinceFrame,
       steps: this.stepsSinceFrame,
     };
+    stats.inflowRate = this.meanInflow(s.t, s.inflowVolume, s.inflowRate);
     let particles: { position: Float32Array; speed: Float32Array } | undefined;
     if (s instanceof SPHSolver) {
       stats.particles = s.n;
@@ -221,6 +225,20 @@ export class EngineRuntime implements Runtime {
     this.nextFrameT = this.frameIndex * this.cfg.outputInterval;
     this.stepsSinceFrame = 0;
     this.msSinceFrame = 0;
+  }
+
+  /**
+   * Mean discharge over the interval since the previous frame, rather than the rate at whatever
+   * instant the last step happened to end on. Frames do not line up with the solver's steps, so
+   * sampling the instantaneous value combed the hydrograph into a sawtooth; the mean over the
+   * frame is both smooth and the quantity a discharge chart is meant to show.
+   */
+  private meanInflow(t: number, volume: number, instantaneous: number): number {
+    const dt = t - this.lastFrameT;
+    const rate = dt > 0 ? (volume - this.lastFrameVolume) / dt : instantaneous;
+    this.lastFrameT = t;
+    this.lastFrameVolume = volume;
+    return rate;
   }
 
   private emitSummary(final: boolean): void {
@@ -273,6 +291,9 @@ class GpuEngineRuntime implements Runtime {
   private wallMs = 0;
   private msSinceFrame = 0;
   private stepsAtFrame = 0;
+  /** Inflow volume and clock at the previous frame, for the mean discharge over the interval. */
+  private lastFrameVolume = 0;
+  private lastFrameT = 0;
   private finished = false;
   private lastProgressAt = 0;
   private readonly cfg: EngineConfig;
@@ -341,6 +362,7 @@ class GpuEngineRuntime implements Runtime {
       computeMs: this.msSinceFrame,
       steps: s.steps - this.stepsAtFrame,
     };
+    stats.inflowRate = this.meanInflow(s.t, s.inflowVolume, s.inflowRate);
     // Structured clone (no transfer list): the UI receives its own copy.
     this.emit({ type: 'frame', engine: this.cfg.engine, index: this.frameIndex, t: s.t, depth: this.toDisplay(s.depthCentimetres()), stats });
     this.frameIndex++;
@@ -365,6 +387,15 @@ class GpuEngineRuntime implements Runtime {
 
   private toDisplay<T extends Uint16Array | Float32Array>(a: T, kind: Field = 'field'): T {
     return this.cfg.display ? resample(a, this.cfg.cols, this.cfg.rows, this.cfg.display, kind) : a;
+  }
+
+  /** Mean discharge over the interval since the previous frame; see EngineRuntime.meanInflow. */
+  private meanInflow(t: number, volume: number, instantaneous: number): number {
+    const dt = t - this.lastFrameT;
+    const rate = dt > 0 ? (volume - this.lastFrameVolume) / dt : instantaneous;
+    this.lastFrameT = t;
+    this.lastFrameVolume = volume;
+    return rate;
   }
 
   dispose(): void {

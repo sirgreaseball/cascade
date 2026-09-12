@@ -45,7 +45,17 @@ export function buildGridMesh(dem: Float32Array, g: GridGeometry, lift: number, 
       const lng = g.bbox[0] + (c + 0.5) * g.lngStep;
       positions[v * 3] = (lng - anchor[0]) * mLng;
       positions[v * 3 + 1] = (lat - anchor[1]) * mLat;
-      positions[v * 3 + 2] = dem[r * g.cols + c] + lift;
+      // The skin has to sit above the highest ground each vertex stands for, not the cell average.
+      // The terrain drawn underneath is far finer than this grid, so a vertex placed on the mean
+      // let every bank and spur between samples stab up through the water surface.
+      let z = dem[r * g.cols + c];
+      const rHi = Math.min(g.rows - 1, r + Math.max(step - 1, 1));
+      const cHi = Math.min(g.cols - 1, c + Math.max(step - 1, 1));
+      for (let rr = Math.max(0, r - 1); rr <= rHi; rr++) {
+        const base = rr * g.cols;
+        for (let cc = Math.max(0, c - 1); cc <= cHi; cc++) if (dem[base + cc] > z) z = dem[base + cc];
+      }
+      positions[v * 3 + 2] = z + lift;
       texCoords[v * 2] = (c + 0.5) / g.cols;
       texCoords[v * 2 + 1] = (r + 0.5) / g.rows;
     }

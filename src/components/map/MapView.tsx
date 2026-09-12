@@ -181,8 +181,14 @@ export default function MapView() {
       setTerrainWorker(false);
     } else if (tileErrors.current > 6) setTerrainMode('local');
   }, [terrainWorker]);
-  /** The first terrain tile on screen tells the loading screen the map is drawn. */
+  /**
+   * The first terrain tile on screen tells the loading screen the map is drawn. A tile arriving
+   * also clears the error count: it used to only ever climb, so a handful of transient failures
+   * anywhere in a session eventually tripped the fallback to the coarse scenario DEM and left
+   * every scenario loaded afterwards looking soft, with nothing to put it back.
+   */
   const onTerrainTile = useCallback(() => {
+    tileErrors.current = 0;
     if (!useUiStore.getState().mapReady) useUiStore.getState().setMapReady(true);
   }, []);
   const terrain = useLocalTerrain(terrainMode === 'local' && view.terrain3d);
