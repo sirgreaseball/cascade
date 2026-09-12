@@ -88,6 +88,8 @@ export class SPHSolver {
   private readonly ellMin: number;
   private readonly ellMax: number;
   private readonly n2: number;
+  /** Manning n² per cell where land cover gives one; null when a single value covers the domain. */
+  private readonly n2Field: Float32Array | null;
   private readonly thalweg: number;
   private readonly rand: () => number;
   private emitCarry = 0;
@@ -116,6 +118,7 @@ export class SPHSolver {
     const n = cols * rows;
     this.z = cfg.elevation;
     this.n2 = cfg.manning * cfg.manning;
+    this.n2Field = cfg.manningField ? Float32Array.from(cfg.manningField, (v) => v * v) : null;
 
     // Bed slope (central differences, one-sided at the edges).
     this.gradX = new Float32Array(n);
@@ -358,13 +361,21 @@ export class SPHSolver {
 
       // 3. Symplectic Euler with implicit Manning friction; remove particles leaving the domain.
       const n2 = this.n2;
+      const n2Field = this.n2Field;
       let maxRate = 0;
       for (let i = 0; i < this.n; ) {
         let u = vx[i] + ax[i] * dt;
         let v = vy[i] + ay[i] * dt;
         const hi = depth[i] > 0.05 ? depth[i] : 0.05;
         const speed0 = Math.sqrt(u * u + v * v);
-        const damp = 1 + (dt * G * n2 * speed0) / (hi * Math.cbrt(hi));
+        // Roughness where the particle is now, before it moves.
+        let nn = n2;
+        if (n2Field) {
+          const cc = Math.min(cols - 1, Math.max(0, (px[i] / dx) | 0));
+          const rr = Math.min(rows - 1, Math.max(0, (py[i] / dy) | 0));
+          nn = n2Field[rr * cols + cc];
+        }
+        const damp = 1 + (dt * G * nn * speed0) / (hi * Math.cbrt(hi));
         u /= damp;
         v /= damp;
         const speed = speed0 / damp;

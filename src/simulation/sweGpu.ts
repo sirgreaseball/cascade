@@ -47,6 +47,8 @@ struct Params {
 // per cell: depth, x-discharge, y-discharge, bed elevation
 @group(0) @binding(2) var<storage, read_write> cur: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read_write> nxt: array<vec4<f32>>;
+// Manning n squared per cell, from land cover (or the single value repeated).
+@group(0) @binding(7) var<storage, read> rough: array<f32>;
 // per cell: peak depth, arrival time, peak speed, peak depth x velocity
 @group(0) @binding(4) var<storage, read_write> env: array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read_write> partials: array<vec2<f32>>;
@@ -269,7 +271,7 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocati
           v *= s;
           speed = MAX_SPEED;
         }
-        let damp = 1.0 + dt * G * P.n2 * speed / (hn * pow(hn, 1.0 / 3.0));
+        let damp = 1.0 + dt * G * rough[k] * speed / (hn * pow(hn, 1.0 / 3.0));
         u /= damp;
         v /= damp;
         speed /= damp;
@@ -375,6 +377,8 @@ export class GpuShallowWaterSolver {
   private readonly envRead: GPUBuffer;
   private readonly partials: GPUBuffer;
   private readonly sources: GPUBuffer;
+  /** Manning n² per cell (the single value repeated when land cover is not in use). */
+  private readonly rough: GPUBuffer;
   private pipelines: { prepare: GPUComputePipeline; update: GPUComputePipeline; finalize: GPUComputePipeline } | null = null;
   private bindAB: GPUBindGroup | null = null;
   private bindBA: GPUBindGroup | null = null;
@@ -444,13 +448,22 @@ export class GpuShallowWaterSolver {
       src[i * 2 + 1] = s.weight;
     });
     this.sources = make(src.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, src);
+    // Roughness is always a field on the GPU, so the kernel needs no branch: without land cover
+    // every cell simply carries the same value.
+    const rough = new Float32Array(n);
+    const mf = cfg.manningField;
+    for (let k = 0; k < n; k++) {
+      const nn = mf ? mf[k] : cfg.manning;
+      rough[k] = nn * nn;
+    }
+    this.rough = make(n * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, rough);
     this.probe = make(48, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.fieldRead = make(n * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.envRead = make(n * 16, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
 
     const entry = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type } });
     this.layout = device.createBindGroupLayout({
-      entries: [entry(0, 'uniform'), entry(1, 'storage'), entry(2, 'storage'), entry(3, 'storage'), entry(4, 'storage'), entry(5, 'storage'), entry(6, 'read-only-storage')],
+      entries: [entry(0, 'uniform'), entry(1, 'storage'), entry(2, 'storage'), entry(3, 'storage'), entry(4, 'storage'), entry(5, 'storage'), entry(6, 'read-only-storage'), entry(7, 'read-only-storage')],
     });
 
     // Breach coupling, as InflowBoundary does on the CPU.
@@ -478,7 +491,7 @@ export class GpuShallowWaterSolver {
     const group = (cur: GPUBuffer, nxt: GPUBuffer) =>
       this.device.createBindGroup({
         layout: this.layout,
-        entries: [this.params, this.state, cur, nxt, this.env, this.partials, this.sources].map((buffer, binding) => ({ binding, resource: { buffer } })),
+        entries: [this.params, this.state, cur, nxt, this.env, this.partials, this.sources, this.rough].map((buffer, binding) => ({ binding, resource: { buffer } })),
       });
     this.bindAB = group(this.bufA, this.bufB);
     this.bindBA = group(this.bufB, this.bufA);

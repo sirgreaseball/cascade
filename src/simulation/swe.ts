@@ -107,6 +107,8 @@ export class ShallowWaterSolver {
   private activeR0 = 0;
   private activeR1 = -1;
   private readonly n2: number;
+  /** Manning n² per cell where land cover gives one; null when a single value covers the domain. */
+  private readonly n2Field: Float32Array | null;
   private readonly cfl = 0.45;
   private readonly maxDt = 10;
   private readonly wet: number;
@@ -137,6 +139,7 @@ export class ShallowWaterSolver {
     this.maxSpeed = new Float32Array(n);
     this.maxDepthVelocity = new Float32Array(n);
     this.n2 = cfg.manning * cfg.manning;
+    this.n2Field = cfg.manningField ? Float32Array.from(cfg.manningField, (v) => v * v) : null;
     this.wet = cfg.wetThreshold;
 
     let r0 = rows;
@@ -441,6 +444,7 @@ export class ShallowWaterSolver {
     const tNext = this.t + dt;
     const wet = this.wet;
     const n2 = this.n2;
+    const n2Field = this.n2Field;
     let rate = 0;
     const { maxDepth, arrival, maxSpeed, maxDepthVelocity, wetLo, wetHi } = this;
     for (let r = activeR0; r <= activeR1; r++) {
@@ -471,7 +475,7 @@ export class ShallowWaterSolver {
             v *= MAX_SPEED / speed;
             speed = MAX_SPEED;
           }
-          const damp = 1 + (dt * G * n2 * speed) / (hk * Math.cbrt(hk));
+          const damp = 1 + (dt * G * (n2Field ? n2Field[k] : n2) * speed) / (hk * Math.cbrt(hk));
           u /= damp;
           v /= damp;
           speed /= damp;

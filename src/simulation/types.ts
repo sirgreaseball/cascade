@@ -32,8 +32,14 @@ export interface EngineConfig {
     /** Elevation (m a.s.l.) of the final breach invert. */
     datumElevation: number;
   };
-  /** Manning roughness (s/m^1/3). */
+  /** Manning roughness (s/m^1/3), used wherever `manningField` is absent. */
   manning: number;
+  /**
+   * Manning roughness per cell, derived from land cover. A forested hillside and a bare channel
+   * differ by a factor of three, and the speed of the flood front follows, so a single value for
+   * a whole valley is the weakest common assumption in dam-break modelling.
+   */
+  manningField?: Float32Array;
   /** Simulated duration (s). */
   duration: number;
   /** Simulated seconds between frames sent to the UI. */
