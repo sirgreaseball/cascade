@@ -8,12 +8,10 @@ import MapGL from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AmbientLight, COORDINATE_SYSTEM, DirectionalLight, FlyToInterpolator, LightingEffect } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
-import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { BitmapLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
 import { HazeExtension } from './haze';
-import { WaterExtension } from './water';
-import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 // Main-thread terrain parser: deck.gl bundles only the worker loader, whose script would be
 // fetched from a CDN at runtime (and fail offline).
 import { TerrainLoader } from '@loaders.gl/terrain';
@@ -22,6 +20,8 @@ import { useScenarioStore } from '@/store/scenarioStore';
 import { isRunning, useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
+import type { SimulationSetup } from '@/simulation/setup';
+import type { ScenarioConfig } from '@/lib/scenario';
 import { lngLatToCell, sampleBilinear } from '@/lib/geo/grid';
 import { TERRARIUM_URL } from '@/lib/geo/terrarium';
 import { hazardClass } from '@/lib/damage';
@@ -47,7 +47,6 @@ import {
 import { FloodExtension, FloodField, keyOf } from './floodGpu';
 import type { FloodFrame } from './floodGpu';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, ROADS_ATTRIBUTION, ROADS_OVERLAY_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
-import { buildGridMesh } from './waterMesh';
 
 /** Sky and horizon glow above the 3D terrain; the horizon matches the terrain's haze. */
 const SKY_SATELLITE = { 'sky-color': '#3b6186', 'horizon-color': '#aebfd0', 'fog-color': '#aebfd0', 'sky-horizon-blend': 0.55, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.85 };
@@ -225,6 +224,79 @@ function floodFrame(device: Device): FloodFrame {
 }
 
 const FLOOD = new FloodExtension({ frame: floodFrame });
+const FLOOD_TERRAIN = new FloodExtension({
+  frame: floodFrame,
+  inTerrain: true,
+  bbox: () => useScenarioStore.getState().data?.grid.bbox,
+  sky: () => (useSimStore.getState().view.basemap === 'satellite' ? [0.68, 0.75, 0.82] : [0.11, 0.13, 0.15]),
+});
+
+function reservoirLevelAt(setup: SimulationSetup, config: ScenarioConfig, t: number): number {
+  const bedElev = setup.site.bed.elevation;
+  const initialDepth = config.dam.waterDepth ?? config.dam.height * 0.95;
+  const breach = setup.configs.swe?.breach ?? setup.configs.sph?.breach;
+  if (!breach) return bedElev + initialDepth;
+
+  const p = breach.event;
+  const hb = Math.min(Math.max(p.breachDepth, 1), p.damHeight);
+  const invertAboveBase = p.damHeight - hb;
+  const headAtStart = Math.max(p.waterDepth - invertAboveBase, 0);
+  const m = Math.max(p.storageExponent ?? 1.5, 1);
+  const releasableVolume = p.volume * (p.waterDepth > 0 ? (headAtStart / p.waterDepth) ** m : 0);
+
+  let released = 0;
+  const { t: ht, q: hq } = setup.hydrograph;
+  for (let i = 0; i < ht.length - 1 && ht[i] < t; i++) {
+    const t0 = ht[i];
+    const t1 = Math.min(ht[i + 1], t);
+    const dt = t1 - t0;
+    if (dt <= 0) break;
+    const frac = (t1 - t0) / Math.max(ht[i + 1] - t0, 1e-4);
+    const q1 = hq[i] + (hq[i + 1] - hq[i]) * frac;
+    released += 0.5 * (hq[i] + q1) * dt;
+  }
+  const remaining = Math.max(0, releasableVolume - released);
+  const currentHead = remaining > 0 && releasableVolume > 0 ? headAtStart * (remaining / releasableVolume) ** (1 / m) : 0;
+  return bedElev + invertAboveBase + currentHead;
+}
+
+function computeReservoirPolygon(
+  setup: SimulationSetup,
+  config: ScenarioConfig,
+  bbox: [number, number, number, number],
+  playhead: number,
+): [number, number, number][] | null {
+  const site = setup.site;
+  const crest = site.crestLine && site.crestLine.length >= 2 ? site.crestLine : site.axis;
+  if (!crest || crest.length < 2) return null;
+
+  const poolElev = reservoirLevelAt(setup, config, playhead);
+
+  // Upstream direction: opposite to site.direction
+  // In grid coords: x is east (+lng), y is south (-lat).
+  // site.direction = [dx, dy] is downstream.
+  // Upstream vector in (lng, lat): [-dx, dy]
+  const U = [-site.direction[0], site.direction[1]];
+  const uLen = Math.hypot(U[0], U[1]) || 1;
+  const u = [U[0] / uLen, U[1] / uLen];
+  const v = [-u[1], u[0]];
+
+  const [w, s, e, n] = bbox;
+  const span = Math.hypot(e - w, n - s);
+  const reach = span * 1.5;
+
+  const p0 = crest[0];
+  const pn = crest[crest.length - 1];
+
+  const poly: [number, number, number][] = crest.map(([lng, lat]) => [lng, lat, poolElev]);
+
+  const corner1: [number, number, number] = [pn[0] + (u[0] + v[0] * 1.2) * reach, pn[1] + (u[1] + v[1] * 1.2) * reach, poolElev];
+  const upHead: [number, number, number] = [0.5 * (p0[0] + pn[0]) + u[0] * reach * 1.4, 0.5 * (p0[1] + pn[1]) + u[1] * reach * 1.4, poolElev];
+  const corner2: [number, number, number] = [p0[0] + (u[0] - v[0] * 1.2) * reach, p0[1] + (u[1] - v[1] * 1.2) * reach, poolElev];
+
+  poly.push(corner1, upHead, corner2, [crest[0][0], crest[0][1], poolElev]);
+  return poly;
+}
 
 interface Hover {
   x: number;
@@ -390,10 +462,7 @@ export default function MapView() {
   );
   const hasFlood = hasResults || !!(observed && view.showObserved) || !!ensemble;
 
-  // The water skin: the scenario DEM as a mesh, lifted clear of the terrain, textured with the
-  // flood, and only where ground lies below the crest (higher ground can never flood).
-  const crestElevation = setup?.site.crestElevation ?? Infinity;
-  const skin = useMemo(() => (data ? buildGridMesh(data.dem, data.grid, SKIN_LIFT, 200_000, crestElevation + 30) : null), [data, crestElevation]);
+
 
   // Ground elevation under each place, so markers and labels sit on the 3D terrain.
   const assetZ = useMemo(() => {
@@ -509,11 +578,7 @@ export default function MapView() {
     ];
   }, [view.basemap]);
 
-  // The flood's water surface: glints on ripples and the sky mirrored at grazing angles.
-  const water = useMemo(
-    () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, clock: waterClock }) : null),
-    [data, view.basemap],
-  );
+
 
   // ---- Map layers ------------------------------------------------------------------------
   const layers = useMemo(() => {
@@ -542,7 +607,7 @@ export default function MapView() {
           maxZoom: 17,
           meshMaxError: 2,
           zoomOffset: gpuKind === 'discrete' ? 1 : 0,
-          extensions: [haze],
+          extensions: [haze, FLOOD_TERRAIN],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
           ...meshing,
@@ -560,6 +625,7 @@ export default function MapView() {
           bounds: bbox,
           elevationDecoder: TERRARIUM_DECODER,
           meshMaxError: 5,
+          extensions: [haze, FLOOD_TERRAIN],
           ...meshing,
           loadOptions: { ...meshing.loadOptions, terrain: { ...(terrainWorker ? { workerUrl: TERRAIN_WORKER_URL } : {}), skirtHeight: 0 } },
           material: TERRAIN_MATERIAL,
@@ -567,21 +633,33 @@ export default function MapView() {
       );
     }
 
-    if (hasFlood && view.terrain3d && skin) {
+    // Upstream reservoir: level-pool surface at T+0, dropping as breach water releases.
+    // Mountain slopes naturally occlude the plane; the crest line cuts off downstream leakage.
+    const reservoirPolygon = setup && config
+      ? computeReservoirPolygon(setup, config, bbox, useSimStore.getState().playhead)
+      : null;
+    if (view.terrain3d && reservoirPolygon) {
       list.push(
-        new SimpleMeshLayer({
-          id: 'flood-skin',
-          data: [0],
-          mesh: skin.mesh as never,
-          getPosition: () => [skin.anchor[0], skin.anchor[1], 0],
-          getColor: [255, 255, 255, 255],
+        new PolygonLayer({
+          id: 'reservoir',
+          data: [{ polygon: reservoirPolygon }],
+          getPolygon: (d: { polygon: [number, number, number][] }) => d.polygon,
+          filled: true,
+          stroked: false,
+          _full3d: true,
           material: WATER_MATERIAL,
-          parameters: { depthWriteEnabled: false },
-          // Colour from the flood shader, then ripples and glints, then haze.
-          extensions: water ? [FLOOD, water, haze] : [FLOOD, haze],
+          getFillColor: [24, 88, 134, 215],
+          parameters: { depthTest: true },
+          extensions: [haze],
+          updateTriggers: {
+            getPolygon: [reservoirPolygon],
+          },
         } as never),
       );
-    } else if (hasFlood && BLANK_IMAGE) {
+    }
+
+    // In 2D flat view, the flood is drawn onto a bounding-box quad; in 3D, it is drawn inside the terrain shader.
+    if (!view.terrain3d && hasFlood && BLANK_IMAGE) {
       list.push(
         new BitmapLayer({
           id: 'flood',
@@ -787,7 +865,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
