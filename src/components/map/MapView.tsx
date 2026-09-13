@@ -80,7 +80,7 @@ const noFade = <T extends { type: string; paint?: object }>(layers: T[]) =>
   layers.map((l) => (l.type === 'raster' ? { ...l, paint: { ...l.paint, 'raster-fade-duration': 0 } } : l));
 const SATELLITE_STYLE_3D = {
   ...SATELLITE_STYLE,
-  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 256 } },
+  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } },
   layers: [
     { id: 'background', type: 'background' as const, paint: { 'background-color': '#1c241c' } },
     ...noFade(SATELLITE_STYLE.layers.filter((l) => l.id !== 'background')),
@@ -89,7 +89,7 @@ const SATELLITE_STYLE_3D = {
 };
 const LIGHT_STYLE_3D = {
   ...LIGHT_STYLE,
-  sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 256 } },
+  sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 512 } },
   layers: [
     { id: 'background', type: 'background' as const, paint: { 'background-color': '#121519' } },
     ...noFade(LIGHT_STYLE.layers.filter((l) => l.id !== 'background' && l.id !== 'labels')),
@@ -196,6 +196,17 @@ export default function MapView() {
   const onTerrainTile = useCallback(() => {
     tileErrors.current = 0;
     if (!useUiStore.getState().mapReady) useUiStore.getState().setMapReady(true);
+  }, []);
+  // Offline, the scenario's own DEM stands in for the world terrain; back online, the world returns.
+  useEffect(() => {
+    const online = () => setTerrainMode('world');
+    const offline = () => setTerrainMode('local');
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    return () => {
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+    };
   }, []);
   const terrain = useLocalTerrain(terrainMode === 'local' && view.terrain3d);
 
@@ -476,7 +487,8 @@ export default function MapView() {
         // stitched from imagery one zoom deeper, down to ~0.5 m per pixel; smooth normals,
         // finer meshes near the camera, and haze towards the horizon.
         new HiResTerrainLayer({
-          id: `terrain-world-${view.basemap}`,
+          // A new id when meshing falls back to the main thread, so tiles that failed in the worker load again.
+          id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
           texture,
           textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
