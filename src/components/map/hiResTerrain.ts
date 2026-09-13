@@ -17,23 +17,75 @@ const TILE_OVERLAP_PIXELS = 1;
 
 const fill = (template: string, x: number, y: number, z: number) => template.replace('{x}', String(x)).replace('{y}', String(y)).replace('{z}', String(z));
 
-async function bitmap(url: string, signal?: AbortSignal): Promise<ImageBitmap> {
-  const res = await fetch(url, { signal, mode: 'cors' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return createImageBitmap(await res.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+async function bitmapWithRetry(url: string, signal?: AbortSignal, maxRetries = 2): Promise<ImageBitmap> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, { signal, mode: 'cors' });
+      if (res.ok) {
+        const blob = await res.blob();
+        return await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+      }
+      if (res.status === 404) throw new Error(`HTTP 404`);
+      if (attempt < maxRetries && (res.status === 429 || res.status >= 500)) {
+        await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError' || signal?.aborted) throw err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Tile fetch failed');
+}
+
+// In-flight promise map and LRU cache for tile bitmaps
+const tileBitmapCache = new Map<string, Promise<ImageBitmap>>();
+
+function cachedBitmap(url: string, signal?: AbortSignal): Promise<ImageBitmap> {
+  let p = tileBitmapCache.get(url);
+  if (!p) {
+    p = bitmapWithRetry(url, signal);
+    tileBitmapCache.set(url, p);
+    p.catch(() => tileBitmapCache.delete(url));
+    if (tileBitmapCache.size > 240) {
+      tileBitmapCache.delete(tileBitmapCache.keys().next().value as string);
+    }
+  }
+  return p;
+}
+
+let fallbackSatelliteBitmap: ImageBitmap | null = null;
+let fallbackMapBitmap: ImageBitmap | null = null;
+
+/** Natural terrain color texture when all network tile attempts fail, so deck.gl never renders untextured pure white geometry. */
+function getFallbackTexture(isSatellite: boolean): ImageBitmap {
+  if (isSatellite && fallbackSatelliteBitmap) return fallbackSatelliteBitmap;
+  if (!isSatellite && fallbackMapBitmap) return fallbackMapBitmap;
+  const canvas = new OffscreenCanvas(64, 64);
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = isSatellite ? '#384435' : '#1c1f24';
+  ctx.fillRect(0, 0, 64, 64);
+  const bmp = canvas.transferToImageBitmap();
+  if (isSatellite) fallbackSatelliteBitmap = bmp;
+  else fallbackMapBitmap = bmp;
+  return bmp;
 }
 
 // Decoded zoom-15 heights, shared by the (up to 16) deeper tiles cut from each.
 const heightCache = new Map<string, Promise<Float32Array>>();
 
-function parentHeights(url: string): Promise<Float32Array> {
+function parentHeights(url: string, signal?: AbortSignal): Promise<Float32Array> {
   let p = heightCache.get(url);
   if (!p) {
-    p = bitmap(url).then((img) => {
+    p = cachedBitmap(url, signal).then((img) => {
       const canvas = new OffscreenCanvas(256, 256);
       const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       ctx.drawImage(img, 0, 0, 256, 256);
-      img.close();
       const d = ctx.getImageData(0, 0, 256, 256).data;
       const h = new Float32Array(256 * 256);
       for (let i = 0; i < h.length; i++) h[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
@@ -47,12 +99,12 @@ function parentHeights(url: string): Promise<Float32Array> {
 }
 
 /** A Terrarium PNG (as an object URL) for a tile deeper than the elevation data goes. */
-async function deeperTerrarium(template: string, x: number, y: number, z: number): Promise<string> {
+async function deeperTerrarium(template: string, x: number, y: number, z: number, signal?: AbortSignal): Promise<string> {
   const k = z - TERRARIUM_MAX_ZOOM;
   const n = 1 << k;
   const px = x >> k;
   const py = y >> k;
-  const h = await parentHeights(fill(template, px, py, TERRARIUM_MAX_ZOOM));
+  const h = await parentHeights(fill(template, px, py, TERRARIUM_MAX_ZOOM), signal);
   const ox = ((x - px * n) * 256) / n;
   const oy = ((y - py * n) * 256) / n;
   const step = 1 / n;
@@ -92,12 +144,49 @@ async function stitchedTexture(template: string, x: number, y: number, z: number
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingQuality = 'high';
   if (z + 1 <= maxZoom) {
-    const tiles = await Promise.all(
-      [0, 1].flatMap((dy) => [0, 1].map((dx) => bitmap(fill(template, x * 2 + dx, y * 2 + dy, z + 1), signal).then((img) => ({ img, dx, dy })))),
+    const subCoords = [
+      { dx: 0, dy: 0, sx: x * 2, sy: y * 2 },
+      { dx: 1, dy: 0, sx: x * 2 + 1, sy: y * 2 },
+      { dx: 0, dy: 1, sx: x * 2, sy: y * 2 + 1 },
+      { dx: 1, dy: 1, sx: x * 2 + 1, sy: y * 2 + 1 },
+    ];
+    const results = await Promise.allSettled(
+      subCoords.map(async ({ dx, dy, sx, sy }) => {
+        const img = await cachedBitmap(fill(template, sx, sy, z + 1), signal);
+        return { img, dx, dy };
+      }),
     );
-    for (const { img, dx, dy } of tiles) {
-      ctx.drawImage(img, dx * 256, dy * 256, 256, 256);
-      img.close();
+
+    let anyDrawn = false;
+    let anyMissing = false;
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      if (res.status === 'fulfilled') {
+        const { img, dx, dy } = res.value;
+        ctx.drawImage(img, dx * 256, dy * 256, 256, 256);
+        anyDrawn = true;
+      } else {
+        anyMissing = true;
+      }
+    }
+
+    if (!anyMissing) {
+      return canvas.transferToImageBitmap();
+    }
+
+    // For any missing quadrant, sample from the parent tile at zoom z
+    try {
+      const parentImg = await cachedBitmap(fill(template, x, y, Math.min(z, maxZoom)), signal);
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].status !== 'fulfilled') {
+          const { dx, dy } = subCoords[i];
+          ctx.drawImage(parentImg, dx * 128, dy * 128, 128, 128, dx * 256, dy * 256, 256, 256);
+        }
+      }
+      return canvas.transferToImageBitmap();
+    } catch {
+      if (anyDrawn) return canvas.transferToImageBitmap();
+      throw new Error('All sub-tiles and zoom z tile failed');
     }
   } else {
     // Past the imagery's last zoom: enlarge the matching part of its deepest tile.
@@ -105,12 +194,11 @@ async function stitchedTexture(template: string, x: number, y: number, z: number
     const n = 1 << k;
     const px = x >> k;
     const py = y >> k;
-    const img = await bitmap(fill(template, px, py, maxZoom), signal);
+    const img = await cachedBitmap(fill(template, px, py, maxZoom), signal);
     const size = 256 / n;
     ctx.drawImage(img, (x - px * n) * size, (y - py * n) * size, size, size, 0, 0, 512, 512);
-    img.close();
+    return canvas.transferToImageBitmap();
   }
-  return canvas.transferToImageBitmap();
 }
 
 /** Sharp, filtered imagery at grazing angles: trilinear mipmaps with 16× anisotropy. */
@@ -211,21 +299,46 @@ export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number }>
     // zoom levels above Terrarium's last.
     const tileError = (meshMaxError as number) * 2 ** (Math.max(0, TERRARIUM_MAX_ZOOM - z) / 2);
 
-    const terrain = (z <= TERRARIUM_MAX_ZOOM ? Promise.resolve(fill(elevationTemplate, x, y, z)) : deeperTerrarium(elevationTemplate, x, y, z)).then((url) => {
-      const mesh = Promise.resolve(this.loadTerrain({ elevationData: url, bounds, elevationDecoder, meshMaxError: tileError, signal } as never)).then((m) =>
-        addNormals(m as unknown as Mesh | null, metresPerUnit),
-      );
-      if (url.startsWith('blob:')) {
-        // Free the cut-out image whether the tile loads or is cancelled (a cancelled load must
-        // not surface as an unhandled rejection).
-        const revoke = () => URL.revokeObjectURL(url);
-        Promise.resolve(mesh).then(revoke, revoke);
-      }
-      return mesh;
-    });
+    const terrain = (z <= TERRARIUM_MAX_ZOOM ? Promise.resolve(fill(elevationTemplate, x, y, z)) : deeperTerrarium(elevationTemplate, x, y, z, signal))
+      .then((url) => {
+        const mesh = Promise.resolve(this.loadTerrain({ elevationData: url, bounds, elevationDecoder, meshMaxError: tileError, signal } as never)).then((m) =>
+          addNormals(m as unknown as Mesh | null, metresPerUnit),
+        );
+        if (url.startsWith('blob:')) {
+          // Free the cut-out image whether the tile loads or is cancelled (a cancelled load must
+          // not surface as an unhandled rejection).
+          const revoke = () => URL.revokeObjectURL(url);
+          Promise.resolve(mesh).then(revoke, revoke);
+        }
+        return mesh;
+      })
+      .catch((err) => {
+        if (signal?.aborted || (err as Error)?.name === 'AbortError') throw err;
+        // If a deeper terrarium tile fails, fall back to zoom 15 elevation
+        if (z > TERRARIUM_MAX_ZOOM) {
+          const k = z - TERRARIUM_MAX_ZOOM;
+          const px = x >> k;
+          const py = y >> k;
+          const fallbackUrl = fill(elevationTemplate, px, py, TERRARIUM_MAX_ZOOM);
+          return Promise.resolve(this.loadTerrain({ elevationData: fallbackUrl, bounds, elevationDecoder, meshMaxError: tileError, signal } as never)).then((m) =>
+            addNormals(m as unknown as Mesh | null, metresPerUnit),
+          );
+        }
+        throw err;
+      });
+
     const template = typeof texture === 'string' ? texture : null;
+    const isSatellite = template ? template.includes('World_Imagery') : false;
     const surface = template
-      ? stitchedTexture(template, x, y, z, textureMaxZoom, signal).catch(() => bitmap(fill(template, x, y, Math.min(z, textureMaxZoom)), signal).catch(() => null))
+      ? stitchedTexture(template, x, y, z, textureMaxZoom, signal)
+          .catch(() => cachedBitmap(fill(template, x, y, Math.min(z, textureMaxZoom)), signal))
+          .catch(() => {
+            const pz = Math.max(0, z - 1);
+            const px = x >> 1;
+            const py = y >> 1;
+            return cachedBitmap(fill(template, px, py, Math.min(pz, textureMaxZoom)), signal);
+          })
+          .catch(() => getFallbackTexture(isSatellite))
       : Promise.resolve(null);
     return Promise.all([terrain, surface]);
   }

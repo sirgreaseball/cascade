@@ -35,30 +35,50 @@ function useBoot() {
   }, []);
 }
 
-/** Advances the playhead: follows the live computation, or plays back at the chosen speed. */
+/** Advances the playhead smoothly at the chosen speed (60, 300, 900 sim-sec/s) during both live simulation and playback. */
 function usePlayback() {
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
+    let lastLatest = 0;
+    let lastLatestWall = performance.now();
+    let simVelocity = 300; // estimated sim-sec / real-sec (tracks solver production rate)
+
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const s = useSimStore.getState();
       const latest = latestTime();
-      if (s.follow) {
-        if (latest > 0 && Math.abs(latest - s.playhead) > 0.5) {
-          // Ease towards the newest frame so the flood front glides instead of jumping.
-          const next = s.playhead + (latest - s.playhead) * (1 - Math.exp(-dt * 3.5));
-          s.setPlayhead(Math.min(next, latest));
+      const anyRunning = s.runs.swe.status === 'running' || s.runs.sph.status === 'running' || s.runs.swe.status === 'starting' || s.runs.sph.status === 'starting';
+
+      // Reset when a new run starts
+      if (latest < lastLatest) {
+        lastLatest = 0;
+        lastLatestWall = now;
+      } else if (latest > lastLatest) {
+        const wallDt = Math.max(0.04, (now - lastLatestWall) / 1000);
+        const instantVel = (latest - lastLatest) / wallDt;
+        simVelocity = Math.max(20, Math.min(3000, simVelocity * 0.5 + instantVel * 0.5));
+        lastLatest = latest;
+        lastLatestWall = now;
+      }
+
+      const active = s.follow || s.playing;
+      if (active && latest > 0) {
+        // Fluidly advance playhead at the selected speed (1 min/s, 5 min/s, 15 min/s),
+        // capped only if solver is slower than the chosen speed on lower-end hardware.
+        const effectiveSpeed = anyRunning ? Math.min(s.speed, Math.max(30, simVelocity)) : s.speed;
+        let next = s.playhead + dt * effectiveSpeed;
+
+        // Never advance past the computation frontier
+        if (next >= latest) {
+          next = latest;
+          if (!anyRunning) {
+            s.setPlaying(false);
+            s.setFollow(false);
+          }
         }
-      } else if (s.playing) {
-        let t = s.playhead + dt * s.speed;
-        const anyRunning = s.runs.swe.status === 'running' || s.runs.sph.status === 'running';
-        if (t >= latest) {
-          t = latest;
-          if (!anyRunning) s.setPlaying(false);
-        }
-        s.setPlayhead(t);
+        s.setPlayhead(next);
       }
       raf = requestAnimationFrame(tick);
     };

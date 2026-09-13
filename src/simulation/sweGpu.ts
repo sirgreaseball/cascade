@@ -23,7 +23,7 @@ import type { EngineConfig } from './types.ts';
 const G = 9.81;
 const WORKGROUP = 256;
 /** Longest batch (simulated seconds) over which the breach inflow is interpolated. */
-const MAX_SPAN = 30;
+const MAX_SPAN = 15;
 /** GPU time per submission (ms): short enough for the map to draw between them. */
 const GPU_SLICE_MS = 8;
 
@@ -589,7 +589,11 @@ export class GpuShallowWaterSolver {
       this.outflowVolume += s[4];
       this.inflowRate = s[6];
       this.rate = s[2];
-      this.tailwater = this.cfg.elevation[this.thalweg] + s[8];
+      const measuredTw = this.cfg.elevation[this.thalweg] + Math.max(0, s[8]);
+      // Under-relaxation: damp high-frequency wave sloshing in the source cell to prevent limit-cycle oscillations during breach submergence
+      this.tailwater = this.tailwater <= this.cfg.elevation[this.thalweg] + 1e-3
+        ? measuredTw
+        : this.tailwater + 0.25 * (measuredTw - this.tailwater);
       if (this.reservoir) this.reservoir.volume = Math.max(this.reservoir.volume - Math.max(s[3] - this.baseFlow * tau, 0), 0);
     }
   }

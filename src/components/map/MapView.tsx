@@ -79,14 +79,20 @@ const noFade = <T extends { type: string; paint?: object }>(layers: T[]) =>
   layers.map((l) => (l.type === 'raster' ? { ...l, paint: { ...l.paint, 'raster-fade-duration': 0 } } : l));
 const SATELLITE_STYLE_3D = {
   ...SATELLITE_STYLE,
-  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } },
-  layers: noFade(SATELLITE_STYLE.layers),
+  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 256 } },
+  layers: [
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#1c241c' } },
+    ...noFade(SATELLITE_STYLE.layers.filter((l) => l.id !== 'background')),
+  ],
   sky: SKY_SATELLITE,
 };
 const LIGHT_STYLE_3D = {
   ...LIGHT_STYLE,
-  sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 512 } },
-  layers: noFade(LIGHT_STYLE.layers.filter((l) => l.id !== 'labels')),
+  sources: { base: { ...LIGHT_STYLE.sources.base, tileSize: 256 } },
+  layers: [
+    { id: 'background', type: 'background' as const, paint: { 'background-color': '#121519' } },
+    ...noFade(LIGHT_STYLE.layers.filter((l) => l.id !== 'background' && l.id !== 'labels')),
+  ],
   sky: SKY_MAP,
 };
 /** Copied from node_modules by scripts/copy-workers.mjs: terrain meshing off the main thread. */
@@ -158,12 +164,8 @@ export default function MapView() {
   const setup = useSimStore((s) => s.setup);
   const view = useSimStore((s) => s.view);
   const engines = useSimStore((s) => s.engines);
-  // The flood repaints at a fixed wall-clock rate (~15 Hz), not every animation tick: each
-  // repaint re-colours the grid and uploads one texture.
-  const playhead = useSimStore((s) => {
-    const q = Math.max(1, s.speed / 15);
-    return Math.floor(s.playhead / q) * q;
-  });
+  // Continuous playhead for fluid 60 FPS water depth interpolation and surface ripple flow.
+  const playhead = useSimStore((s) => s.playhead);
   const version = useSimStore((s) => s.resultsVersion);
   const selectedAsset = useSimStore((s) => s.selectedAsset);
   const pickingDam = useUiStore((s) => s.pickingDam);
@@ -174,12 +176,15 @@ export default function MapView() {
   // Mesh terrain in a worker; if the worker cannot start, fall back to the main thread.
   const [terrainWorker, setTerrainWorker] = useState(true);
   const tileErrors = useRef(0);
-  const onTerrainError = useCallback(() => {
+  const onTerrainError = useCallback((err?: unknown) => {
+    const error = err as Error | undefined;
+    // Normal camera movements (pan/zoom) abort in-flight tile requests; ignore them completely
+    if (error?.name === 'AbortError' || error?.message?.includes('aborted')) return;
     tileErrors.current++;
-    if (terrainWorker && tileErrors.current > 2) {
+    if (terrainWorker && tileErrors.current > 4) {
       tileErrors.current = 0;
       setTerrainWorker(false);
-    } else if (tileErrors.current > 6) setTerrainMode('local');
+    }
   }, [terrainWorker]);
   /**
    * The first terrain tile on screen tells the loading screen the map is drawn. A tile arriving
@@ -470,7 +475,7 @@ export default function MapView() {
         // stitched from imagery one zoom deeper, down to ~0.5 m per pixel; smooth normals,
         // finer meshes near the camera, and haze towards the horizon.
         new HiResTerrainLayer({
-          id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
+          id: `terrain-world-${view.basemap}`,
           elevationData: TERRARIUM_URL,
           texture,
           textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
