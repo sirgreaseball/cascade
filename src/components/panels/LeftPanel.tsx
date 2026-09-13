@@ -492,6 +492,8 @@ function ModelTab() {
   const setResolution = useSimStore((s) => s.setResolution);
   const useGpu = useSimStore((s) => s.useGpu);
   const setUseGpu = useSimStore((s) => s.setUseGpu);
+  const fastCompute = useSimStore((s) => s.fastCompute);
+  const setFastCompute = useSimStore((s) => s.setFastCompute);
   const duration = useSimStore((s) => s.duration);
   const setDuration = useSimStore((s) => s.setDuration);
   const manning = useSimStore((s) => s.manning);
@@ -578,6 +580,15 @@ function ModelTab() {
           </div>
           <Switch checked={useGpu} onChange={setUseGpu} disabled={running} label="Run the grid solver on the graphics card" />
         </div>
+        {useGpu && (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[12.5px] text-ink-2">Compute as fast as possible</div>
+              <div className="text-[11px] leading-snug text-faint">Runs the GPU solver without yielding time to keep 60 fps map animation.</div>
+            </div>
+            <Switch checked={fastCompute} onChange={setFastCompute} label="Compute as fast as possible" />
+          </div>
+        )}
         <Slider label="Simulated time" value={duration} min={1800} max={12 * 3600} step={900} onChange={setDuration} format={formatDuration} />
         <Slider
           label="Manning roughness"

@@ -443,6 +443,11 @@ export class GpuShallowWaterSolver {
   /** Wall time per step of the last submission (ms), for sizing the next. */
   private msPerStep = 0;
   private lost: string | null = null;
+  private throttled = true;
+
+  setPacing(throttle: boolean): void {
+    this.throttled = throttle;
+  }
 
   /** A solver on the GPU, or null when this browser has no WebGPU adapter. */
   static async create(cfg: EngineConfig): Promise<GpuShallowWaterSolver | null> {
@@ -530,6 +535,7 @@ export class GpuShallowWaterSolver {
     for (const s of cfg.sources) if (cfg.elevation[s.index] < cfg.elevation[thalweg]) thalweg = s.index;
     this.thalweg = thalweg;
     this.tailwater = cfg.elevation[thalweg];
+    this.throttled = !cfg.unthrottled;
   }
 
   /** The tiles awake at the start: those holding a breach cell, and their neighbours. */
@@ -651,8 +657,12 @@ export class GpuShallowWaterSolver {
         s = new Float32Array(this.probe.getMappedRange().slice(0));
         this.probe.unmap();
         if (!Number.isFinite(s[0]) || !Number.isFinite(s[2])) throw new Error('GPU solver produced an invalid time step.');
-        this.msPerStep = (performance.now() - started) / this.chunk;
+        const elapsed = performance.now() - started;
+        this.msPerStep = elapsed / this.chunk;
         if (s[7] > 0.5) break;
+        if (this.throttled && elapsed > 0) {
+          await new Promise((r) => setTimeout(r, Math.min(Math.max(1, Math.round(elapsed)), 16)));
+        }
       }
       const steps = s[5];
       // Size the next submission to fit the batch with a little to spare, but keep each one to
@@ -672,6 +682,9 @@ export class GpuShallowWaterSolver {
         ? measuredTw
         : this.tailwater + 0.25 * (measuredTw - this.tailwater);
       if (this.reservoir) this.reservoir.volume = Math.max(this.reservoir.volume - Math.max(s[3] - this.baseFlow * tau, 0), 0);
+      if (this.throttled) {
+        await new Promise((r) => setTimeout(r, 4));
+      }
     }
   }
 

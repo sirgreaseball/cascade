@@ -99,6 +99,11 @@ export class EngineClient {
     if (this.timer) clearTimeout(this.timer);
   }
 
+  setPacing(throttle: boolean): void {
+    if (this.worker) this.send({ type: 'pacing', throttle });
+    this.runtime?.setPacing?.(throttle);
+  }
+
   terminate(): void {
     this.disposed = true;
     this.pause();

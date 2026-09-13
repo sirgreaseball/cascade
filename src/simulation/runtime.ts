@@ -15,6 +15,7 @@ export interface Runtime {
   /** Computes for about `budgetMs`; true once the run is complete. */
   runSlice(budgetMs: number): boolean | Promise<boolean>;
   readonly done: boolean;
+  setPacing?(throttle: boolean): void;
   dispose?(): void;
 }
 
@@ -324,6 +325,10 @@ class GpuEngineRuntime implements Runtime {
 
   get done(): boolean {
     return this.finished;
+  }
+
+  setPacing(throttle: boolean): void {
+    this.solver.setPacing(throttle);
   }
 
   async runSlice(budgetMs: number): Promise<boolean> {

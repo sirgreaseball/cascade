@@ -62,6 +62,8 @@ export interface SetupInput {
   wetThreshold?: number;
   /** Run the grid solver on the GPU when WebGPU is available (default true). */
   gpu?: boolean;
+  /** Run the GPU solver flat out without duty-cycle pacing for map display. */
+  unthrottled?: boolean;
 }
 
 export interface SimulationSetup {
@@ -207,7 +209,7 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
       display: { cols: grid.cols, rows: grid.rows, factor: f, mode: 'pool' },
     };
   }
-  swe = { ...swe, gpu: input.gpu ?? true };
+  swe = { ...swe, gpu: input.gpu ?? true, unthrottled: input.unthrottled ?? false };
 
   return {
     grid,
