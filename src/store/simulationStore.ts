@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { EventParams } from '@/simulation/hydrograph';
 import { setupSimulation } from '@/simulation/setup';
 import type { Resolution, SimulationSetup } from '@/simulation/setup';
-import type { EngineId } from '@/simulation/types';
+import type { AdapterInfo, EngineId } from '@/simulation/types';
 import { eventDefaults } from '@/lib/scenario';
 import { applySeason, DEFAULT_SEASON } from '@/simulation/season';
 import type { Season } from '@/simulation/season';
@@ -22,6 +22,10 @@ export interface EngineRun {
   particleVolume?: number;
   /** Where the engine ran: the grid solver uses the GPU when WebGPU is available. */
   backend?: 'cpu' | 'gpu';
+  /** GPU runs: the graphics adapter, as the browser describes it. */
+  adapter?: AdapterInfo;
+  /** Grid solver on the processor: why the graphics card was not used. */
+  gpuFallback?: string;
   error: string | null;
   wallMs: number;
 }

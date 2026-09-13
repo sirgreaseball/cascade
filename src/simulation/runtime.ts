@@ -23,15 +23,23 @@ export interface Runtime {
  * solver on the GPU when WebGPU is available (and not switched off), otherwise on the CPU.
  */
 export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void): Promise<Runtime> {
-  if (cfg.engine === 'swe' && cfg.gpu !== false) {
-    try {
-      const solver = await GpuShallowWaterSolver.create(cfg);
-      if (solver) return new GpuEngineRuntime(cfg, solver, emit);
-    } catch (err) {
-      console.warn('[cascade] WebGPU solver unavailable; using the CPU.', err);
+  // Why the grid solver ends up on the processor is worth reporting: it is many times slower there.
+  let gpuFallback: string | undefined;
+  if (cfg.engine === 'swe') {
+    if (cfg.gpu === false) gpuFallback = 'the graphics card is switched off in the Model settings';
+    else if (!(globalThis as { navigator?: Navigator }).navigator?.gpu) gpuFallback = 'this browser does not offer WebGPU';
+    else {
+      try {
+        const solver = await GpuShallowWaterSolver.create(cfg);
+        if (solver) return new GpuEngineRuntime(cfg, solver, emit);
+        gpuFallback = 'the browser found no WebGPU graphics adapter';
+      } catch (err) {
+        console.warn('[cascade] WebGPU solver unavailable; using the CPU.', err);
+        gpuFallback = err instanceof Error ? err.message : String(err);
+      }
     }
   }
-  return new EngineRuntime(cfg, emit);
+  return new EngineRuntime(cfg, emit, gpuFallback);
 }
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -125,10 +133,13 @@ export class EngineRuntime implements Runtime {
   private lastProgressAt = 0;
   private readonly cfg: EngineConfig;
   private readonly emit: (msg: WorkerOutbound) => void;
+  /** Grid solver: why it is on the processor rather than the graphics card. */
+  private readonly gpuFallback?: string;
 
-  constructor(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void) {
+  constructor(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void, gpuFallback?: string) {
     this.cfg = cfg;
     this.emit = emit;
+    this.gpuFallback = gpuFallback;
     this.solver = cfg.engine === 'swe' ? new ShallowWaterSolver(cfg) : new SPHSolver(cfg);
   }
 
@@ -137,7 +148,7 @@ export class EngineRuntime implements Runtime {
     if (this.solver instanceof SPHSolver) {
       return { label: 'SPH-SWE particle solver', cells, particleVolume: this.solver.particleVolume };
     }
-    return { label: '2D shallow-water finite-volume solver (HLL)', cells };
+    return { label: '2D shallow-water finite-volume solver (HLL)', cells, backend: 'cpu', gpuFallback: this.gpuFallback };
   }
 
   get done(): boolean {
@@ -290,6 +301,7 @@ class GpuEngineRuntime implements Runtime {
   private nextFrameT = 0;
   private wallMs = 0;
   private msSinceFrame = 0;
+  private readMsSinceFrame = 0;
   private stepsAtFrame = 0;
   /** Inflow volume and clock at the previous frame, for the mean discharge over the interval. */
   private lastFrameVolume = 0;
@@ -307,7 +319,7 @@ class GpuEngineRuntime implements Runtime {
   }
 
   info(): EngineInfo {
-    return { label: '2D shallow-water finite-volume solver (HLL), on the graphics card', cells: this.cfg.cols * this.cfg.rows, backend: 'gpu' };
+    return { label: '2D shallow-water finite-volume solver (HLL), on the graphics card', cells: this.cfg.cols * this.cfg.rows, backend: 'gpu', adapter: this.solver.adapter };
   }
 
   get done(): boolean {
@@ -320,6 +332,7 @@ class GpuEngineRuntime implements Runtime {
     const { duration } = this.cfg;
     if (this.frameIndex === 0) {
       await this.solver.read(false);
+      this.readMsSinceFrame += this.solver.lastReadMs;
       this.emitFrame();
     }
     while (now() - start < budgetMs) {
@@ -328,6 +341,7 @@ class GpuEngineRuntime implements Runtime {
       const last = this.solver.t >= duration - 1e-6;
       // Envelopes only come back when a summary is due.
       await this.solver.read(last || (this.frameIndex + 1) % 5 === 0);
+      this.readMsSinceFrame += this.solver.lastReadMs;
       this.msSinceFrame += now() - t0;
       this.emitFrame();
       if (this.frameIndex % 5 === 0) this.emitSummary(false);
@@ -361,6 +375,7 @@ class GpuEngineRuntime implements Runtime {
       maxDepth: m.maxDepth,
       computeMs: this.msSinceFrame,
       steps: s.steps - this.stepsAtFrame,
+      readMs: this.readMsSinceFrame,
     };
     stats.inflowRate = this.meanInflow(s.t, s.inflowVolume, s.inflowRate);
     // Structured clone (no transfer list): the UI receives its own copy.
@@ -369,6 +384,7 @@ class GpuEngineRuntime implements Runtime {
     this.nextFrameT = this.frameIndex * this.cfg.outputInterval;
     this.stepsAtFrame = s.steps;
     this.msSinceFrame = 0;
+    this.readMsSinceFrame = 0;
   }
 
   private emitSummary(final: boolean): void {

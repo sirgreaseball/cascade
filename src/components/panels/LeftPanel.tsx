@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, FileUp, Play, RotateCcw, X } from 'lucide-react';
 import { useScenarioStore } from '@/store/scenarioStore';
@@ -33,6 +33,8 @@ import { depthDifference, extentAgreement } from '@/lib/compare';
 import { packageScenario } from '@/lib/scenario';
 import { download } from '@/lib/export/formats';
 import { cn } from '@/lib/utils';
+import { adapterLabel, buildReport, classifyGpu, frameSnapshot, getMapGpu, gpuMismatch, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
+import type { AdapterProbe } from '@/lib/perfMonitor';
 
 const hours = (s: number) => `${(s / 3600).toFixed(s % 3600 === 0 ? 0 : 1)}h`;
 
@@ -342,6 +344,142 @@ function Ensemble() {
   );
 }
 
+/** Simulated minutes per second of computing, and the share of it spent copying back from the GPU. */
+function solverSpeed(engine: 'swe' | 'sph') {
+  const r = results.get(engine);
+  if (!r || r.stats.length < 2) return null;
+  let compute = 0;
+  let read = 0;
+  for (const s of r.stats) {
+    compute += s.computeMs;
+    read += s.readMs ?? 0;
+  }
+  if (compute <= 0) return null;
+  const t = r.times[r.times.length - 1];
+  return { t, perSecond: t / 60 / (compute / 1000), readShare: read / compute };
+}
+
+const GPU_KIND = { discrete: 'graphics card', integrated: 'integrated', software: 'software', unknown: '' } as const;
+
+/**
+ * What this machine is actually doing: which chip draws the map and which runs the solver, how
+ * evenly frames arrive, how fast the last run computed. One button copies it as text, so a slow
+ * machine can be diagnosed from numbers rather than impressions.
+ */
+function DevicePerformance() {
+  const runs = useSimStore((s) => s.runs);
+  const resolution = useSimStore((s) => s.resolution);
+  const config = useScenarioStore((s) => s.config);
+  const data = useScenarioStore((s) => s.data);
+  const toast = useUiStore((s) => s.toast);
+  const [adapters, setAdapters] = useState<AdapterProbe | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    startFrameMonitor();
+    let alive = true;
+    probeAdapters().then((a) => alive && setAdapters(a));
+    const timer = setInterval(() => setTick((t) => t + 1), 1000);
+    const off = onPerfChange(() => setTick((t) => t + 1));
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      off();
+    };
+  }, []);
+
+  const map = getMapGpu();
+  const kind = map ? classifyGpu(map.renderer) : 'unknown';
+  const frames = frameSnapshot(5);
+  const swe = runs.swe;
+  const speed = solverSpeed('swe');
+  const faster = gpuMismatch(adapters);
+  const windows = typeof navigator !== 'undefined' && /Windows/.test(navigator.userAgent);
+
+  const solverLine =
+    swe.status === 'idle'
+      ? adapters === null
+        ? 'Checking…'
+        : adapters.webgpu && adapters.adapter
+          ? `Graphics card, ready · ${adapterLabel(adapters.adapter)}`
+          : 'Processor · this browser does not offer WebGPU'
+      : swe.backend === 'gpu'
+        ? `Graphics card · ${adapterLabel(swe.adapter ?? adapters?.adapter ?? null)}`
+        : `Processor${swe.gpuFallback ? ` · ${swe.gpuFallback}` : ''}`;
+  const readout: [string, string][] = [
+    ['Map drawn on', map ? `${prettyRenderer(map.renderer)}${GPU_KIND[kind] ? ` (${GPU_KIND[kind]})` : ''}` : 'Starting…'],
+    ['Grid solver', solverLine],
+    [
+      'Frames, last 5 s',
+      frames
+        ? `${Math.round(frames.fps)} fps · worst ${Math.round(frames.worst)} ms · ${frames.hitches} hitch${frames.hitches === 1 ? '' : 'es'}${frames.blocked > 0.02 ? ` · main thread busy ${Math.round(frames.blocked * 100)}%` : ''}`
+        : 'Measuring…',
+    ],
+  ];
+  if (speed) {
+    readout.push([swe.status === 'done' ? 'Last run' : 'This run so far', `${formatDuration(speed.t)} simulated at ${speed.perSecond.toFixed(1)} min per second${swe.backend === 'gpu' ? ` · ${Math.round(speed.readShare * 100)}% of it copying back` : ''}`]);
+  }
+  if (terrainStats.loaded > 0) readout.push(['Terrain tiles', `${terrainStats.loaded} loaded · ${terrainStats.retried} retried · ${terrainStats.degraded} low quality`]);
+
+  const hints: React.ReactNode[] = [];
+  if (kind === 'software') hints.push('The browser is drawing without the graphics card. Switch on hardware acceleration in its settings, then restart it.');
+  else if (faster)
+    hints.push(
+      <>
+        The map is drawing on the integrated graphics while <span className="font-medium text-ink">{faster}</span> is available. In Windows: Settings → System → Display → Graphics → your browser → High performance, then restart the browser.
+      </>,
+    );
+  else if (kind === 'integrated' && windows)
+    hints.push(
+      <>
+        If this laptop also has an NVIDIA or AMD graphics card, give the browser the high-performance GPU: Settings → System → Display → Graphics → your browser → High performance, then fully restart it. <span className="font-mono">chrome://gpu</span> then lists the graphics card as active.
+      </>,
+    );
+  if (swe.status !== 'idle' && swe.backend === 'cpu' && swe.gpuFallback) hints.push(`The grid solver ran on the processor because ${swe.gpuFallback}. Current Chrome and Edge run it on the graphics card, many times faster.`);
+
+  const copy = () => {
+    const engines = (['swe', 'sph'] as const)
+      .filter((e) => runs[e].status !== 'idle')
+      .map((e) => {
+        const r = runs[e];
+        return `${e === 'swe' ? 'Grid' : 'SPH'}: ${r.status}, ${r.backend ?? r.mode ?? '?'}${r.adapter ? ` (${adapterLabel(r.adapter)})` : ''}, ${r.frames} frames${r.wallMs ? `, finished in ${(r.wallMs / 1000).toFixed(1)} s` : ''}`;
+      });
+    const report = buildReport(
+      {
+        scenario: config ? `${config.name} (${config.id})` : 'none',
+        grid: data ? `${data.grid.cols} × ${data.grid.rows} cells at ${Math.round(data.grid.dx)} m, ${resolution} setting` : 'none',
+        readout,
+        engines,
+      },
+      adapters,
+    );
+    navigator.clipboard.writeText(report).then(
+      () => toast({ title: 'Performance report copied', tone: 'success' }),
+      () => toast({ title: 'Couldn’t copy the report', tone: 'error' }),
+    );
+  };
+
+  return (
+    <Section title="This device" action={<Tag>Performance</Tag>}>
+      <div className="space-y-2 rounded-2xl bg-fill/70 p-3 text-[12px]">
+        {readout.map(([label, value]) => (
+          <div key={label}>
+            <div className="text-[11px] text-muted">{label}</div>
+            <div className="tnum font-medium leading-snug">{value}</div>
+          </div>
+        ))}
+      </div>
+      {hints.map((h, i) => (
+        <div key={i} className="rounded-2xl bg-accent/[0.08] p-3 text-[11.5px] leading-snug text-ink-2 ring-1 ring-accent/20">
+          {h}
+        </div>
+      ))}
+      <Button variant="ghost" className="w-full justify-start px-0" onClick={copy}>
+        <Copy className="h-3.5 w-3.5" /> Copy performance report
+      </Button>
+    </Section>
+  );
+}
+
 function ModelTab() {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
@@ -588,6 +726,8 @@ function ModelTab() {
           </Button>
         )}
       </Section>
+
+      <DevicePerformance />
 
       <Section title="Share">
         <Button

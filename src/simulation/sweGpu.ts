@@ -18,7 +18,7 @@
 // which then leaves the reservoir.
 
 import { BreachReservoir, interpolateHydrograph } from './hydrograph.ts';
-import type { EngineConfig } from './types.ts';
+import type { AdapterInfo, EngineConfig } from './types.ts';
 
 const G = 9.81;
 const WORKGROUP = 256;
@@ -348,6 +348,12 @@ fn finalize(@builtin(local_invocation_index) li: u32) {
 }
 `;
 
+/** The adapter as the browser describes it; the interface formats it. */
+function describeAdapter(adapter: GPUAdapter): AdapterInfo {
+  const info = adapter.info as GPUAdapterInfo | undefined;
+  return { vendor: info?.vendor ?? '', architecture: info?.architecture ?? '', description: info?.description ?? '' };
+}
+
 export class GpuShallowWaterSolver {
   t = 0;
   steps = 0;
@@ -355,6 +361,10 @@ export class GpuShallowWaterSolver {
   outflowVolume = 0;
   /** Breach inflow at the end of the last batch (m³/s). */
   inflowRate = 0;
+  /** The graphics adapter this solver runs on. */
+  adapter: AdapterInfo = { vendor: '', architecture: '', description: '' };
+  /** Wall time of the last read-back from the GPU (ms). */
+  lastReadMs = 0;
   /** Depth per cell and flood envelopes as of the last read-back. */
   readonly depth: Float32Array;
   readonly maxDepth: Float32Array;
@@ -403,6 +413,7 @@ export class GpuShallowWaterSolver {
     if (!adapter) return null;
     const device = await adapter.requestDevice();
     const solver = new GpuShallowWaterSolver(cfg, device);
+    solver.adapter = describeAdapter(adapter);
     await solver.init();
     return solver;
   }
@@ -600,6 +611,7 @@ export class GpuShallowWaterSolver {
 
   /** Copies the depth (and, when asked, the envelopes) back from the GPU. */
   async read(envelopes: boolean): Promise<void> {
+    const started = performance.now();
     const bytes = this.n * 16;
     const enc = this.device.createCommandEncoder();
     enc.copyBufferToBuffer(this.bufA, 0, this.fieldRead, 0, bytes);
@@ -620,6 +632,7 @@ export class GpuShallowWaterSolver {
       }
       this.envRead.unmap();
     }
+    this.lastReadMs = performance.now() - started;
   }
 
   depthCentimetres(): Uint16Array {
