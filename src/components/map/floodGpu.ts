@@ -137,14 +137,21 @@ export class FloodField {
 
 const uniformBlock = /* glsl */ `\
 layout(std140) uniform floodUniforms {
-  float mode;
-  float mixFrames;
-  float time;
-  float hasArrival;
-  vec2 size;
-  float feather;
-  float hasImage;
+  vec4 bbox;
+  vec4 params1;
+  vec4 params2;
+  vec4 params3;
 } flood;
+
+#define flood_mode (flood.params1.x)
+#define flood_mixFrames (flood.params1.y)
+#define flood_time (flood.params1.z)
+#define flood_hasArrival (flood.params1.w)
+#define flood_size (flood.params2.xy)
+#define flood_feather (flood.params2.z)
+#define flood_hasImage (flood.params2.w)
+#define flood_inTerrain (flood.params3.x)
+#define flood_sky (flood.params3.yzw)
 `;
 
 const fs = /* glsl */ `\
@@ -155,14 +162,14 @@ uniform sampler2D flood_image;
 uniform sampler2D flood_lut;
 
 float flood_arrivalTexel(ivec2 p) {
-  vec2 rg = texelFetch(flood_arrival, clamp(p, ivec2(0), ivec2(flood.size) - 1), 0).rg * 255.0;
+  vec2 rg = texelFetch(flood_arrival, clamp(p, ivec2(0), ivec2(flood_size) - 1), 0).rg * 255.0;
   return floor(rg.r + 0.5) * 256.0 + floor(rg.g + 0.5);
 }
 
 // Arrival time at a point, interpolated between the neighbouring cells that have one, so the flood
 // front sweeps across a cell instead of appearing a cell at a time; 65535 where none has one.
 float flood_arrivalAt(vec2 uv) {
-  vec2 st = uv * flood.size - 0.5;
+  vec2 st = uv * flood_size - 0.5;
   vec2 f = fract(st);
   ivec2 p = ivec2(floor(st));
   vec4 a = vec4(flood_arrivalTexel(p), flood_arrivalTexel(p + ivec2(1, 0)), flood_arrivalTexel(p + ivec2(0, 1)), flood_arrivalTexel(p + ivec2(1, 1)));
@@ -174,40 +181,40 @@ float flood_arrivalAt(vec2 uv) {
 
 vec4 flood_color(vec2 uv) {
   vec4 c;
-  if (flood.mode < 0.5) {
+  if (flood_mode < 0.5) {
     vec2 pair = texture(flood_frames, uv).rg;
-    float position = mix(pair.x, pair.y, flood.mixFrames);
+    float position = mix(pair.x, pair.y, flood_mixFrames);
     if (position <= 0.0) {
-      if (flood.hasImage < 0.5) return vec4(0.0);
+      if (flood_hasImage < 0.5) return vec4(0.0);
       c = texture(flood_image, uv);
     } else {
-      if (flood.hasArrival > 0.5) {
+      if (flood_hasArrival > 0.5) {
         float a = flood_arrivalAt(uv);
-        if (a < 65534.5 && a > flood.time) position = 0.0;
+        if (a < 65534.5 && a > flood_time) position = 0.0;
       }
       if (position <= 0.0) {
-        if (flood.hasImage < 0.5) return vec4(0.0);
+        if (flood_hasImage < 0.5) return vec4(0.0);
         c = texture(flood_image, uv);
       } else {
         c = texture(flood_lut, vec2(position * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
         // Position 0 is dry ground: the last sliver towards it fades out, so shorelines are soft.
         c.a *= smoothstep(0.5 / 255.0, 8.0 / 255.0, position);
-        if (c.a < 0.004 && flood.hasImage > 0.5) c = texture(flood_image, uv);
+        if (c.a < 0.004 && flood_hasImage > 0.5) c = texture(flood_image, uv);
       }
     }
   } else {
-    if (flood.hasImage < 0.5) return vec4(0.0);
+    if (flood_hasImage < 0.5) return vec4(0.0);
     c = texture(flood_image, uv);
     // Hide only what is known to flood later: the observed extent under it has no arrival time.
-    if (flood.mode < 1.5 && flood.hasArrival > 0.5) {
+    if (flood_mode < 1.5 && flood_hasArrival > 0.5) {
       float a = flood_arrivalAt(uv);
-      if (a < 65534.5 && a > flood.time) c.a = 0.0;
+      if (a < 65534.5 && a > flood_time) c.a = 0.0;
     }
   }
   if (c.a < 0.003) return vec4(0.0);
   // Fade out over the last cells at the edge of the study area, where water leaves the model.
-  vec2 inside = min(uv, 1.0 - uv) * flood.size;
-  c.a *= clamp((min(inside.x, inside.y) - 0.5) / flood.feather, 0.0, 1.0);
+  vec2 inside = min(uv, 1.0 - uv) * flood_size;
+  c.a *= clamp((min(inside.x, inside.y) - 0.5) / flood_feather, 0.0, 1.0);
   return c;
 }
 `;
@@ -217,7 +224,12 @@ const floodModule = {
   vs: uniformBlock,
   fs,
   getUniforms: (opts?: Record<string, unknown>) => opts ?? {},
-  uniformTypes: { mode: 'f32', mixFrames: 'f32', time: 'f32', hasArrival: 'f32', size: 'vec2<f32>', feather: 'f32', hasImage: 'f32' },
+  uniformTypes: {
+    bbox: 'vec4<f32>',
+    params1: 'vec4<f32>',
+    params2: 'vec4<f32>',
+    params3: 'vec4<f32>',
+  },
 } as const;
 
 export interface FloodOptions {
@@ -225,6 +237,12 @@ export interface FloodOptions {
   frame: (device: Device) => FloodFrame;
   /** Cells over which the flood fades out at the edge of the study area. */
   feather?: number;
+  /** When true, samples the flood by geographic projection onto terrain tiles instead of geometry.uv. */
+  inTerrain?: boolean;
+  /** Scenario bounding box [west, south, east, north] in degrees or a function returning it. */
+  bbox?: [number, number, number, number] | (() => [number, number, number, number] | undefined);
+  /** Horizon/sky color for water grazing angles or a function returning it. */
+  sky?: [number, number, number] | (() => [number, number, number] | undefined);
 }
 
 const MODE: Record<FloodMode, number> = { frames: 0, revealed: 1, static: 2 };
@@ -233,7 +251,48 @@ const MODE: Record<FloodMode, number> = { frames: 0, revealed: 1, static: 2 };
 export class FloodExtension extends LayerExtension<FloodOptions> {
   static extensionName = 'FloodExtension';
 
-  getShaders(this: Layer) {
+  getShaders(this: Layer, extension: this) {
+    if (extension?.opts?.inTerrain) {
+      return {
+        modules: [floodModule],
+        inject: {
+          'vs:#decl': /* glsl */ `
+            out vec2 vFloodUv;
+          `,
+          'vs:DECKGL_FILTER_GL_POSITION': /* glsl */ `
+            vec2 p = geometry.position.xy;
+            float lng = p.x * (360.0 / 512.0) - 180.0;
+            float n = 3.141592653589793 * (1.0 - 2.0 * (p.y / 512.0));
+            float sinh_n = 0.5 * (exp(n) - exp(-n));
+            float lat = 57.29577951308232 * atan(sinh_n);
+            vFloodUv = vec2((lng - flood.bbox.x) / max(flood.bbox.z - flood.bbox.x, 1e-6), (flood.bbox.w - lat) / max(flood.bbox.w - flood.bbox.y, 1e-6));
+          `,
+          'fs:#decl': /* glsl */ `
+            in vec2 vFloodUv;
+          `,
+          'fs:DECKGL_FILTER_COLOR': /* glsl */ `
+            if (vFloodUv.x >= 0.0 && vFloodUv.x <= 1.0 && vFloodUv.y >= 0.0 && vFloodUv.y <= 1.0) {
+              vec4 floodCol = flood_color(vFloodUv);
+              if (floodCol.a > 0.003) {
+                vec2 p = vFloodUv * flood_size;
+                float t = flood_time;
+                float a1 = p.x * 1.9 + p.y * 0.7 + t * 1.6;
+                float a2 = -p.x * 0.8 + p.y * 2.3 + t * 1.2;
+                float a3 = (p.x + p.y) * 4.1 - t * 2.4;
+                vec2 grad = vec2(1.9, 0.7) * cos(a1) + vec2(-0.8, 2.3) * cos(a2) * 0.8 + vec2(4.1) * cos(a3) * 0.25;
+                vec3 n = normalize(vec3(-grad * 0.045, 1.0));
+                vec3 viewDir = normalize(cameraPosition - position_commonspace.xyz);
+                vec3 sunDir = normalize(vec3(-0.35, 0.45, 0.82));
+                float glint = pow(max(dot(reflect(-viewDir, n), sunDir), 0.0), 160.0);
+                float fresnel = pow(1.0 - clamp(viewDir.z, 0.0, 1.0), 4.0);
+                vec3 waterColor = mix(floodCol.rgb, flood_sky, 0.5 * fresnel) + vec3(glint * 0.85);
+                color.rgb = mix(color.rgb, waterColor, floodCol.a);
+              }
+            }
+          `,
+        },
+      };
+    }
     return {
       modules: [floodModule],
       inject: {
@@ -248,15 +307,17 @@ export class FloodExtension extends LayerExtension<FloodOptions> {
   draw(this: Layer, _params: unknown, extension: this) {
     const f = extension.opts.frame(this.context.device);
     const { field } = f;
+    const inTerrain = extension.opts.inTerrain ? 1 : 0;
+    const rawBbox = typeof extension.opts.bbox === 'function' ? extension.opts.bbox() : extension.opts.bbox;
+    const bbox = rawBbox ?? [0, 0, 0, 0];
+    const rawSky = typeof extension.opts.sky === 'function' ? extension.opts.sky() : extension.opts.sky;
+    const sky = rawSky ?? [0.68, 0.75, 0.82];
     this.setShaderModuleProps({
       flood: {
-        mode: MODE[f.mode],
-        mixFrames: f.mix,
-        time: f.time,
-        hasArrival: f.hasArrival ? 1 : 0,
-        size: [field.cols, field.rows],
-        feather: extension.opts.feather ?? 8,
-        hasImage: f.hasImage ? 1 : 0,
+        bbox: [bbox[0], bbox[1], bbox[2], bbox[3]],
+        params1: [MODE[f.mode], f.mix, f.time, f.hasArrival ? 1 : 0],
+        params2: [field.cols, field.rows, extension.opts.feather ?? 8, f.hasImage ? 1 : 0],
+        params3: [inTerrain, sky[0], sky[1], sky[2]],
         flood_frames: field.frames,
         flood_arrival: field.arrival,
         flood_image: field.image,
