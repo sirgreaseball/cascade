@@ -235,7 +235,10 @@ export const useSimStore = create<SimState>((set, get) => ({
     const latest = Math.max(results.latestTime('swe'), results.latestTime('sph'));
     set({ playing: true, playhead: s.playhead >= latest - 1 && !isRunning(s.runs) ? 0 : s.playhead });
   },
-  goLive: () => set({ follow: true, playing: false }),
+  goLive: () => {
+    const latest = Math.max(results.latestTime('swe'), results.latestTime('sph'));
+    set({ follow: true, playing: false, playhead: latest });
+  },
 }));
 
 export function isRunning(runs: Record<EngineId, EngineRun>): boolean {
