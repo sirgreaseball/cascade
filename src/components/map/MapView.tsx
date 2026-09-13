@@ -172,7 +172,7 @@ function floodFrame(device: Device): FloodFrame {
       paint(out);
       underMask(out);
     });
-    return { field, mode: 'static', mix: 0, time: t, hasArrival: false };
+    return { field, mode: 'static', mix: 0, time: t, hasArrival: false, hasImage: true };
   };
 
   if (layer === 'depth') {
@@ -183,12 +183,12 @@ function floodFrame(device: Device): FloodFrame {
     const loc = results.locate(engine, t);
     if (!r || !loc) {
       field.setFrames(null, null);
-      return { field, mode: 'frames', mix: 0, time: t, hasArrival: false };
+      return { field, mode: 'frames', mix: 0, time: t, hasArrival: false, hasImage: !!mask };
     }
     const later = loc.i1 !== loc.i0 ? r.depth[loc.i1] : null;
     field.setFrames(r.depth[loc.i0], later);
     field.setArrival(r.summary?.arrival ?? null);
-    return { field, mode: 'frames', mix: later ? loc.f : 0, time: t, hasArrival: !!r.summary };
+    return { field, mode: 'frames', mix: later ? loc.f : 0, time: t, hasArrival: !!r.summary, hasImage: !!mask };
   }
   if (layer === 'difference') {
     const a = results.get('swe');
@@ -218,7 +218,7 @@ function floodFrame(device: Device): FloodFrame {
     underMask(out);
   });
   field.setArrival(s?.arrival ?? null);
-  return { field, mode: 'revealed', mix: 0, time: t, hasArrival: !!s };
+  return { field, mode: 'revealed', mix: 0, time: t, hasArrival: !!s, hasImage: true };
 }
 
 const FLOOD = new FloodExtension({ frame: floodFrame });

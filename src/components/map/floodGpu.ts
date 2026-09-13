@@ -28,6 +28,7 @@ export interface FloodFrame {
   /** Playhead (s). */
   time: number;
   hasArrival: boolean;
+  hasImage: boolean;
 }
 
 const LINEAR = { minFilter: 'linear', magFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' } as const;
@@ -142,6 +143,7 @@ layout(std140) uniform floodUniforms {
   float hasArrival;
   vec2 size;
   float feather;
+  float hasImage;
 } flood;
 `;
 
@@ -175,15 +177,26 @@ vec4 flood_color(vec2 uv) {
   if (flood.mode < 0.5) {
     vec2 pair = texture(flood_frames, uv).rg;
     float position = mix(pair.x, pair.y, flood.mixFrames);
-    if (flood.hasArrival > 0.5) {
-      float a = flood_arrivalAt(uv);
-      if (a < 65534.5 && a > flood.time) position = 0.0;
+    if (position <= 0.0) {
+      if (flood.hasImage < 0.5) return vec4(0.0);
+      c = texture(flood_image, uv);
+    } else {
+      if (flood.hasArrival > 0.5) {
+        float a = flood_arrivalAt(uv);
+        if (a < 65534.5 && a > flood.time) position = 0.0;
+      }
+      if (position <= 0.0) {
+        if (flood.hasImage < 0.5) return vec4(0.0);
+        c = texture(flood_image, uv);
+      } else {
+        c = texture(flood_lut, vec2(position * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
+        // Position 0 is dry ground: the last sliver towards it fades out, so shorelines are soft.
+        c.a *= smoothstep(0.5 / 255.0, 8.0 / 255.0, position);
+        if (c.a < 0.004 && flood.hasImage > 0.5) c = texture(flood_image, uv);
+      }
     }
-    c = texture(flood_lut, vec2(position * (255.0 / 256.0) + 0.5 / 256.0, 0.5));
-    // Position 0 is dry ground: the last sliver towards it fades out, so shorelines are soft.
-    c.a *= smoothstep(0.5 / 255.0, 8.0 / 255.0, position);
-    if (c.a < 0.004) c = texture(flood_image, uv);
   } else {
+    if (flood.hasImage < 0.5) return vec4(0.0);
     c = texture(flood_image, uv);
     // Hide only what is known to flood later: the observed extent under it has no arrival time.
     if (flood.mode < 1.5 && flood.hasArrival > 0.5) {
@@ -191,6 +204,7 @@ vec4 flood_color(vec2 uv) {
       if (a < 65534.5 && a > flood.time) c.a = 0.0;
     }
   }
+  if (c.a < 0.003) return vec4(0.0);
   // Fade out over the last cells at the edge of the study area, where water leaves the model.
   vec2 inside = min(uv, 1.0 - uv) * flood.size;
   c.a *= clamp((min(inside.x, inside.y) - 0.5) / flood.feather, 0.0, 1.0);
@@ -203,7 +217,7 @@ const floodModule = {
   vs: uniformBlock,
   fs,
   getUniforms: (opts?: Record<string, unknown>) => opts ?? {},
-  uniformTypes: { mode: 'f32', mixFrames: 'f32', time: 'f32', hasArrival: 'f32', size: 'vec2<f32>', feather: 'f32' },
+  uniformTypes: { mode: 'f32', mixFrames: 'f32', time: 'f32', hasArrival: 'f32', size: 'vec2<f32>', feather: 'f32', hasImage: 'f32' },
 } as const;
 
 export interface FloodOptions {
@@ -242,6 +256,7 @@ export class FloodExtension extends LayerExtension<FloodOptions> {
         hasArrival: f.hasArrival ? 1 : 0,
         size: [field.cols, field.rows],
         feather: extension.opts.feather ?? 8,
+        hasImage: f.hasImage ? 1 : 0,
         flood_frames: field.frames,
         flood_arrival: field.arrival,
         flood_image: field.image,

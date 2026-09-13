@@ -90,6 +90,8 @@ interface SimState {
   setManning: (n: number) => void;
   setResolution: (r: Resolution) => void;
   setUseGpu: (v: boolean) => void;
+  fastCompute: boolean;
+  setFastCompute: (v: boolean) => void;
   setEngine: (e: EngineId, on: boolean) => void;
   setView: (patch: Partial<ViewSettings>) => void;
   setPlayhead: (t: number) => void;
@@ -108,7 +110,7 @@ interface SimState {
 
 let scenarioRef: { config: ScenarioConfig; data: ScenarioData } | null = null;
 
-function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'resolution' | 'useGpu'>): { setup: SimulationSetup | null; setupError: string | null } {
+function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'resolution' | 'useGpu' | 'fastCompute'>): { setup: SimulationSetup | null; setupError: string | null } {
   if (!scenarioRef || !state.event) return { setup: null, setupError: null };
   const { config, data } = scenarioRef;
   try {
@@ -123,6 +125,7 @@ function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'res
       duration: state.duration,
       resolution: state.resolution,
       gpu: state.useGpu,
+      unthrottled: state.fastCompute,
     });
     return { setup, setupError: null };
   } catch (err) {
@@ -139,6 +142,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   season: DEFAULT_SEASON,
   resolution: 'standard',
   useGpu: true,
+  fastCompute: false,
   engines: { swe: true, sph: true },
   setup: null,
   setupError: null,
@@ -169,7 +173,7 @@ export const useSimStore = create<SimState>((set, get) => ({
     const event = eventDefaults(config);
     // A season chosen on one dam must not carry its numbers onto the next: every scenario starts
     // from its own figures.
-    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, season: DEFAULT_SEASON };
+    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, fastCompute: get().fastCompute, season: DEFAULT_SEASON };
     set({
       ...base,
       ...recompute(base),
@@ -212,6 +216,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   setManning: (manning) => set({ manning, ...recompute({ ...get(), manning }), stale: anyResults(get().runs) }),
   setResolution: (resolution) => set({ resolution, ...recompute({ ...get(), resolution }), stale: anyResults(get().runs) }),
   setUseGpu: (useGpu) => set({ useGpu, ...recompute({ ...get(), useGpu }), stale: anyResults(get().runs) }),
+  setFastCompute: (fastCompute) => set({ fastCompute, ...recompute({ ...get(), fastCompute }) }),
   setEngine: (e, on) => {
     const engines = { ...get().engines, [e]: on };
     if (!engines.swe && !engines.sph) return;

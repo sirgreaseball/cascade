@@ -59,6 +59,8 @@ export interface EngineConfig {
   display?: { cols: number; rows: number; factor: number; mode?: 'repeat' | 'pool' };
   /** Grid solver: run on the GPU through WebGPU when the browser offers it (else the CPU). */
   gpu?: boolean;
+  /** Grid solver on GPU: run flat out without duty-cycle pacing for the map display. */
+  unthrottled?: boolean;
 }
 
 export interface FrameStats {
@@ -120,7 +122,8 @@ export type WorkerInbound =
   | { type: 'init'; config: EngineConfig }
   | { type: 'start' }
   | { type: 'pause' }
-  | { type: 'stop' };
+  | { type: 'stop' }
+  | { type: 'pacing'; throttle: boolean };
 
 /** A WebGPU adapter as the browser describes it (any field may be empty). */
 export interface AdapterInfo {

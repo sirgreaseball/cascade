@@ -63,5 +63,8 @@ self.onmessage = (event: MessageEvent<WorkerInbound>) => {
       runtime?.dispose?.();
       runtime = null;
       break;
+    case 'pacing':
+      runtime?.setPacing?.(msg.throttle);
+      break;
   }
 };

@@ -5,7 +5,7 @@ import { EngineClient } from './adapters';
 import { ensemble } from './ensembleRunner';
 import { results } from './results';
 import type { EngineId, WorkerOutbound } from './types';
-import { useSimStore } from '@/store/simulationStore';
+import { isRunning, useSimStore } from '@/store/simulationStore';
 
 class SimulationController {
   private clients: Partial<Record<EngineId, EngineClient>> = {};
@@ -59,6 +59,7 @@ class SimulationController {
         }
       }),
     );
+    this.updatePacing();
   }
 
   private onMessage(runId: number, msg: WorkerOutbound): void {
@@ -119,6 +120,22 @@ class SimulationController {
     results.clear();
     useSimStore.getState().resetRuns();
   }
+
+  updatePacing(): void {
+    const sim = useSimStore.getState();
+    const isHidden = typeof document !== 'undefined' && document.hidden;
+    const isAnimating = sim.playing || (sim.follow && isRunning(sim.runs));
+    const fastest = sim.fastCompute;
+    const throttle = isAnimating && !isHidden && !fastest;
+    for (const client of Object.values(this.clients)) {
+      client?.setPacing(throttle);
+    }
+  }
 }
 
 export const controller = new SimulationController();
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => controller.updatePacing());
+  useSimStore.subscribe(() => controller.updatePacing());
+}
