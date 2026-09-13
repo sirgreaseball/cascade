@@ -27,6 +27,7 @@ import { planEvacuation } from '@/lib/evacuation';
 import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/format';
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
+import { setMapGpu } from '@/lib/perfMonitor';
 import { usePrimaryEngine, useImpacts } from '@/components/useSimView';
 import {
   HAZARD_COLORS,
@@ -843,6 +844,7 @@ export default function MapView() {
         onHover={onHover}
         onClick={onClick}
         onError={(err) => console.warn('[map]', err.message)}
+        onDeviceInitialized={(device) => setMapGpu(device.info)}
         useDevicePixels={PIXEL_RATIO}
         deviceProps={{ webgl: { antialias: GPU.tier === 'high' } } as never}
         pickingRadius={6}

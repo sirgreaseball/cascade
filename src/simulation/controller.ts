@@ -50,6 +50,8 @@ class SimulationController {
             label: client.info?.label ?? engine,
             particleVolume: client.info?.particleVolume,
             backend: client.info?.backend,
+            adapter: client.info?.adapter,
+            gpuFallback: client.info?.gpuFallback,
           });
           client.start();
         } catch (err) {

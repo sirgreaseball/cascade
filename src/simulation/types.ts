@@ -78,6 +78,8 @@ export interface FrameStats {
   computeMs: number;
   /** Solver steps taken since the previous frame. */
   steps: number;
+  /** Of `computeMs`, the part spent copying results back from the graphics card (GPU runs). */
+  readMs?: number;
   particles?: number;
 }
 
@@ -120,6 +122,13 @@ export type WorkerInbound =
   | { type: 'pause' }
   | { type: 'stop' };
 
+/** A WebGPU adapter as the browser describes it (any field may be empty). */
+export interface AdapterInfo {
+  vendor: string;
+  architecture: string;
+  description: string;
+}
+
 export interface EngineInfo {
   label: string;
   cells: number;
@@ -127,4 +136,8 @@ export interface EngineInfo {
   particleVolume?: number;
   /** Where the solver runs. */
   backend?: 'cpu' | 'gpu';
+  /** GPU runs: the graphics adapter the browser gave the solver, as it describes it. */
+  adapter?: AdapterInfo;
+  /** Grid solver on the processor: why the graphics card was not used. */
+  gpuFallback?: string;
 }

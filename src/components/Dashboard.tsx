@@ -9,6 +9,7 @@ import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import { latestTime } from './useSimView';
+import { gpuMismatch, onPerfChange, probeAdapters, startFrameMonitor } from '@/lib/perfMonitor';
 import TopBar, { Logo } from './panels/TopBar';
 import Timeline from './panels/Timeline';
 import Legend from './panels/Legend';
@@ -84,6 +85,35 @@ function usePlayback() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
+  }, []);
+}
+
+/**
+ * Frame timing starts with the app, so the Model tab's readout has something to show; and if the
+ * map is on an integrated chip while the browser also reports a graphics card, say so once.
+ */
+function useDeviceCheck() {
+  useEffect(() => {
+    startFrameMonitor();
+    let warned = false;
+    const check = () => {
+      if (warned) return;
+      probeAdapters().then((adapters) => {
+        const faster = gpuMismatch(adapters);
+        if (!faster || warned) return;
+        warned = true;
+        useUiStore.getState().toast({
+          title: 'The map is on the integrated graphics',
+          body: `${faster} is available. Give the browser the high-performance GPU in the system's graphics settings (Model → This device).`,
+        });
+      });
+    };
+    check();
+    const off = onPerfChange(check);
+    return () => {
+      warned = true;
+      off();
+    };
   }, []);
 }
 
@@ -293,6 +323,7 @@ function LoadingVeil() {
 export default function Dashboard() {
   useBoot();
   usePlayback();
+  useDeviceCheck();
   useKeyboard();
   useResponsiveStart();
   // Drop frames from a previous session's run when this component unmounts (route change).
