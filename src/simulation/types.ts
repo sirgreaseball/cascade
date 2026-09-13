@@ -3,6 +3,7 @@
 // never with a transfer list — so the UI never holds a detached buffer.
 
 import type { EventParams } from './hydrograph.ts';
+import type { ExposureIndex, FrameExposure } from './exposure.ts';
 
 export type EngineId = 'swe' | 'sph';
 
@@ -61,6 +62,8 @@ export interface EngineConfig {
   gpu?: boolean;
   /** Grid solver on GPU: run flat out without duty-cycle pacing for the map display. */
   unthrottled?: boolean;
+  /** Exposure assets and roads for sampling during the run in the worker. */
+  exposureIndex?: ExposureIndex;
 }
 
 export interface FrameStats {
@@ -95,6 +98,8 @@ export interface FrameMessage {
   stats: FrameStats;
   /** SPH only: particle lng, lat, bed+depth elevation triples and speeds (m/s). */
   particles?: { position: Float32Array; speed: Float32Array };
+  /** Exposure sampled in the worker next to the solver. */
+  exposure?: FrameExposure;
 }
 
 export interface SummaryMessage {

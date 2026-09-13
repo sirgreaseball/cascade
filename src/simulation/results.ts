@@ -3,8 +3,8 @@
 // counters in the simulation store.
 
 import type { EngineId, FrameMessage, FrameStats, SummaryMessage } from './types';
-import { sampleExposure } from '@/lib/analytics';
-import type { ExposureIndex, FrameExposure } from '@/lib/analytics';
+import { sampleExposure } from './exposure.ts';
+import type { ExposureIndex, FrameExposure } from './exposure.ts';
 
 export interface EngineResult {
   times: number[];
@@ -47,7 +47,9 @@ class ResultsStore {
     r.depth.push(msg.depth);
     r.stats.push(msg.stats);
     r.particles.push(msg.particles);
-    if (this.exposureIndex) {
+    if (msg.exposure) {
+      r.exposure.push(msg.exposure);
+    } else if (this.exposureIndex) {
       const prev = r.exposure.length ? r.exposure[r.exposure.length - 1] : null;
       r.exposure.push(sampleExposure(this.exposureIndex, msg.depth, prev));
     }

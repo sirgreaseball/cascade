@@ -6,6 +6,8 @@ import { ShallowWaterSolver } from './swe.ts';
 import { SPHSolver } from './sph.ts';
 import { GpuShallowWaterSolver } from './sweGpu.ts';
 import type { EngineConfig, EngineInfo, FrameStats, WorkerOutbound } from './types.ts';
+import { sampleExposure } from './exposure.ts';
+import type { FrameExposure } from './exposure.ts';
 
 type Solver = ShallowWaterSolver | SPHSolver;
 
@@ -132,6 +134,7 @@ export class EngineRuntime implements Runtime {
   private finished = false;
   /** Progress is reported at most four times a second (each report re-renders the UI). */
   private lastProgressAt = 0;
+  private lastExposure: FrameExposure | null = null;
   private readonly cfg: EngineConfig;
   private readonly emit: (msg: WorkerOutbound) => void;
   /** Grid solver: why it is on the processor rather than the graphics card. */
@@ -223,15 +226,22 @@ export class EngineRuntime implements Runtime {
       }
       particles = { position, speed: snap.speed };
     }
+    const depth = this.toDisplay(s.depthCentimetres());
+    let exposure: FrameExposure | undefined;
+    if (this.cfg.exposureIndex) {
+      exposure = sampleExposure(this.cfg.exposureIndex, depth, this.lastExposure);
+      this.lastExposure = exposure;
+    }
     // Structured clone (no transfer list): the UI receives its own copy.
     this.emit({
       type: 'frame',
       engine: this.cfg.engine,
       index: this.frameIndex,
       t: s.t,
-      depth: this.toDisplay(s.depthCentimetres()),
+      depth,
       stats,
       particles,
+      exposure,
     });
     this.frameIndex++;
     this.nextFrameT = this.frameIndex * this.cfg.outputInterval;
@@ -309,6 +319,7 @@ class GpuEngineRuntime implements Runtime {
   private lastFrameT = 0;
   private finished = false;
   private lastProgressAt = 0;
+  private lastExposure: FrameExposure | null = null;
   private readonly cfg: EngineConfig;
   private readonly solver: GpuShallowWaterSolver;
   private readonly emit: (msg: WorkerOutbound) => void;
@@ -383,8 +394,14 @@ class GpuEngineRuntime implements Runtime {
       readMs: this.readMsSinceFrame,
     };
     stats.inflowRate = this.meanInflow(s.t, s.inflowVolume, s.inflowRate);
+    const depth = this.toDisplay(s.depthCentimetres());
+    let exposure: FrameExposure | undefined;
+    if (this.cfg.exposureIndex) {
+      exposure = sampleExposure(this.cfg.exposureIndex, depth, this.lastExposure);
+      this.lastExposure = exposure;
+    }
     // Structured clone (no transfer list): the UI receives its own copy.
-    this.emit({ type: 'frame', engine: this.cfg.engine, index: this.frameIndex, t: s.t, depth: this.toDisplay(s.depthCentimetres()), stats });
+    this.emit({ type: 'frame', engine: this.cfg.engine, index: this.frameIndex, t: s.t, depth, stats, exposure });
     this.frameIndex++;
     this.nextFrameT = this.frameIndex * this.cfg.outputInterval;
     this.stepsAtFrame = s.steps;

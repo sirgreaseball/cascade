@@ -73,6 +73,7 @@ interface SimState {
   stale: boolean;
   runs: Record<EngineId, EngineRun>;
   resultsVersion: number;
+  summaryVersion: number;
   playhead: number;
   playing: boolean;
   /** Simulated seconds per real second. */
@@ -102,6 +103,7 @@ interface SimState {
   updateRun: (engine: EngineId, patch: Partial<EngineRun>) => void;
   resetRuns: () => void;
   bumpResults: () => void;
+  bumpSummary: () => void;
   /** Play / pause, as the transport button and the space bar do. */
   togglePlayback: () => void;
   /** Jump back to the edge of the live computation. */
@@ -126,6 +128,7 @@ function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'res
       resolution: state.resolution,
       gpu: state.useGpu,
       unthrottled: state.fastCompute,
+      exposureIndex: results.exposureIndex ?? undefined,
     });
     return { setup, setupError: null };
   } catch (err) {
@@ -149,6 +152,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   stale: false,
   runs: { swe: idleRun(), sph: idleRun() },
   resultsVersion: 0,
+  summaryVersion: 0,
   playhead: 0,
   playing: false,
   speed: 300,
@@ -184,6 +188,7 @@ export const useSimStore = create<SimState>((set, get) => ({
       follow: true,
       selectedAsset: null,
       resultsVersion: get().resultsVersion + 1,
+      summaryVersion: get().summaryVersion + 1,
     });
   },
   setEvent: (patch) => {
@@ -232,8 +237,9 @@ export const useSimStore = create<SimState>((set, get) => ({
   setFollow: (follow) => set({ follow }),
   selectAsset: (selectedAsset) => set({ selectedAsset }),
   updateRun: (engine, patch) => set({ runs: { ...get().runs, [engine]: { ...get().runs[engine], ...patch } } }),
-  resetRuns: () => set({ runs: { swe: idleRun(), sph: idleRun() }, playhead: 0, playing: false, follow: true, stale: false, resultsVersion: get().resultsVersion + 1 }),
+  resetRuns: () => set({ runs: { swe: idleRun(), sph: idleRun() }, playhead: 0, playing: false, follow: true, stale: false, resultsVersion: get().resultsVersion + 1, summaryVersion: get().summaryVersion + 1 }),
   bumpResults: () => set({ resultsVersion: get().resultsVersion + 1 }),
+  bumpSummary: () => set({ summaryVersion: get().summaryVersion + 1, resultsVersion: get().resultsVersion + 1 }),
   togglePlayback: () => {
     const s = get();
     if (s.runs.swe.frames === 0 && s.runs.sph.frames === 0) return;

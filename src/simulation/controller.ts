@@ -75,7 +75,7 @@ class SimulationController {
       }
       case 'summary':
         results.setSummary(msg);
-        store.bumpResults();
+        store.bumpSummary();
         break;
       case 'progress':
         store.updateRun(msg.engine, { progress: msg.progress });

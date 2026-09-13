@@ -99,9 +99,12 @@ export function useImpacts(engine: EngineId): ImpactView | null {
   const frameIndex = useFrameIndex(engine);
   // Re-assess only when a new summary lands, not on every frame message.
   const summaryT = useSimStore((s) => {
-    void s.resultsVersion;
+    void s.summaryVersion;
     return results.get(engine)?.summary?.t ?? -1;
   });
   const exposure = useScenarioStore((s) => s.exposure);
-  return useMemo(() => computeImpacts(engine, frameIndex, exposure), [engine, frameIndex, summaryT, exposure]);
+  return useMemo(() => {
+    void summaryT;
+    return computeImpacts(engine, frameIndex, exposure);
+  }, [engine, frameIndex, summaryT, exposure]);
 }
