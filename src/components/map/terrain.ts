@@ -12,6 +12,9 @@ export const MAP_TILES_URL = 'https://server.arcgisonline.com/ArcGIS/rest/servic
 /** Place names and boundaries drawn over the dark-grey map in 2D. */
 export const MAP_LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
 export const MAP_ATTRIBUTION = 'Map © Esri, HERE, Garmin, © OpenStreetMap contributors';
+/** Nationwide road network reference layer (Esri World Transportation). */
+export const ROADS_OVERLAY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
+export const ROADS_ATTRIBUTION = 'Roads © Esri, HERE, Garmin, © OpenStreetMap contributors';
 
 function canvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
