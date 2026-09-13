@@ -137,8 +137,8 @@ then 9.** The two goals above everything: **better performance and better visual
 | 1 | Performance readout | done (`257d407`) |
 | 2 | Terrain artefacts (blank/dark tiles) | done (`1ffa23d`) |
 | 3.1–3.2 | Flood coloured and animated on the GPU; smooth arrival-time front | done (`8d6b4b0`) |
-| 3.3 | Steady live clock (no surge-and-stall while following a run) | **next** — design §9.1 |
-| 3.4 | GPU solver computes only wet tiles | **next** — spec ready, §8 |
+| 3.3 | Steady live clock (no surge-and-stall while following a run) | done (`b8814f6`) |
+| 3.4 | GPU solver computes only wet tiles | done (`9a0a988`) |
 | 3.5 | GPU pacing so the map keeps 60 fps while the solver runs; dry-fragment early-out | **next** — §9.2 |
 | 3.6 | Main-thread churn per frame message | §9.3 |
 | 4 | Terrain detail everywhere; water in the terrain shader; reservoir at T+0; roads country-wide | §9.4 |
