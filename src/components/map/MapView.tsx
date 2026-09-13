@@ -26,6 +26,7 @@ import { lngLatToCell, sampleBilinear } from '@/lib/geo/grid';
 import { TERRARIUM_URL } from '@/lib/geo/terrarium';
 import { hazardClass } from '@/lib/damage';
 import { planEvacuation } from '@/lib/evacuation';
+import type { EvacuationRoute } from '@/lib/evacuation';
 import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/format';
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
@@ -471,29 +472,41 @@ export default function MapView() {
     return Float32Array.from(exposure.assets, (a) => sampleBilinear(data.dem, g.cols, g.rows, (a.lng - g.bbox[0]) / g.lngStep, (g.bbox[3] - a.lat) / g.latStep));
   }, [data, exposure]);
 
-  // Ways out that stay ahead of the water: only recomputed when a new envelope lands, never per
-  // frame, and lifted onto the terrain so a route is not buried under the hillside in 3D.
-  // Only once the run has finished: summaries land every fifth frame, and rebuilding the road
-  // graph and re-routing every settlement that often would stall playback on the main thread.
-  const routesReady = useSimStore((s) => {
-    void s.resultsVersion;
-    return s.runs[primary].status === 'done' ? results.get(primary)?.summary?.t ?? -1 : -1;
+  // Ways out that stay ahead of the water: computed asynchronously in a worker whenever a summary
+  // arrives. Routes follow the clock: green while leaving now still reaches safety, red once cut off.
+  const summaryTime = useSimStore((s) => {
+    void s.summaryVersion;
+    return results.get(primary)?.summary?.t ?? -1;
   });
-  const evacuation = useMemo(() => {
-    if (!data || !exposure || !view.showEvacuation || routesReady < 0) return null;
+  const [evacuation, setEvacuation] = useState<EvacuationRoute[] | null>(null);
+
+  useEffect(() => {
+    if (!data || !exposure || !view.showEvacuation || summaryTime < 0) {
+      setEvacuation(null);
+      return;
+    }
     const summary = results.get(primary)?.summary;
-    if (!summary) return null;
-    const g = data.grid;
-    const lift = ([lng, lat]: [number, number]): [number, number, number] => {
-      const x = Math.min(g.cols - 1, Math.max(0, (lng - g.bbox[0]) / g.lngStep));
-      const y = Math.min(g.rows - 1, Math.max(0, (g.bbox[3] - lat) / g.latStep));
-      return [lng, lat, sampleBilinear(data.dem, g.cols, g.rows, x, y) + SKIN_LIFT + 6];
+    if (!summary) {
+      setEvacuation(null);
+      return;
+    }
+    let active = true;
+    planEvacuation(exposure, data.grid, summary, { dem: data.dem }).then((routes) => {
+      if (active) {
+        setEvacuation(routes.filter((r) => r.path.length > 0));
+      }
+    });
+    return () => {
+      active = false;
     };
-    return planEvacuation(exposure, g, summary)
-      .filter((r) => r.status === 'ok' && r.path.length > 1)
-      .map((r) => ({ ...r, path3d: r.path.map(lift) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, exposure, primary, routesReady, view.showEvacuation]);
+  }, [data, exposure, primary, summaryTime, view.showEvacuation]);
+
+  const evacuationMap = useMemo(() => {
+    if (!evacuation) return null;
+    const map = new Map<number, EvacuationRoute>();
+    for (const r of evacuation) map.set(r.asset, r);
+    return map;
+  }, [evacuation]);
 
   // Roads carry their own heights in 3D, so nothing has to be draped onto the terrain.
   const roadPaths3d = useMemo(() => {
@@ -707,35 +720,43 @@ export default function MapView() {
       );
     }
 
-    // The way out, drawn over the roads the water cuts: a soft halo so it reads against both the
-    // satellite imagery and the flood, with the route itself thin and bright on top.
-    if (evacuation && evacuation.length > 0) {
-      const [gr, gg, gb] = hexToRgb(IDENTITY.external);
-      const routePath = (d: { path: [number, number][]; path3d: [number, number, number][] }) => (view.terrain3d ? d.path3d : d.path);
+    // The way out, following the simulation clock: bright green while leaving now still reaches safety,
+    // switching to red once cut off. Drawn depth-tested onto the terrain so routes follow the ground.
+    if (evacuation && evacuation.length > 0 && view.showEvacuation) {
+      const playhead = useSimStore.getState().playhead;
+      const isUsable = (d: EvacuationRoute) => d.status === 'ok' && playhead <= d.latestDepartureSeconds;
+      const routePath = (d: { path: [number, number][]; path3d?: [number, number, number][] }) =>
+        (view.terrain3d && d.path3d ? d.path3d : d.path);
       list.push(
         new PathLayer({
           id: 'evacuation-halo',
           data: evacuation,
           getPath: routePath,
-          getColor: [gr, gg, gb, 70],
+          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [34, 197, 94, 75] : [220, 38, 38, 75]),
           getWidth: 7,
           widthUnits: 'pixels',
           capRounded: true,
           jointRounded: true,
-          parameters: { depthTest: false },
-          updateTriggers: { getPath: [view.terrain3d] },
+          parameters: { depthTest: view.terrain3d },
+          updateTriggers: {
+            getPath: [view.terrain3d],
+            getColor: [Math.floor(playhead / 15)],
+          },
         }),
         new PathLayer({
           id: 'evacuation',
           data: evacuation,
           getPath: routePath,
-          getColor: [gr, gg, gb, 245],
+          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [34, 197, 94, 245] : [220, 38, 38, 245]),
           getWidth: 2.5,
           widthUnits: 'pixels',
           capRounded: true,
           jointRounded: true,
-          parameters: { depthTest: false },
-          updateTriggers: { getPath: [view.terrain3d] },
+          parameters: { depthTest: view.terrain3d },
+          updateTriggers: {
+            getPath: [view.terrain3d],
+            getColor: [Math.floor(playhead / 15)],
+          },
         }),
       );
     }
@@ -882,6 +903,19 @@ export default function MapView() {
           lines.push(`Flood arrives T+${formatClock(s.arrival)} · peak ${formatDepth(s.maxDepth)}`);
           if (s.hazard) lines.push(`Hazard H${s.hazard}${s.maxSpeed ? ` · ${formatSpeed(s.maxSpeed)}` : ''}`);
         } else lines.push('Not reached so far');
+        const ev = evacuationMap?.get(info.index);
+        if (ev) {
+          const t = useSimStore.getState().playhead;
+          if (ev.status === 'ok') {
+            if (t <= ev.latestDepartureSeconds) {
+              lines.push(`Evacuation open · leaves by T+${formatClock(ev.latestDepartureSeconds)} (${formatNumber(ev.lengthM / 1000, 1)} km)`);
+            } else {
+              lines.push(`Evacuation CUT OFF since T+${formatClock(ev.latestDepartureSeconds)}`);
+            }
+          } else if (ev.status === 'cut-off') {
+            lines.push('No safe evacuation route (cut off by flood)');
+          }
+        }
         setHover({ x: info.x, y: info.y, title: displayName(a.name), lines });
         return;
       }
