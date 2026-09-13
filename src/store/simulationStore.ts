@@ -240,8 +240,10 @@ export const useSimStore = create<SimState>((set, get) => ({
     set({ playing: true, playhead: s.playhead >= latest - 1 && !isRunning(s.runs) ? 0 : s.playhead });
   },
   goLive: () => {
+    const s = get();
     const latest = Math.max(results.latestTime('swe'), results.latestTime('sph'));
-    set({ follow: true, playing: false, playhead: latest });
+    const lag = s.setup?.outputInterval ?? 180;
+    set({ follow: true, playing: false, playhead: Math.max(0, latest - lag) });
   },
 }));
 
