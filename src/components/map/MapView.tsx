@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
+import type { DeckGLRef } from '@deck.gl/react';
+import type { Device } from '@luma.gl/core';
 import MapGL from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AmbientLight, COORDINATE_SYSTEM, DirectionalLight, FlyToInterpolator, LightingEffect } from '@deck.gl/core';
@@ -17,7 +19,7 @@ import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
 import { TerrainLoader } from '@loaders.gl/terrain';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
-import { useSimStore } from '@/store/simulationStore';
+import { isRunning, useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import { lngLatToCell, sampleBilinear } from '@/lib/geo/grid';
@@ -28,13 +30,12 @@ import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/forma
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
 import { setMapGpu } from '@/lib/perfMonitor';
-import { usePrimaryEngine, useImpacts } from '@/components/useSimView';
+import { primaryEngine, useFrameIndex, usePrimaryEngine, useImpacts } from '@/components/useSimView';
 import {
   HAZARD_COLORS,
   hexToRgb,
   IDENTITY,
   paintArrival,
-  paintDepth,
   paintDifference,
   paintDifferenceMetres,
   paintHazard,
@@ -42,6 +43,8 @@ import {
   paintProbability,
   paintVelocity,
 } from './colormaps';
+import { FloodExtension, FloodField, keyOf } from './floodGpu';
+import type { FloodFrame } from './floodGpu';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 import { buildGridMesh } from './waterMesh';
 
@@ -121,6 +124,105 @@ const GPU = detectGpu();
  */
 const pickOnlyPlaces = ({ layer, renderPass }: { layer: Layer; renderPass: string }) => !renderPass.includes('pick') || layer.id === 'assets';
 
+/** The flood's textures, shared by the 2D and 3D flood layers; rebuilt when the grid changes. */
+let floodField: FloodField | null = null;
+/** The 2D flood layer needs an image of its own, but its colour comes from the flood shader. */
+const BLANK_IMAGE = typeof ImageData !== 'undefined' ? new ImageData(1, 1) : null;
+const OBSERVED_RGB = hexToRgb(IDENTITY.observed);
+/** Ripple time in ten-minute units: the water moves while the flood plays and rests when paused. */
+const waterClock = () => useSimStore.getState().playhead / 600;
+
+/**
+ * The flood at the playhead, read from the stores on every draw so it animates at the display's own
+ * rate without re-rendering React. Textures are re-uploaded only when a new pair of frames, a new
+ * envelope or a different painted layer is actually needed.
+ */
+function floodFrame(device: Device): FloodFrame {
+  const { data, observed, external } = useScenarioStore.getState();
+  const ensemble = useEnsembleStore.getState().result;
+  const sim = useSimStore.getState();
+  const cols = data?.grid.cols ?? 1;
+  const rows = data?.grid.rows ?? 1;
+  if (!floodField || floodField.device !== device || floodField.cols !== cols || floodField.rows !== rows) {
+    floodField?.destroy();
+    floodField = new FloodField(device, cols, rows);
+  }
+  const field = floodField;
+  const t = sim.playhead;
+  const engine = primaryEngine(sim.view.engine, sim.engines, { swe: sim.runs.swe.frames, sph: sim.runs.sph.frames });
+  const r = results.get(engine);
+  const layer = sim.view.layer;
+  const mask = observed && sim.view.showObserved ? observed.mask : null;
+  // The observed (satellite) extent shows wherever the model is dry.
+  const underMask = (out: Uint8ClampedArray) => {
+    if (!mask) return;
+    for (let k = 0; k < mask.length; k++) {
+      const o = k * 4;
+      if (mask[k] && out[o + 3] === 0) {
+        out[o] = OBSERVED_RGB[0];
+        out[o + 1] = OBSERVED_RGB[1];
+        out[o + 2] = OBSERVED_RGB[2];
+        out[o + 3] = 125;
+      }
+    }
+  };
+  const still = (key: string, paint: (out: Uint8ClampedArray) => void): FloodFrame => {
+    field.setImage(key, (out) => {
+      out.fill(0);
+      paint(out);
+      underMask(out);
+    });
+    return { field, mode: 'static', mix: 0, time: t, hasArrival: false };
+  };
+
+  if (layer === 'depth') {
+    field.setImage(`mask:${keyOf(mask)}`, (out) => {
+      out.fill(0);
+      underMask(out);
+    });
+    const loc = results.locate(engine, t);
+    if (!r || !loc) {
+      field.setFrames(null, null);
+      return { field, mode: 'frames', mix: 0, time: t, hasArrival: false };
+    }
+    const later = loc.i1 !== loc.i0 ? r.depth[loc.i1] : null;
+    field.setFrames(r.depth[loc.i0], later);
+    field.setArrival(r.summary?.arrival ?? null);
+    return { field, mode: 'frames', mix: later ? loc.f : 0, time: t, hasArrival: !!r.summary };
+  }
+  if (layer === 'difference') {
+    const a = results.get('swe');
+    const b = results.get('sph');
+    const la = results.locate('swe', t);
+    const lb = results.locate('sph', t);
+    if (a && b && la && lb) return still(`diff:${keyOf(a.depth[la.i0])}:${keyOf(b.depth[lb.i0])}:${keyOf(mask)}`, (out) => paintDifference(out, a.depth[la.i0], b.depth[lb.i0]));
+    const s = a?.summary;
+    if (external && s) return still(`ext:${keyOf(s.maxDepth)}:${keyOf(external.maxDepth)}:${keyOf(mask)}`, (out) => paintDifferenceMetres(out, s.maxDepth, external.maxDepth));
+    return still(`none:${keyOf(mask)}`, () => undefined);
+  }
+  if (layer === 'probability') {
+    return still(`chance:${keyOf(ensemble?.probability)}:${keyOf(mask)}`, (out) => {
+      if (ensemble) paintProbability(out, ensemble.probability);
+    });
+  }
+  // Envelopes are painted in full once per summary; the shader reveals each cell as the water arrives.
+  const s = r?.summary ?? null;
+  field.setImage(`${layer}:${keyOf(s)}:${keyOf(mask)}`, (out) => {
+    out.fill(0);
+    if (s) {
+      if (layer === 'maxDepth') paintMaxDepth(out, s.maxDepth, s.arrival, Infinity);
+      else if (layer === 'arrival') paintArrival(out, s.arrival, Infinity);
+      else if (layer === 'hazard') paintHazard(out, s.maxDepth, s.maxSpeed, s.maxDepthVelocity, s.arrival, Infinity);
+      else if (layer === 'velocity') paintVelocity(out, s.maxSpeed, s.arrival, Infinity);
+    }
+    underMask(out);
+  });
+  field.setArrival(s?.arrival ?? null);
+  return { field, mode: 'revealed', mix: 0, time: t, hasArrival: !!s };
+}
+
+const FLOOD = new FloodExtension({ frame: floodFrame });
+
 interface Hover {
   x: number;
   y: number;
@@ -160,14 +262,16 @@ export default function MapView() {
   const data = useScenarioStore((s) => s.data);
   const exposure = useScenarioStore((s) => s.exposure);
   const observed = useScenarioStore((s) => s.observed);
-  const external = useScenarioStore((s) => s.external);
   const ensemble = useEnsembleStore((s) => s.result);
   const setup = useSimStore((s) => s.setup);
   const view = useSimStore((s) => s.view);
   const engines = useSimStore((s) => s.engines);
-  // Continuous playhead for fluid 60 FPS water depth interpolation and surface ripple flow.
-  const playhead = useSimStore((s) => s.playhead);
-  const version = useSimStore((s) => s.resultsVersion);
+  // The flood reads the playhead itself on every draw (floodFrame): React re-renders when results
+  // arrive or playback starts and stops, never once per frame.
+  const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
+  const animating = useSimStore((s) => s.playing || (s.follow && isRunning(s.runs)));
+  const sphFrame = useFrameIndex('sph');
+  const deckRef = useRef<DeckGLRef>(null);
   const selectedAsset = useSimStore((s) => s.selectedAsset);
   const pickingDam = useUiStore((s) => s.pickingDam);
   const primary = usePrimaryEngine();
@@ -261,87 +365,17 @@ export default function MapView() {
     }));
   }, [selectedAsset, exposure]);
 
-  // ---- Flood raster, painted into ping-pong buffers --------------------------------------
-  const buffers = useRef<{ a: Uint8ClampedArray<ArrayBuffer>; b: Uint8ClampedArray<ArrayBuffer>; flip: boolean; n: number } | null>(null);
-  const image = useMemo(() => {
-    if (!data) return null;
-    const { cols, rows } = data.grid;
-    const n = cols * rows * 4;
-    if (!buffers.current || buffers.current.n !== n) buffers.current = { a: new Uint8ClampedArray(n), b: new Uint8ClampedArray(n), flip: false, n };
-    const buf = buffers.current;
-    buf.flip = !buf.flip;
-    const out = buf.flip ? buf.a : buf.b;
-    const r = results.get(primary);
-    const t = playhead;
-    let painted = false;
-    if (view.layer === 'depth') {
-      const loc = results.locate(primary, t);
-      if (r && loc) {
-        paintDepth(out, r.depth[loc.i0], loc.i1 !== loc.i0 ? r.depth[loc.i1] : null, loc.f);
-        painted = true;
-      }
-    } else if (view.layer === 'difference') {
-      const a = results.get('swe');
-      const b = results.get('sph');
-      const la = results.locate('swe', t);
-      const lb = results.locate('sph', t);
-      if (a && b && la && lb) {
-        paintDifference(out, a.depth[la.i0], b.depth[lb.i0]);
-        painted = true;
-      } else if (external && a?.summary) {
-        paintDifferenceMetres(out, a.summary.maxDepth, external.maxDepth);
-        painted = true;
-      }
-    } else if (view.layer === 'probability') {
-      if (ensemble) {
-        paintProbability(out, ensemble.probability);
-        painted = true;
-      }
-    } else if (r?.summary) {
-      const s = r.summary;
-      if (view.layer === 'maxDepth') paintMaxDepth(out, s.maxDepth, s.arrival, t);
-      else if (view.layer === 'arrival') paintArrival(out, s.arrival, t);
-      else if (view.layer === 'hazard') paintHazard(out, s.maxDepth, s.maxSpeed, s.maxDepthVelocity, s.arrival, t);
-      else if (view.layer === 'velocity') paintVelocity(out, s.maxSpeed, s.arrival, t);
-      painted = true;
-    }
-    // The observed (satellite) extent shares the texture: it shows wherever the model is dry.
-    const mask = observed && view.showObserved ? observed.mask : null;
-    if (mask) {
-      if (!painted) out.fill(0);
-      const [or, og, ob] = hexToRgb(IDENTITY.observed);
-      for (let k = 0; k < mask.length; k++) {
-        const o = k * 4;
-        if (mask[k] && out[o + 3] === 0) {
-          out[o] = or;
-          out[o + 1] = og;
-          out[o + 2] = ob;
-          out[o + 3] = 125;
-        }
-      }
-      painted = true;
-    }
-    if (!painted) return null;
-    // Soften the last cells at the study-area edge: water leaving through the open boundary
-    // fades out instead of stopping on a hard straight line.
-    const FEATHER = 8;
-    const fade = (k: number, d: number) => {
-      if (d < FEATHER) out[k * 4 + 3] = Math.round((out[k * 4 + 3] * (d + 0.5)) / FEATHER);
-    };
-    for (let r = 0; r < rows; r++) {
-      const dr = Math.min(r, rows - 1 - r);
-      if (dr < FEATHER) {
-        for (let c = 0; c < cols; c++) fade(r * cols + c, Math.min(dr, c, cols - 1 - c));
-        continue;
-      }
-      for (let c = 0; c < FEATHER; c++) {
-        fade(r * cols + c, c);
-        fade(r * cols + cols - 1 - c, c);
-      }
-    }
-    return new ImageData(out, cols, rows);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, primary, playhead, version, view.layer, external, ensemble, observed, view.showObserved]);
+  // ---- Flood ------------------------------------------------------------------------------
+  // While the flood plays, deck.gl redraws every frame and the flood shader reads the playhead
+  // itself; when paused, moving the playhead asks for a single redraw.
+  useEffect(
+    () =>
+      useSimStore.subscribe((s, prev) => {
+        if (s.playhead !== prev.playhead && !(s.playing || (s.follow && isRunning(s.runs)))) deckRef.current?.deck?.redraw('playhead');
+      }),
+    [],
+  );
+  const hasFlood = hasResults || !!(observed && view.showObserved) || !!ensemble;
 
   // The water skin: the scenario DEM as a mesh, lifted clear of the terrain, textured with the
   // flood, and only where ground lies below the crest (higher ground can never flood).
@@ -400,9 +434,8 @@ export default function MapView() {
   const particles = useMemo(() => {
     if (!engines.sph || !view.showParticles || (view.engine !== 'sph' && view.engine !== 'overlay')) return null;
     const r = results.get('sph');
-    const loc = results.locate('sph', playhead);
-    if (!r || !loc) return null;
-    const p = r.particles[loc.i0];
+    if (!r || sphFrame < 0) return null;
+    const p = r.particles[sphFrame];
     if (!p) return null;
     const n = p.speed.length;
     let position = p.position;
@@ -411,8 +444,7 @@ export default function MapView() {
       for (let i = 0; i < n; i++) position[i * 3 + 2] = 0;
     }
     return { length: n, attributes: { getPosition: { value: position, size: 3 } } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engines.sph, view.showParticles, view.engine, view.terrain3d, playhead, version]);
+  }, [engines.sph, view.showParticles, view.engine, view.terrain3d, sphFrame]);
 
   // ---- Labels: towns and the worst-hit places, decluttered for the current zoom -------------
   const labels = useMemo(() => {
@@ -466,7 +498,7 @@ export default function MapView() {
 
   // The flood's water surface: glints on ripples and the sky mirrored at grazing angles.
   const water = useMemo(
-    () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP }) : null),
+    () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, clock: waterClock }) : null),
     [data, view.basemap],
   );
 
@@ -520,32 +552,29 @@ export default function MapView() {
       );
     }
 
-    if (image && view.terrain3d && skin) {
+    if (hasFlood && view.terrain3d && skin) {
       list.push(
         new SimpleMeshLayer({
           id: 'flood-skin',
           data: [0],
           mesh: skin.mesh as never,
-          texture: image,
           getPosition: () => [skin.anchor[0], skin.anchor[1], 0],
           getColor: [255, 255, 255, 255],
           material: WATER_MATERIAL,
-          textureParameters: { minFilter: 'linear', magFilter: 'linear' },
           parameters: { depthWriteEnabled: false },
-          extensions: water ? [water, haze] : [haze],
-          // Ripples follow simulated time (10-minute units): they move while the flood plays.
-          waterTime: playhead / 600,
+          // Colour from the flood shader, then ripples and glints, then haze.
+          extensions: water ? [FLOOD, water, haze] : [FLOOD, haze],
         } as never),
       );
-    } else if (image) {
+    } else if (hasFlood && BLANK_IMAGE) {
       list.push(
         new BitmapLayer({
           id: 'flood',
-          image,
+          image: BLANK_IMAGE,
           bounds: bbox,
           _imageCoordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-          textureParameters: { minFilter: 'linear', magFilter: 'linear' },
-        }),
+          extensions: [FLOOD],
+        } as never),
       );
     }
 
@@ -743,7 +772,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, image, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water, playhead]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, hasFlood, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -847,6 +876,9 @@ export default function MapView() {
   return (
     <div ref={containerRef} className="absolute inset-0" onMouseLeave={() => setHover(null)}>
       <DeckGL
+        ref={deckRef}
+        // Continuous redraws only while the flood plays; otherwise deck.gl draws on change.
+        _animate={animating}
         viewState={viewState}
         onViewStateChange={({ viewState: v }) => setViewState(v as MapViewState)}
         controller={{ inertia: 250, scrollZoom: { smooth: true, speed: 0.02 } }}
