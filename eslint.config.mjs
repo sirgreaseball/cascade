@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // The marketing splash page is a separate app with its own tooling.
     "frontend/**",
+    // Browser benchmarks: plain Node scripts that drive Playwright, run by hand (docs/HANDOFF.md).
+    "scripts/bench/**",
   ]),
 ]);
 
