@@ -36,50 +36,54 @@ function useBoot() {
   }, []);
 }
 
-/** Advances the playhead smoothly at the chosen speed (60, 300, 900 sim-sec/s) during both live simulation and playback. */
+/**
+ * Advances the playhead smoothly at the chosen speed during both live simulation and playback.
+ * While following a live run, the playhead trails the solver by about one output interval at
+ * the solver's smoothed pace, so it never runs into the newest frame and stalls.
+ */
 function usePlayback() {
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
+    let pace = 0;          // smoothed solver production rate (sim-sec / real-sec)
     let lastLatest = 0;
-    let lastLatestWall = performance.now();
-    let simVelocity = 300; // estimated sim-sec / real-sec (tracks solver production rate)
+    let lastArrival = performance.now();
 
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const s = useSimStore.getState();
       const latest = latestTime();
-      const anyRunning = s.runs.swe.status === 'running' || s.runs.sph.status === 'running' || s.runs.swe.status === 'starting' || s.runs.sph.status === 'starting';
+      const running = s.runs.swe.status === 'running' || s.runs.sph.status === 'running' || s.runs.swe.status === 'starting' || s.runs.sph.status === 'starting';
 
-      // Reset when a new run starts
+      // Track solver production rate
       if (latest < lastLatest) {
-        lastLatest = 0;
-        lastLatestWall = now;
-      } else if (latest > lastLatest) {
-        const wallDt = Math.max(0.04, (now - lastLatestWall) / 1000);
-        const instantVel = (latest - lastLatest) / wallDt;
-        simVelocity = Math.max(20, Math.min(3000, simVelocity * 0.5 + instantVel * 0.5));
+        // New run started
+        pace = 0;
         lastLatest = latest;
-        lastLatestWall = now;
+        lastArrival = now;
+      } else if (latest > lastLatest) {
+        const measured = (latest - lastLatest) / Math.max((now - lastArrival) / 1000, 0.05);
+        pace = pace > 0 ? pace * 0.7 + measured * 0.3 : measured;
+        lastLatest = latest;
+        lastArrival = now;
       }
 
-      const active = s.follow || s.playing;
-      if (active && latest > 0) {
-        // Fluidly advance playhead at the selected speed (1 min/s, 5 min/s, 15 min/s),
-        // capped only if solver is slower than the chosen speed on lower-end hardware.
-        const effectiveSpeed = anyRunning ? Math.min(s.speed, Math.max(30, simVelocity)) : s.speed;
-        let next = s.playhead + dt * effectiveSpeed;
-
-        // Never advance past the computation frontier
-        if (next >= latest) {
-          next = latest;
-          if (!anyRunning) {
-            s.setPlaying(false);
-            s.setFollow(false);
-          }
+      if (latest > 0 && (s.follow || s.playing)) {
+        let speed = s.speed;
+        if (s.follow && running) {
+          // Trail the solver by one output interval: advance at the solver's pace with
+          // a proportional catch-up term to smoothly converge on the target.
+          const target = Math.max(0, latest - (s.setup?.outputInterval ?? 180));
+          speed = Math.min(s.speed, Math.max(0, pace + (target - s.playhead) * 0.3));
         }
-        s.setPlayhead(next);
+        let next = Math.min(latest, s.playhead + dt * speed);
+        if (next >= latest && !running) {
+          next = latest;
+          s.setPlaying(false);
+          s.setFollow(false);
+        }
+        if (next !== s.playhead) s.setPlayhead(next);
       }
       raf = requestAnimationFrame(tick);
     };
