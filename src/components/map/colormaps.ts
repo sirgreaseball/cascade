@@ -70,7 +70,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 
 // Soft shorelines: the shallowest water is translucent and reaches full colour by about a metre
 // deep (0.35 on the logarithmic scale), so flood edges fade instead of stopping in hard cells.
-const DEPTH_LUT = buildLut(DEPTH_STEPS, 70, 238, (t) => smoothstep(0, 0.35, t));
+export const DEPTH_LUT = buildLut(DEPTH_STEPS, 70, 238, (t) => smoothstep(0, 0.35, t));
 const VELOCITY_LUT = buildLut(VELOCITY_STEPS, 160, 235);
 const PROBABILITY_LUT = buildLut(PROBABILITY_STEPS, 90, 235);
 const DIFF_LUT = buildLut([...DIFF_NEG, DIFF_MID, ...DIFF_POS], 220, 220);
@@ -93,9 +93,9 @@ export function gradientCss(steps: string[]): string {
 }
 
 // Precomputed depth (cm) → LUT index, so painting a frame is a table lookup per cell.
-const CM_INDEX = new Uint8Array(65536);
+export const CM_INDEX = new Uint8Array(65536);
 for (let cm = 0; cm < 65536; cm++) CM_INDEX[cm] = Math.round(depthPosition(cm / 100) * 255);
-const WET_CM = DEPTH_MIN * 100;
+export const WET_CM = DEPTH_MIN * 100;
 
 function clear(out: Uint8ClampedArray) {
   out.fill(0);

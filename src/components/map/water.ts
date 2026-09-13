@@ -25,6 +25,8 @@ export interface WaterOptions {
   rows: number;
   /** Colour mirrored at grazing angles (0–1 RGB): the sky's horizon. */
   sky: [number, number, number];
+  /** Ripple time, read on every draw, so the water moves without the layer being re-created. */
+  clock?: () => number;
 }
 
 export class WaterExtension extends LayerExtension<WaterOptions> {
@@ -56,7 +58,7 @@ export class WaterExtension extends LayerExtension<WaterOptions> {
     };
   }
 
-  draw(this: Layer) {
-    this.setShaderModuleProps({ water: { time: (this.props as { waterTime?: number }).waterTime ?? 0 } });
+  draw(this: Layer, _params: unknown, extension: this) {
+    this.setShaderModuleProps({ water: { time: extension.opts.clock?.() ?? (this.props as { waterTime?: number }).waterTime ?? 0 } });
   }
 }
