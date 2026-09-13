@@ -29,7 +29,8 @@ import { planEvacuation } from '@/lib/evacuation';
 import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/format';
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
-import { setMapGpu } from '@/lib/perfMonitor';
+import { setMapGpu, classifyGpu, getMapGpu, onPerfChange } from '@/lib/perfMonitor';
+import type { GpuKind } from '@/lib/perfMonitor';
 import { primaryEngine, useFrameIndex, usePrimaryEngine, useImpacts } from '@/components/useSimView';
 import {
   HAZARD_COLORS,
@@ -45,7 +46,7 @@ import {
 } from './colormaps';
 import { FloodExtension, FloodField, keyOf } from './floodGpu';
 import type { FloodFrame } from './floodGpu';
-import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
+import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, ROADS_ATTRIBUTION, ROADS_OVERLAY_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 import { buildGridMesh } from './waterMesh';
 
 /** Sky and horizon glow above the 3D terrain; the horizon matches the terrain's haze. */
@@ -56,10 +57,12 @@ const SATELLITE_STYLE = {
   version: 8 as const,
   sources: {
     imagery: { type: 'raster' as const, tiles: [IMAGERY_URL], tileSize: 256, maxzoom: 19, attribution: IMAGERY_ATTRIBUTION },
+    roads: { type: 'raster' as const, tiles: [ROADS_OVERLAY_URL], tileSize: 256, maxzoom: 19, attribution: ROADS_ATTRIBUTION },
   },
   layers: [
     { id: 'background', type: 'background' as const, paint: { 'background-color': '#0b0b0c' } },
     { id: 'imagery', type: 'raster' as const, source: 'imagery', paint: { 'raster-saturation': -0.22, 'raster-contrast': 0.04, 'raster-brightness-max': 0.96 } },
+    { id: 'roads', type: 'raster' as const, source: 'roads', paint: { 'raster-opacity': 0.75 } },
   ],
 };
 const LIGHT_STYLE = {
@@ -278,6 +281,16 @@ export default function MapView() {
   const impacts = useImpacts(primary);
   // Seamless world terrain from the same SRTM tiles when online; the scenario DEM block offline.
   const [terrainMode, setTerrainMode] = useState<'world' | 'local'>(() => (typeof navigator !== 'undefined' && !navigator.onLine ? 'local' : 'world'));
+  const [gpuKind, setGpuKind] = useState<GpuKind>(() => {
+    const g = getMapGpu();
+    return g ? classifyGpu(g.renderer) : 'unknown';
+  });
+  useEffect(() => {
+    return onPerfChange(() => {
+      const g = getMapGpu();
+      if (g) setGpuKind(classifyGpu(g.renderer));
+    });
+  }, []);
   // Mesh terrain in a worker; if the worker cannot start, fall back to the main thread.
   const [terrainWorker, setTerrainWorker] = useState(true);
   const tileErrors = useRef(0);
@@ -519,14 +532,16 @@ export default function MapView() {
         // stitched from imagery one zoom deeper, down to ~0.5 m per pixel; smooth normals,
         // finer meshes near the camera, and haze towards the horizon.
         new HiResTerrainLayer({
-          // A new id when meshing falls back to the main thread, so tiles that failed in the worker load again.
-          id: `terrain-world-${view.basemap}-${terrainWorker ? 'w' : 'm'}`,
+          // A new id when meshing falls back to the main thread or roads toggle, so tiles reload properly.
+          id: `terrain-world-${view.basemap}-${view.showRoads ? 'r' : 'nr'}-${terrainWorker ? 'w' : 'm'}`,
           elevationData: TERRARIUM_URL,
           texture,
           textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
+          roadsOverlay: view.showRoads ? ROADS_OVERLAY_URL : null,
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 17,
           meshMaxError: 2,
+          zoomOffset: gpuKind === 'discrete' ? 1 : 0,
           extensions: [haze],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
@@ -772,7 +787,7 @@ export default function MapView() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, onTerrainError, onTerrainTile, hasFlood, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, skin, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze, water]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
