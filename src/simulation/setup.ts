@@ -9,6 +9,7 @@ import type { EventParams, Hydrograph } from './hydrograph.ts';
 import { prepareDamSite } from './damSite.ts';
 import type { DamSite, DamSiteInput } from './damSite.ts';
 import type { EngineConfig, EngineId } from './types.ts';
+import type { ExposureIndex } from './exposure.ts';
 
 export type Resolution = 'fast' | 'standard' | 'high';
 
@@ -64,6 +65,7 @@ export interface SetupInput {
   gpu?: boolean;
   /** Run the GPU solver flat out without duty-cycle pacing for map display. */
   unthrottled?: boolean;
+  exposureIndex?: ExposureIndex;
 }
 
 export interface SimulationSetup {
@@ -154,6 +156,7 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     duration: input.duration,
     outputInterval,
     wetThreshold: input.wetThreshold ?? 0.1,
+    exposureIndex: input.exposureIndex,
   };
 
   let swe: EngineConfig = { ...base, engine: 'swe' };

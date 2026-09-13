@@ -500,19 +500,19 @@ function ModelTab() {
   const setManning = useSimStore((s) => s.setManning);
   const setup = useSimStore((s) => s.setup);
   const stale = useSimStore((s) => s.stale);
-  const version = useSimStore((s) => s.resultsVersion);
+  const summaryVersion = useSimStore((s) => s.summaryVersion);
   const toast = useUiStore((s) => s.toast);
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const running = isRunning(runs);
 
   const externalAgreement = useMemo(() => {
-    void version;
+    void summaryVersion;
     const s = results.get('swe')?.summary;
     if (!external || !s) return null;
     // Extent skill (CSI) and depth error (RMSE, bias) against the imported model.
     return { extent: extentAgreement(s.maxDepth, external.maxDepth), depth: depthDifference(s.maxDepth, external.maxDepth) };
-  }, [external, version]);
+  }, [external, summaryVersion]);
 
   if (!config || !data) return null;
   const g = data.grid;
@@ -760,7 +760,7 @@ function ObserveTab() {
   const setObserved = useScenarioStore((s) => s.setObserved);
   const showObserved = useSimStore((s) => s.view.showObserved);
   const setView = useSimStore((s) => s.setView);
-  const version = useSimStore((s) => s.resultsVersion);
+  const summaryVersion = useSimStore((s) => s.summaryVersion);
   const toast = useUiStore((s) => s.toast);
   const [params, setParams] = useState<Omit<GeeParams, 'scenarioId' | 'scenarioName' | 'bbox'>>(() => ({
     ...defaultGeeDates(),
@@ -772,11 +772,11 @@ function ObserveTab() {
   const [busy, setBusy] = useState(false);
 
   const validation = useMemo(() => {
-    void version;
+    void summaryVersion;
     const s = results.get('swe')?.summary ?? results.get('sph')?.summary;
     if (!observed || !s) return null;
     return extentAgreement(observed.mask, s.maxDepth, 0.5, 0.1);
-  }, [observed, version]);
+  }, [observed, summaryVersion]);
 
   if (!config || !data) return null;
   const script = () => buildGeeScript({ ...params, scenarioId: config.id, scenarioName: config.name, bbox: data.grid.bbox });

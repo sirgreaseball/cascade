@@ -166,26 +166,33 @@ function PlacesList() {
 }
 
 function Comparison() {
-  const version = useSimStore((s) => s.resultsVersion);
+  const summaryVersion = useSimStore((s) => s.summaryVersion);
+  const resultsVersion = useSimStore((s) => s.resultsVersion);
   const duration = useSimStore((s) => s.duration);
   const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const cellArea = useScenarioStore((s) => s.data?.grid.cellArea ?? 1);
-  const data = useMemo(() => {
-    void version;
+  const envelopes = useMemo(() => {
+    void summaryVersion;
     const a = results.get('swe');
     const b = results.get('sph');
     if (!a?.summary || !b?.summary) return null;
     return {
       agreement: extentAgreement(a.summary.maxDepth, b.summary.maxDepth),
       diff: depthDifference(a.summary.maxDepth, b.summary.maxDepth),
-      series: [
-        { id: 'swe', label: 'Grid', color: IDENTITY.swe, points: a.times.map((t, i) => [t, a.stats[i].wetArea / 1e6] as [number, number]) },
-        { id: 'sph', label: 'SPH', color: IDENTITY.sph, points: b.times.map((t, i) => [t, b.stats[i].wetArea / 1e6] as [number, number]) },
-      ],
     };
-  }, [version]);
-  if (!data) return null;
-  const { agreement: ag, diff } = data;
+  }, [summaryVersion]);
+  const series = useMemo(() => {
+    void resultsVersion;
+    const a = results.get('swe');
+    const b = results.get('sph');
+    if (!a && !b) return [];
+    return [
+      { id: 'swe', label: 'Grid', color: IDENTITY.swe, points: (a?.times ?? []).map((t, i) => [t, a!.stats[i].wetArea / 1e6] as [number, number]) },
+      { id: 'sph', label: 'SPH', color: IDENTITY.sph, points: (b?.times ?? []).map((t, i) => [t, b!.stats[i].wetArea / 1e6] as [number, number]) },
+    ];
+  }, [resultsVersion]);
+  if (!envelopes) return null;
+  const { agreement: ag, diff } = envelopes;
   return (
     <Section title="Grid vs SPH" action={<Tag>Peak extent</Tag>}>
       <div className="flex items-end gap-3">
@@ -200,7 +207,7 @@ function Comparison() {
       </div>
       <div>
         <div className="mb-1 text-[11.5px] text-muted">Flooded area (km²)</div>
-        <LineChart series={data.series} xMax={duration} height={110} yFormat={(v) => formatNumber(v, v < 10 ? 1 : 0)} xFormat={(s) => `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`} marker={playhead} />
+        <LineChart series={series} xMax={duration} height={110} yFormat={(v) => formatNumber(v, v < 10 ? 1 : 0)} xFormat={(s) => `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`} marker={playhead} />
       </div>
     </Section>
   );
