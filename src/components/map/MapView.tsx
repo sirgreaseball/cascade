@@ -9,6 +9,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { AmbientLight, COORDINATE_SYSTEM, DirectionalLight, FlyToInterpolator, LightingEffect } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
 import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { SimpleMeshLayer } from '@deck.gl/mesh-layers';
+import { buildGridMesh } from './waterMesh';
+import { WaterExtension } from './water';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
 import { HazeExtension } from './haze';
@@ -84,7 +87,8 @@ const noFade = <T extends { type: string; paint?: object }>(layers: T[]) =>
   layers.map((l) => (l.type === 'raster' ? { ...l, paint: { ...l.paint, 'raster-fade-duration': 0 } } : l));
 const SATELLITE_STYLE_3D = {
   ...SATELLITE_STYLE,
-  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 } },
+  // Every source a layer uses must be listed, or MapLibre rejects the whole style.
+  sources: { imagery: { ...SATELLITE_STYLE.sources.imagery, tileSize: 512 }, roads: { ...SATELLITE_STYLE.sources.roads, tileSize: 512 } },
   layers: [
     { id: 'background', type: 'background' as const, paint: { 'background-color': '#1c241c' } },
     ...noFade(SATELLITE_STYLE.layers.filter((l) => l.id !== 'background')),
@@ -114,6 +118,9 @@ const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
 const HAZE_MAP = [0.114, 0.129, 0.153] as [number, number, number];
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
+/** The water shader adds its own glints; the material keeps only a soft sheen. */
+const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [25, 25, 25] as [number, number, number] };
+const waterClock = () => useSimStore.getState().playhead / 600;
 const GPU = detectGpu();
 
 /**
@@ -220,12 +227,7 @@ function floodFrame(device: Device): FloodFrame {
 }
 
 const FLOOD = new FloodExtension({ frame: floodFrame });
-const FLOOD_TERRAIN = new FloodExtension({
-  frame: floodFrame,
-  inTerrain: true,
-  bbox: () => useScenarioStore.getState().data?.grid.bbox,
-  sky: () => (useSimStore.getState().view.basemap === 'satellite' ? [0.68, 0.75, 0.82] : [0.11, 0.13, 0.15]),
-});
+
 
 interface Hover {
   x: number;
@@ -402,6 +404,14 @@ export default function MapView() {
     [],
   );
   const hasFlood = hasResults || !!(observed && view.showObserved) || !!ensemble;
+  // The 3D flood is drawn on its own mesh of the scenario DEM, lifted clear of the terrain tiles,
+  // and only where ground lies below the crest (higher ground can never flood).
+  const crestElevation = setup?.site.crestElevation ?? Infinity;
+  const skin = useMemo(() => (data ? buildGridMesh(data.dem, data.grid, SKIN_LIFT, 200_000, crestElevation + 30) : null), [data, crestElevation]);
+  const water = useMemo(
+    () => (data ? new WaterExtension({ cols: data.grid.cols, rows: data.grid.rows, sky: view.basemap === 'satellite' ? HAZE_SATELLITE : HAZE_MAP, clock: waterClock }) : null),
+    [data, view.basemap],
+  );
 
 
 
@@ -560,7 +570,7 @@ export default function MapView() {
           maxZoom: 17,
           meshMaxError: 2,
           zoomOffset: gpuKind === 'discrete' ? 1 : 0,
-          extensions: [haze, FLOOD_TERRAIN],
+          extensions: [haze],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
           ...meshing,
@@ -578,7 +588,7 @@ export default function MapView() {
           bounds: bbox,
           elevationDecoder: TERRARIUM_DECODER,
           meshMaxError: 5,
-          extensions: [haze, FLOOD_TERRAIN],
+          extensions: [haze],
           ...meshing,
           loadOptions: { ...meshing.loadOptions, terrain: { ...(terrainWorker ? { workerUrl: TERRAIN_WORKER_URL } : {}), skirtHeight: 0 } },
           material: TERRAIN_MATERIAL,
@@ -588,8 +598,21 @@ export default function MapView() {
 
 
 
-    // In 2D flat view, the flood is drawn onto a bounding-box quad; in 3D, it is drawn inside the terrain shader.
-    if (!view.terrain3d && hasFlood && BLANK_IMAGE) {
+    // In 3D the flood is drawn on the lifted DEM mesh; in 2D on a bounding-box quad.
+    if (view.terrain3d && hasFlood && skin) {
+      list.push(
+        new SimpleMeshLayer({
+          id: 'flood-skin',
+          data: [0],
+          mesh: skin.mesh as never,
+          getPosition: () => [skin.anchor[0], skin.anchor[1], 0],
+          getColor: [255, 255, 255, 255],
+          material: WATER_MATERIAL,
+          parameters: { depthWriteEnabled: false },
+          extensions: water ? [FLOOD, water, haze] : [FLOOD, haze],
+        } as never),
+      );
+    } else if (!view.terrain3d && hasFlood && BLANK_IMAGE) {
       list.push(
         new BitmapLayer({
           id: 'flood',
@@ -820,7 +843,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(

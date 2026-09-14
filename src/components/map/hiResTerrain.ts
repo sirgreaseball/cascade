@@ -17,8 +17,6 @@
 import type { Layer } from '@deck.gl/core';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { terrainStats } from '@/lib/perfMonitor';
-import { computeNormals } from './terrainNormalsWorker';
-import type { NormalsResponse } from './terrainNormalsWorker';
 
 /** Last zoom of the AWS Terrarium elevation tiles. */
 const TERRARIUM_MAX_ZOOM = 15;
@@ -370,16 +368,7 @@ async function imagery(url: string, signal: AbortSignal): Promise<ImageBitmap | 
  * fetched come from the nearest coarser imagery, cropped to the tile; only if none loads is a
  * quadrant filled with a plain ground colour.
  */
-async function tileTexture(
-  template: string,
-  z: number,
-  x: number,
-  y: number,
-  maxZoom: number,
-  blank: string,
-  signal: AbortSignal,
-  roadsTemplate?: string | null,
-): Promise<Piece<ImageBitmap>> {
+async function tileTexture(template: string, z: number, x: number, y: number, maxZoom: number, blank: string, signal: AbortSignal): Promise<Piece<ImageBitmap>> {
   const canvas = new OffscreenCanvas(512, 512);
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
   ctx.imageSmoothingQuality = 'high';
@@ -433,20 +422,6 @@ async function tileTexture(
     for (const q of pending) ctx.fillRect((q & 1) * 256, (q >> 1) * 256, 256, 256);
     degraded = true;
   }
-  if (roadsTemplate && z >= 5) {
-    const roadUrls = [0, 1, 2, 3].map((q) => fill(roadsTemplate, x * 2 + (q & 1), y * 2 + (q >> 1), Math.min(z + 1, 19)));
-    const roadImages = await Promise.all(roadUrls.map((url) => imagery(url, signal).catch(() => null)));
-    if (!signal.aborted) {
-      ctx.globalAlpha = 0.85;
-      roadImages.forEach((img, q) => {
-        if (img) {
-          ctx.drawImage(img, (q & 1) * 256, (q >> 1) * 256, 256, 256);
-          img.close();
-        }
-      });
-      ctx.globalAlpha = 1.0;
-    }
-  }
   return { value: canvas.transferToImageBitmap(), degraded, missing };
 }
 
@@ -482,67 +457,57 @@ type Mesh = {
   indices?: { value: Uint32Array | Uint16Array };
 };
 
-let normalsWorker: Worker | null = null;
-let nextNormalsRequestId = 1;
-const pendingNormals = new Map<number, (normal: Float32Array) => void>();
-
-function getNormalsWorker(): Worker | null {
-  if (typeof window === 'undefined') return null;
-  if (!normalsWorker) {
-    try {
-      normalsWorker = new Worker(new URL('./terrainNormalsWorker.ts', import.meta.url), { type: 'module' });
-      normalsWorker.onmessage = (e: MessageEvent<NormalsResponse>) => {
-        const cb = pendingNormals.get(e.data.id);
-        if (cb) {
-          pendingNormals.delete(e.data.id);
-          cb(e.data.normal);
-        }
-      };
-      normalsWorker.onerror = (err) => {
-        console.warn('[cascade] Terrain normals worker error, falling back to in-thread calculation:', err);
-        normalsWorker?.terminate();
-        normalsWorker = null;
-      };
-    } catch {
-      normalsWorker = null;
-    }
-  }
-  return normalsWorker;
-}
-
 /**
- * Per-vertex normals for a terrain tile, computed off the main thread in a Web Worker so
- * smooth shading doesn't hitch the frame loop. Skirt triangles are left out so tile edges blend.
+ * Per-vertex normals for a terrain tile, so it is lit as a smooth surface rather than triangle
+ * by triangle (deck.gl falls back to flat shading without them, which drew every facet). Computed
+ * in metres east, north and up — the space deck.gl's project_normal expects. Near-vertical
+ * triangles (the skirts that hide seams between tiles) are left out and skirt bottoms point up,
+ * so skirts are lit like the ground next to them instead of showing as dark slivers.
  */
-async function addNormals(mesh: Mesh | null, metresPerUnit: number, signal?: AbortSignal): Promise<Mesh | null> {
+function addNormals(mesh: Mesh | null, metresPerUnit: number): Mesh | null {
   const idx = mesh?.indices?.value;
   if (!mesh || !idx) return mesh;
   const pos = mesh.attributes.POSITION.value;
-  const worker = getNormalsWorker();
-  if (worker && !signal?.aborted) {
-    const id = nextNormalsRequestId++;
-    try {
-      const normal = await new Promise<Float32Array>((resolve, reject) => {
-        if (signal?.aborted) return reject(abortError());
-        const onAbort = () => {
-          pendingNormals.delete(id);
-          reject(abortError());
-        };
-        signal?.addEventListener('abort', onAbort, { once: true });
-        pendingNormals.set(id, (res) => {
-          signal?.removeEventListener('abort', onAbort);
-          resolve(res);
-        });
-        worker.postMessage({ id, pos, idx, metresPerUnit });
-      });
-      mesh.attributes.NORMAL = { value: normal, size: 3 };
-      return mesh;
-    } catch (err) {
-      if (isAbort(err)) throw err;
+  const acc = new Float32Array(pos.length);
+  for (let t = 0; t + 2 < idx.length; t += 3) {
+    const a = idx[t] * 3;
+    const b = idx[t + 1] * 3;
+    const c = idx[t + 2] * 3;
+    const e1x = (pos[b] - pos[a]) * metresPerUnit;
+    const e1y = (pos[b + 1] - pos[a + 1]) * metresPerUnit;
+    const e1z = pos[b + 2] - pos[a + 2];
+    const e2x = (pos[c] - pos[a]) * metresPerUnit;
+    const e2y = (pos[c + 1] - pos[a + 1]) * metresPerUnit;
+    const e2z = pos[c + 2] - pos[a + 2];
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len === 0) continue;
+    if (nz < 0) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    if (nz / len < 0.2) continue;
+    // Area-weighted: larger triangles count for more.
+    for (const v of [a, b, c]) {
+      acc[v] += nx;
+      acc[v + 1] += ny;
+      acc[v + 2] += nz;
     }
   }
-  if (signal?.aborted) throw abortError();
-  mesh.attributes.NORMAL = { value: computeNormals(pos, idx, metresPerUnit), size: 3 };
+  for (let v = 0; v < acc.length; v += 3) {
+    const len = Math.hypot(acc[v], acc[v + 1], acc[v + 2]);
+    if (len > 0) {
+      acc[v] /= len;
+      acc[v + 1] /= len;
+      acc[v + 2] /= len;
+    } else {
+      acc[v + 2] = 1;
+    }
+  }
+  mesh.attributes.NORMAL = { value: acc, size: 3 };
   return mesh;
 }
 
@@ -561,13 +526,13 @@ interface TileHeader {
 /** Reloads so far per low-quality tile, so a tile that cannot be repaired stops trying. */
 const reloads = new Map<string, number>();
 
-export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number; roadsOverlay?: string | null }> {
+export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number }> {
   static layerName = 'HiResTerrainLayer';
 
   // Replaces TerrainLayer's loader; deck's declared return type is internal, hence `any`.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getTiledTerrainData(tile: TileLoad): any {
-    const { elevationData, texture, elevationDecoder, meshMaxError, tileSize, roadsOverlay } = this.props;
+    const { elevationData, texture, elevationDecoder, meshMaxError, tileSize } = this.props;
     const textureMaxZoom = this.props.textureMaxZoom ?? 18;
     const { x, y, z } = tile.index;
     const signal = tile.signal ?? new AbortController().signal;
@@ -591,15 +556,14 @@ export class HiResTerrainLayer extends TerrainLayer<{ textureMaxZoom?: number; r
       const url = URL.createObjectURL(elevation.value);
       try {
         const m = await this.loadTerrain({ elevationData: url, bounds, elevationDecoder, meshMaxError: tileError, signal } as never);
-        const withNormals = await addNormals(m as unknown as Mesh | null, metresPerUnit, signal);
-        return { mesh: withNormals, elevation };
+        return { mesh: addNormals(m as unknown as Mesh | null, metresPerUnit), elevation };
       } finally {
         URL.revokeObjectURL(url);
       }
     });
     const template = typeof texture === 'string' ? texture : null;
     const blank = template?.includes('World_Imagery') ? '#39432f' : '#1b1e23';
-    const surface = template ? tileTexture(template, z, x, y, textureMaxZoom, blank, signal, roadsOverlay) : Promise.resolve(null);
+    const surface = template ? tileTexture(template, z, x, y, textureMaxZoom, blank, signal) : Promise.resolve(null);
 
     const content = Promise.allSettled([mesh, surface]).then(([m, s]) => {
       const bitmap = s.status === 'fulfilled' ? (s.value?.value ?? null) : null;
