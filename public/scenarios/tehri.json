@@ -104,6 +104,22 @@
     "duration": 21600,
     "failureMode": "overtopping"
   },
+  "cascadingDams": [
+    {
+      "name": "Koteshwar Dam",
+      "river": "Bhagirathi",
+      "lng": 78.49755,
+      "lat": 30.25675,
+      "height": 97.5,
+      "crestLength": 300,
+      "volumeMCM": 88,
+      "waterDepth": 75,
+      "normalPoolElev": 612,
+      "crestElev": 618.5,
+      "spillwayCapacity": 13240,
+      "type": "Concrete gravity"
+    }
+  ],
   "view": {
     "zoom": 10.3,
     "pitch": 55,

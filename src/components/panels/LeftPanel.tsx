@@ -22,6 +22,7 @@ import { useEnsembleStore } from '@/store/ensembleStore';
 import { displayName } from '@/lib/text';
 import { Button, Divider, Dot, Field, Progress, Section, Segmented, Slider, Switch, Tag, TextInput } from '@/components/ui/primitives';
 import HistoricalCheck from '@/components/panels/HistoricalCheck';
+import CascadingReservoir from '@/components/panels/CascadingReservoir';
 import { LineChart } from '@/components/ui/charts';
 import type { ChartSeries } from '@/components/ui/charts';
 import { IDENTITY } from '@/components/map/colormaps';
@@ -199,6 +200,10 @@ function EventTab() {
           </p>
         )}
       </Section>
+
+      <Divider />
+
+      <CascadingReservoir />
     </div>
   );
 }

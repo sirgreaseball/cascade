@@ -1,6 +1,6 @@
 [
   { "id": "tehri", "name": "Tehri Dam", "river": "Bhagirathi · Ganga", "state": "Uttarakhand", "district": "Tehri Garhwal", "event": "dam-break" },
   { "id": "bhakra", "name": "Bhakra Dam", "river": "Sutlej", "state": "Himachal Pradesh", "district": "Bilaspur", "event": "dam-break" },
-  { "id": "rishi-ganga", "name": "Rishi Ganga lake outburst", "river": "Rishi Ganga · Dhauliganga", "state": "Uttarakhand", "district": "Chamoli", "event": "lake-outburst" },
-  { "id": "machchhu", "name": "Machchhu II, 1979", "river": "Machchhu · Gujarat", "state": "Gujarat", "district": "Morbi", "event": "dam-break" }
+  { "id": "machchhu", "name": "Machchhu II, 1979", "river": "Machchhu · Gujarat", "state": "Gujarat", "district": "Morbi", "event": "dam-break", "historical": true, "year": 1979 },
+  { "id": "rishi-ganga", "name": "Rishi Ganga lake outburst, 2021", "river": "Rishi Ganga · Dhauliganga", "state": "Uttarakhand", "district": "Chamoli", "event": "lake-outburst", "historical": true, "year": 2021 }
 ]

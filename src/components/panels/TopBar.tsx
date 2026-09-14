@@ -143,7 +143,7 @@ function ScenarioSwitcher() {
     }
   }, [open]);
 
-  const hitsScenario = (s: (typeof index)[number]) => {
+  const hitsScenario = (s: ScenarioMeta) => {
     if (!q) return true;
     const tokens = q.split(' ').filter(Boolean);
     return tokens.every(
@@ -152,10 +152,13 @@ function ScenarioSwitcher() {
         tokenMatchesField(t, s.river) ||
         tokenMatchesState(t, s.state ?? '') ||
         tokenMatchesField(t, s.district) ||
-        tokenMatchesField(t, s.event)
+        tokenMatchesField(t, s.event) ||
+        (s.historical && (t === 'historical' || t === 'history' || t === 'disaster')) ||
+        (s.year && String(s.year).includes(t))
     );
   };
-  const bundled = index.filter((s) => !s.custom && hitsScenario(s));
+  const historical = index.filter((s) => !s.custom && s.historical && hitsScenario(s));
+  const hypothetical = index.filter((s) => !s.custom && !s.historical && hitsScenario(s));
   const custom = index.filter((s) => s.custom && hitsScenario(s));
 
   const loadedIds = useMemo(() => new Set(index.map((s) => s.id)), [index]);
@@ -166,9 +169,24 @@ function ScenarioSwitcher() {
 
   const rows = useMemo<VirtualRow[]>(() => {
     const res: VirtualRow[] = [];
-    if (bundled.length > 0) {
-      res.push({ type: 'header', key: 'h-bundled', title: q ? 'Scenarios' : 'Bundled scenarios' });
-      for (const s of bundled) {
+    if (historical.length > 0) {
+      res.push({
+        type: 'header',
+        key: 'h-historical',
+        title: 'Historical Events',
+        subtitle: 'Reconstructed from observations',
+      });
+      for (const s of historical) {
+        res.push({ type: 'scenario', key: `s-${s.id}`, scenario: s });
+      }
+    }
+    if (hypothetical.length > 0) {
+      res.push({
+        type: 'header',
+        key: 'h-hypothetical',
+        title: q ? 'Hypothetical Scenarios' : 'Hypothetical Dam Breaks',
+      });
+      for (const s of hypothetical) {
         res.push({ type: 'scenario', key: `s-${s.id}`, scenario: s });
       }
     }
@@ -185,9 +203,9 @@ function ScenarioSwitcher() {
       }
     }
     return res;
-  }, [bundled, custom, damGroups, q]);
+  }, [historical, hypothetical, custom, damGroups, q]);
 
-  const item = (s: (typeof index)[number]) => (
+  const item = (s: ScenarioMeta) => (
     <div key={s.id} className="group flex items-center rounded-[10px] hover:bg-white/[0.06]">
       <button
         className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
@@ -197,7 +215,14 @@ function ScenarioSwitcher() {
         }}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">{s.name}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="block truncate text-[13px] font-medium text-ink">{s.name}</span>
+            {s.historical && (
+              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent">
+                {s.year || 'Historical'}
+              </span>
+            )}
+          </span>
           <span className="block truncate text-[11.5px] text-muted">
             {s.river} · {EVENT_LABEL[s.event] ?? s.event}{s.state ? ` · ${s.state}` : ''}
           </span>
