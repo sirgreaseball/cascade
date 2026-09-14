@@ -406,12 +406,7 @@ export function planEvacuationSync(
     options.assets ??
     index.assets
       .map((a, i) => ({ a, i }))
-      .filter(({ a }) => {
-        if (a.kind !== 'settlement') return false;
-        for (let j = 0; j < a.footprint.length; j++) if (summary.arrival[a.footprint[j]] >= 0) return true;
-        const cell = lngLatToCell(g, a.lng, a.lat);
-        return !!cell && summary.arrival[cell.index] >= 0;
-      })
+      .filter(({ a }) => a.kind === 'settlement')
       .map(({ i }) => i);
 
   const out: EvacuationRoute[] = [];
@@ -439,7 +434,7 @@ export function planEvacuationSync(
         asset,
         name: a.name,
         path: [[graph.lng[start], graph.lat[start]]],
-        path3d: dem ? [[graph.lng[start], graph.lat[start], graph.elev[start] + 4]] : undefined,
+        path3d: dem ? [[graph.lng[start], graph.lat[start], graph.elev[start] + 14]] : undefined,
         lengthM: 0,
         travelSeconds: 0,
         latestDepartureSeconds: -Infinity,
@@ -464,7 +459,7 @@ export function planEvacuationSync(
 
       if (dem) {
         const cell = lngLatToCell(g, lng, lat);
-        const z = cell ? sampleBilinear(dem, g.cols, g.rows, cell.col, cell.row) + 4 : graph.elev[curr] + 4;
+        const z = cell ? sampleBilinear(dem, g.cols, g.rows, cell.col, cell.row) + 14 : graph.elev[curr] + 14;
         path3d.push([lng, lat, z]);
       }
 

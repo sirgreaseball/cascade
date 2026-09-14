@@ -8,7 +8,7 @@ import MapGL from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AmbientLight, COORDINATE_SYSTEM, DirectionalLight, FlyToInterpolator, LightingEffect } from '@deck.gl/core';
 import type { Layer, MapViewState, PickingInfo } from '@deck.gl/core';
-import { BitmapLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { TerrainLayer } from '@deck.gl/geo-layers';
 import { HiResTerrainLayer } from './hiResTerrain';
 import { HazeExtension } from './haze';
@@ -20,8 +20,6 @@ import { useScenarioStore } from '@/store/scenarioStore';
 import { isRunning, useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
-import type { SimulationSetup } from '@/simulation/setup';
-import type { ScenarioConfig } from '@/lib/scenario';
 import { lngLatToCell, sampleBilinear } from '@/lib/geo/grid';
 import { TERRARIUM_URL } from '@/lib/geo/terrarium';
 import { hazardClass } from '@/lib/damage';
@@ -113,9 +111,7 @@ const TERRARIUM_DECODER = { rScaler: 256, gScaler: 1, bScaler: 1 / 256, offset: 
 // comes from the light rather than from the imagery, so diffuse carries most of the response.
 const TERRAIN_MATERIAL = { ambient: 0.42, diffuse: 0.92, shininess: 1, specularColor: [0, 0, 0] as [number, number, number] };
 const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
-const HAZE_MAP: [number, number, number] = [0.114, 0.129, 0.153];
-/** The water shader adds its own sun glints; the material keeps only a soft sheen. */
-const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [25, 25, 25] as [number, number, number] };
+const HAZE_MAP = [0.114, 0.129, 0.153] as [number, number, number];
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 const GPU = detectGpu();
@@ -230,73 +226,6 @@ const FLOOD_TERRAIN = new FloodExtension({
   bbox: () => useScenarioStore.getState().data?.grid.bbox,
   sky: () => (useSimStore.getState().view.basemap === 'satellite' ? [0.68, 0.75, 0.82] : [0.11, 0.13, 0.15]),
 });
-
-function reservoirLevelAt(setup: SimulationSetup, config: ScenarioConfig, t: number): number {
-  const bedElev = setup.site.bed.elevation;
-  const initialDepth = config.dam.waterDepth ?? config.dam.height * 0.95;
-  const breach = setup.configs.swe?.breach ?? setup.configs.sph?.breach;
-  if (!breach) return bedElev + initialDepth;
-
-  const p = breach.event;
-  const hb = Math.min(Math.max(p.breachDepth, 1), p.damHeight);
-  const invertAboveBase = p.damHeight - hb;
-  const headAtStart = Math.max(p.waterDepth - invertAboveBase, 0);
-  const m = Math.max(p.storageExponent ?? 1.5, 1);
-  const releasableVolume = p.volume * (p.waterDepth > 0 ? (headAtStart / p.waterDepth) ** m : 0);
-
-  let released = 0;
-  const { t: ht, q: hq } = setup.hydrograph;
-  for (let i = 0; i < ht.length - 1 && ht[i] < t; i++) {
-    const t0 = ht[i];
-    const t1 = Math.min(ht[i + 1], t);
-    const dt = t1 - t0;
-    if (dt <= 0) break;
-    const frac = (t1 - t0) / Math.max(ht[i + 1] - t0, 1e-4);
-    const q1 = hq[i] + (hq[i + 1] - hq[i]) * frac;
-    released += 0.5 * (hq[i] + q1) * dt;
-  }
-  const remaining = Math.max(0, releasableVolume - released);
-  const currentHead = remaining > 0 && releasableVolume > 0 ? headAtStart * (remaining / releasableVolume) ** (1 / m) : 0;
-  return bedElev + invertAboveBase + currentHead;
-}
-
-function computeReservoirPolygon(
-  setup: SimulationSetup,
-  config: ScenarioConfig,
-  bbox: [number, number, number, number],
-  playhead: number,
-): [number, number, number][] | null {
-  const site = setup.site;
-  const crest = site.crestLine && site.crestLine.length >= 2 ? site.crestLine : site.axis;
-  if (!crest || crest.length < 2) return null;
-
-  const poolElev = reservoirLevelAt(setup, config, playhead);
-
-  // Upstream direction: opposite to site.direction
-  // In grid coords: x is east (+lng), y is south (-lat).
-  // site.direction = [dx, dy] is downstream.
-  // Upstream vector in (lng, lat): [-dx, dy]
-  const U = [-site.direction[0], site.direction[1]];
-  const uLen = Math.hypot(U[0], U[1]) || 1;
-  const u = [U[0] / uLen, U[1] / uLen];
-  const v = [-u[1], u[0]];
-
-  const [w, s, e, n] = bbox;
-  const span = Math.hypot(e - w, n - s);
-  const reach = span * 1.5;
-
-  const p0 = crest[0];
-  const pn = crest[crest.length - 1];
-
-  const poly: [number, number, number][] = crest.map(([lng, lat]) => [lng, lat, poolElev]);
-
-  const corner1: [number, number, number] = [pn[0] + (u[0] + v[0] * 1.2) * reach, pn[1] + (u[1] + v[1] * 1.2) * reach, poolElev];
-  const upHead: [number, number, number] = [0.5 * (p0[0] + pn[0]) + u[0] * reach * 1.4, 0.5 * (p0[1] + pn[1]) + u[1] * reach * 1.4, poolElev];
-  const corner2: [number, number, number] = [p0[0] + (u[0] - v[0] * 1.2) * reach, p0[1] + (u[1] - v[1] * 1.2) * reach, poolElev];
-
-  poly.push(corner1, upHead, corner2, [crest[0][0], crest[0][1], poolElev]);
-  return poly;
-}
 
 interface Hover {
   x: number;
@@ -498,7 +427,7 @@ export default function MapView() {
     let active = true;
     planEvacuation(exposure, data.grid, summary, { dem: data.dem }).then((routes) => {
       if (active) {
-        setPlannedRoutes({ id: config?.id ?? '', t: summaryTime, routes: routes.filter((r) => r.path.length > 0) });
+        setPlannedRoutes({ id: config?.id ?? '', t: summaryTime, routes: routes.filter((r) => r.path.length > 1) });
       }
     });
     return () => {
@@ -657,30 +586,7 @@ export default function MapView() {
       );
     }
 
-    // Upstream reservoir: level-pool surface at T+0, dropping as breach water releases.
-    // Mountain slopes naturally occlude the plane; the crest line cuts off downstream leakage.
-    const reservoirPolygon = setup && config
-      ? computeReservoirPolygon(setup, config, bbox, useSimStore.getState().playhead)
-      : null;
-    if (view.terrain3d && reservoirPolygon) {
-      list.push(
-        new PolygonLayer({
-          id: 'reservoir',
-          data: [{ polygon: reservoirPolygon }],
-          getPolygon: (d: { polygon: [number, number, number][] }) => d.polygon,
-          filled: true,
-          stroked: false,
-          _full3d: true,
-          material: WATER_MATERIAL,
-          getFillColor: [24, 88, 134, 215],
-          parameters: { depthTest: true },
-          extensions: [haze],
-          updateTriggers: {
-            getPolygon: [reservoirPolygon],
-          },
-        } as never),
-      );
-    }
+
 
     // In 2D flat view, the flood is drawn onto a bounding-box quad; in 3D, it is drawn inside the terrain shader.
     if (!view.terrain3d && hasFlood && BLANK_IMAGE) {
@@ -731,8 +637,9 @@ export default function MapView() {
       );
     }
 
-    // The way out, following the simulation clock: bright green while leaving now still reaches safety,
-    // switching to red once cut off. Drawn depth-tested onto the terrain so routes follow the ground.
+    // Safe evacuation routes following the simulation clock: bright emerald green while leaving now
+    // still reaches safety, switching to high-visibility crimson once cut off.
+    // 3-layer styling (halo, dark casing, bright core) guarantees prominence over any satellite or map terrain.
     if (evacuation && evacuation.length > 0 && view.showEvacuation) {
       const playhead = useSimStore.getState().playhead;
       const isUsable = (d: EvacuationRoute) => d.status === 'ok' && playhead <= d.latestDepartureSeconds;
@@ -743,8 +650,8 @@ export default function MapView() {
           id: 'evacuation-halo',
           data: evacuation,
           getPath: routePath,
-          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [34, 197, 94, 75] : [220, 38, 38, 75]),
-          getWidth: 7,
+          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [16, 235, 120, 85] : [239, 68, 68, 85]),
+          getWidth: (d: unknown) => ((d as EvacuationRoute).asset === selectedAsset ? 24 : 14),
           widthUnits: 'pixels',
           capRounded: true,
           jointRounded: true,
@@ -752,14 +659,30 @@ export default function MapView() {
           updateTriggers: {
             getPath: [view.terrain3d],
             getColor: [Math.floor(playhead / 15)],
+            getWidth: [selectedAsset],
           },
         }),
         new PathLayer({
-          id: 'evacuation',
+          id: 'evacuation-casing',
           data: evacuation,
           getPath: routePath,
-          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [34, 197, 94, 245] : [220, 38, 38, 245]),
-          getWidth: 2.5,
+          getColor: [10, 15, 20, 240],
+          getWidth: (d: unknown) => ((d as EvacuationRoute).asset === selectedAsset ? 13 : 8.5),
+          widthUnits: 'pixels',
+          capRounded: true,
+          jointRounded: true,
+          parameters: { depthTest: view.terrain3d },
+          updateTriggers: {
+            getPath: [view.terrain3d],
+            getWidth: [selectedAsset],
+          },
+        }),
+        new PathLayer({
+          id: 'evacuation-core',
+          data: evacuation,
+          getPath: routePath,
+          getColor: (d: unknown) => (isUsable(d as EvacuationRoute) ? [16, 245, 125, 255] : [244, 63, 94, 255]),
+          getWidth: (d: unknown) => ((d as EvacuationRoute).asset === selectedAsset ? 7.5 : 4.5),
           widthUnits: 'pixels',
           capRounded: true,
           jointRounded: true,
@@ -767,6 +690,7 @@ export default function MapView() {
           updateTriggers: {
             getPath: [view.terrain3d],
             getColor: [Math.floor(playhead / 15)],
+            getWidth: [selectedAsset],
           },
         }),
       );
