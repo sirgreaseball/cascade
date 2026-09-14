@@ -47,6 +47,21 @@ export interface ScenarioObservations {
   caveats: string;
 }
 
+export interface CascadingDamInfo {
+  name: string;
+  river: string;
+  lng: number;
+  lat: number;
+  height: number;
+  crestLength: number;
+  volumeMCM: number;
+  waterDepth?: number;
+  normalPoolElev?: number;
+  crestElev?: number;
+  spillwayCapacity?: number;
+  type?: string;
+}
+
 export interface ScenarioConfig {
   id: string;
   name: string;
@@ -60,6 +75,7 @@ export interface ScenarioConfig {
   dem: { url?: string; source?: string; retrieved?: string; min?: number; max?: number };
   exposure: { assetsUrl?: string; roadsUrl?: string; source?: string; retrieved?: string };
   dam: DamInfo;
+  cascadingDams?: CascadingDamInfo[];
   defaults: {
     manning: number;
     duration: number;
@@ -72,6 +88,8 @@ export interface ScenarioConfig {
   observations?: ScenarioObservations;
   notes?: string;
   custom?: boolean;
+  historical?: boolean;
+  year?: number;
   createdAt?: string;
 }
 
@@ -83,6 +101,8 @@ export interface ScenarioMeta {
   district?: string;
   event: EventKind;
   custom?: boolean;
+  historical?: boolean;
+  year?: number;
 }
 
 export interface ScenarioData {
