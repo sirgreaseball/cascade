@@ -3,8 +3,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown, Download, Plus, Search, Trash2 } from 'lucide-react';
-import { DAM_CATALOG } from '@/lib/dams';
+import { DAM_CATALOG, loadNationalDamCatalog, searchDamCatalog, tokenMatchesField, tokenMatchesState } from '@/lib/dams';
 import type { DamCatalogEntry } from '@/lib/dams';
+import type { ScenarioMeta } from '@/lib/scenario';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
@@ -30,6 +31,88 @@ const EVENT_LABEL: Record<string, string> = {
   'controlled-release': 'Controlled release',
 };
 
+type VirtualRow =
+  | { type: 'header'; key: string; title: string; subtitle?: string }
+  | { type: 'scenario'; key: string; scenario: ScenarioMeta }
+  | { type: 'dam'; key: string; dam: DamCatalogEntry };
+
+function VirtualRowList({
+  rows,
+  renderScenario,
+  renderDam,
+}: {
+  rows: VirtualRow[];
+  renderScenario: (s: ScenarioMeta) => React.ReactNode;
+  renderDam: (d: DamCatalogEntry) => React.ReactNode;
+}) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const containerHeight = 360;
+
+  if (rows.length <= 15) {
+    return (
+      <div className="scroll-soft max-h-[360px] overflow-y-auto pr-0.5">
+        {rows.map((row) => {
+          if (row.type === 'header') {
+            return (
+              <div key={row.key} className="eyebrow flex items-baseline justify-between px-3 pb-1 pt-2.5">
+                <span>{row.title}</span>
+                {row.subtitle && <span className="text-[10.5px] font-normal normal-case text-muted">{row.subtitle}</span>}
+              </div>
+            );
+          }
+          if (row.type === 'scenario') return <React.Fragment key={row.key}>{renderScenario(row.scenario)}</React.Fragment>;
+          return <React.Fragment key={row.key}>{renderDam(row.dam)}</React.Fragment>;
+        })}
+      </div>
+    );
+  }
+
+  const heights = rows.map((r) => (r.type === 'header' ? 28 : 46));
+  const offsets: number[] = [0];
+  for (let i = 0; i < heights.length; i++) {
+    offsets.push(offsets[i] + heights[i]);
+  }
+  const totalHeight = offsets[offsets.length - 1];
+
+  const overscan = 4;
+  let start = 0;
+  while (start < rows.length && offsets[start + 1] < scrollTop) {
+    start++;
+  }
+  start = Math.max(0, start - overscan);
+
+  let end = start;
+  while (end < rows.length && offsets[end] < scrollTop + containerHeight) {
+    end++;
+  }
+  end = Math.min(rows.length, end + overscan);
+
+  const topPad = offsets[start];
+  const bottomPad = Math.max(0, totalHeight - offsets[end]);
+
+  return (
+    <div
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      className="scroll-soft max-h-[360px] overflow-y-auto pr-0.5"
+    >
+      <div style={{ paddingTop: topPad, paddingBottom: bottomPad }}>
+        {rows.slice(start, end).map((row) => {
+          if (row.type === 'header') {
+            return (
+              <div key={row.key} className="eyebrow flex items-baseline justify-between px-3 pb-1 pt-2.5">
+                <span>{row.title}</span>
+                {row.subtitle && <span className="text-[10.5px] font-normal normal-case text-muted">{row.subtitle}</span>}
+              </div>
+            );
+          }
+          if (row.type === 'scenario') return <React.Fragment key={row.key}>{renderScenario(row.scenario)}</React.Fragment>;
+          return <React.Fragment key={row.key}>{renderDam(row.dam)}</React.Fragment>;
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ScenarioSwitcher() {
   const config = useScenarioStore((s) => s.config);
   const index = useScenarioStore((s) => s.index);
@@ -38,6 +121,7 @@ function ScenarioSwitcher() {
   const setBuilderOpen = useScenarioStore((s) => s.setBuilderOpen);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
@@ -48,25 +132,61 @@ function ScenarioSwitcher() {
       window.removeEventListener('keydown', esc);
     };
   }, []);
+
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
-  const hits = (text: string) => !q || text.toLowerCase().includes(q);
-  const bundled = index.filter((s) => !s.custom && hits(`${s.name} ${s.river}`));
-  const custom = index.filter((s) => s.custom && hits(`${s.name} ${s.river}`));
-  // Dams we hold figures for but have not built a scenario from yet, grouped by state so a
-  // search for "Gujarat" lists that state's dams.
-  const damsByState = useMemo<[string, DamCatalogEntry[]][]>(() => {
-    if (!q) return [] as [string, DamCatalogEntry[]][];
-    const loaded = new Set(index.map((s) => s.id));
-    const byState = new Map<string, DamCatalogEntry[]>();
-    for (const d of DAM_CATALOG) {
-      if (loaded.has(d.id) || !hits(`${d.name} ${d.river} ${d.state}`)) continue;
-      byState.set(d.state, [...(byState.get(d.state) ?? []), d]);
+
+  const [catalog, setCatalog] = useState<DamCatalogEntry[]>(DAM_CATALOG);
+  useEffect(() => {
+    if (open) {
+      loadNationalDamCatalog().then((list) => setCatalog(list));
     }
-    return [...byState.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, index]);
-  const nothing = bundled.length === 0 && custom.length === 0 && damsByState.length === 0;
+  }, [open]);
+
+  const hitsScenario = (s: (typeof index)[number]) => {
+    if (!q) return true;
+    const tokens = q.split(' ').filter(Boolean);
+    return tokens.every(
+      (t) =>
+        tokenMatchesField(t, s.name) ||
+        tokenMatchesField(t, s.river) ||
+        tokenMatchesState(t, s.state ?? '') ||
+        tokenMatchesField(t, s.district) ||
+        tokenMatchesField(t, s.event)
+    );
+  };
+  const bundled = index.filter((s) => !s.custom && hitsScenario(s));
+  const custom = index.filter((s) => s.custom && hitsScenario(s));
+
+  const loadedIds = useMemo(() => new Set(index.map((s) => s.id)), [index]);
+  const damGroups = useMemo(() => {
+    if (!q) return [];
+    return searchDamCatalog(query, catalog, loadedIds);
+  }, [query, q, catalog, loadedIds]);
+
+  const rows = useMemo<VirtualRow[]>(() => {
+    const res: VirtualRow[] = [];
+    if (bundled.length > 0) {
+      res.push({ type: 'header', key: 'h-bundled', title: q ? 'Scenarios' : 'Bundled scenarios' });
+      for (const s of bundled) {
+        res.push({ type: 'scenario', key: `s-${s.id}`, scenario: s });
+      }
+    }
+    if (custom.length > 0) {
+      res.push({ type: 'header', key: 'h-custom', title: 'Built on this device' });
+      for (const s of custom) {
+        res.push({ type: 'scenario', key: `c-${s.id}`, scenario: s });
+      }
+    }
+    for (const g of damGroups) {
+      res.push({ type: 'header', key: `hg-${g.key}`, title: g.title, subtitle: g.subtitle });
+      for (const d of g.dams) {
+        res.push({ type: 'dam', key: `d-${d.id}`, dam: d });
+      }
+    }
+    return res;
+  }, [bundled, custom, damGroups, q]);
+
   const item = (s: (typeof index)[number]) => (
     <div key={s.id} className="group flex items-center rounded-[10px] hover:bg-white/[0.06]">
       <button
@@ -79,7 +199,7 @@ function ScenarioSwitcher() {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-ink">{s.name}</span>
           <span className="block truncate text-[11.5px] text-muted">
-            {s.river} · {EVENT_LABEL[s.event] ?? s.event}
+            {s.river} · {EVENT_LABEL[s.event] ?? s.event}{s.state ? ` · ${s.state}` : ''}
           </span>
         </span>
         {s.id === config?.id && <Check className="h-4 w-4 shrink-0 text-accent" />}
@@ -95,6 +215,27 @@ function ScenarioSwitcher() {
       )}
     </div>
   );
+
+  const damItem = (d: DamCatalogEntry) => (
+    <button
+      key={d.id}
+      className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left hover:bg-white/[0.06]"
+      onClick={() => {
+        setOpen(false);
+        setQuery('');
+        setBuilderOpen(true, d.id);
+      }}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-ink">{d.name}</span>
+        <span className="block truncate text-[11.5px] text-muted">
+          {d.river} · {d.height > 0 ? `${d.height} m · ` : ''}{d.type || 'Dam'}{d.district && d.district !== d.name ? ` · ${d.district}` : ''}
+        </span>
+      </span>
+      <Plus className="h-3.5 w-3.5 shrink-0 text-faint" />
+    </button>
+  );
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -117,7 +258,7 @@ function ScenarioSwitcher() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.16 }}
-            className="glass-strong absolute left-0 top-[calc(100%+10px)] z-50 w-[320px] origin-top-left rounded-2xl p-1.5 shadow-panel"
+            className="glass-strong absolute left-0 top-[calc(100%+10px)] z-50 w-[340px] origin-top-left rounded-2xl p-1.5 shadow-panel"
           >
             <label className="relative mx-1 mb-1 mt-0.5 flex items-center">
               <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-faint" />
@@ -130,43 +271,13 @@ function ScenarioSwitcher() {
                 className="h-9 w-full rounded-[10px] bg-fill pl-8 pr-3 text-[12.5px] text-ink outline-none transition-colors placeholder:text-faint focus:bg-fill-2"
               />
             </label>
-            {bundled.length > 0 && (
-              <>
-                <div className="eyebrow px-3 pb-1 pt-2">{q ? 'Scenarios' : 'Bundled scenarios'}</div>
-                {bundled.map(item)}
-              </>
+
+            {rows.length > 0 ? (
+              <VirtualRowList rows={rows} renderScenario={item} renderDam={damItem} />
+            ) : (
+              <div className="px-3 py-3 text-[12.5px] text-muted">Nothing matches “{query.trim()}”.</div>
             )}
-            {custom.length > 0 && (
-              <>
-                <div className="eyebrow px-3 pb-1 pt-3">Built on this device</div>
-                {custom.map(item)}
-              </>
-            )}
-            {damsByState.map(([state, dams]) => (
-              <React.Fragment key={state}>
-                <div className="eyebrow px-3 pb-1 pt-3">{state}</div>
-                {dams.map((d) => (
-                  <button
-                    key={d.id}
-                    className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left hover:bg-white/[0.06]"
-                    onClick={() => {
-                      setOpen(false);
-                      setQuery('');
-                      setBuilderOpen(true, d.id);
-                    }}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-ink">{d.name}</span>
-                      <span className="block truncate text-[11.5px] text-muted">
-                        {d.river} · {d.height} m · {d.type}
-                      </span>
-                    </span>
-                    <Plus className="h-3.5 w-3.5 shrink-0 text-faint" />
-                  </button>
-                ))}
-              </React.Fragment>
-            ))}
-            {nothing && <div className="px-3 py-3 text-[12.5px] text-muted">Nothing matches “{query.trim()}”.</div>}
+
             <div className="my-1.5 h-px bg-hairline" />
             <button
               className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13px] font-medium text-accent hover:bg-accent/[0.06]"

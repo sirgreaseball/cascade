@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, Crosshair, FileUp, Search, X } from 'lucide-react';
 import { useScenarioStore } from '@/store/scenarioStore';
 import { useUiStore } from '@/store/uiStore';
-import { catalogCrestLine, DAM_CATALOG } from '@/lib/dams';
+import { catalogCrestLine, DAM_CATALOG, damMatchesTokens, findCatalogDam, loadNationalDamCatalog, normalizeSearchText } from '@/lib/dams';
 import type { DamCatalogEntry } from '@/lib/dams';
 import { autoStudyArea } from '@/lib/aoi';
 import { gridForBBox, gridGeometry } from '@/lib/geo/grid';
@@ -40,13 +40,13 @@ interface Form {
 
 const fromDam = (d: DamCatalogEntry): Partial<Form> => ({
   name: `${d.name} Dam`,
-  river: d.river,
-  region: d.state,
+  river: d.river || 'River',
+  region: [d.district, d.state].filter(Boolean).join(', ') || d.state,
   lng: d.lng,
   lat: d.lat,
-  height: d.height,
-  crestLength: d.crestLength,
-  volumeMCM: d.volumeMCM,
+  height: d.height > 0 ? d.height : 50,
+  crestLength: d.crestLength > 0 ? d.crestLength : 500,
+  volumeMCM: d.volumeMCM > 0 ? d.volumeMCM : 200,
   event: 'dam-break',
 });
 
@@ -134,13 +134,20 @@ export default function ScenarioBuilder() {
     };
   }, []);
 
+  const [catalog, setCatalog] = useState<DamCatalogEntry[]>(DAM_CATALOG);
+  useEffect(() => {
+    if (open) {
+      loadNationalDamCatalog().then((list) => setCatalog(list));
+    }
+  }, [open]);
+
   // Opened from search on a particular dam: start there rather than on the default. Adjusted
   // during render rather than in an effect — React's pattern for reacting to a changed input —
   // so the form never shows the wrong dam for a frame and there is no second render pass.
   const [appliedDam, setAppliedDam] = useState<string | null>(null);
   if (open && builderDam && builderDam !== appliedDam) {
     setAppliedDam(builderDam);
-    const dam = DAM_CATALOG.find((d) => d.id === builderDam);
+    const dam = findCatalogDam(builderDam) ?? catalog.find((d) => d.id === builderDam) ?? DAM_CATALOG.find((d) => d.id === builderDam);
     if (dam) {
       setForm((f) => ({ ...f, ...fromDam(dam) }));
       setCatalogId(dam.id);
@@ -150,9 +157,11 @@ export default function ScenarioBuilder() {
   if (!open && appliedDam) setAppliedDam(null);
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return DAM_CATALOG.filter((d) => !q || `${d.name} ${d.river} ${d.state}`.toLowerCase().includes(q));
-  }, [query]);
+    const norm = normalizeSearchText(query);
+    if (!norm) return catalog;
+    const tokens = norm.split(' ').filter(Boolean);
+    return catalog.filter((d) => damMatchesTokens(tokens, d).matches);
+  }, [catalog, query]);
 
   const estimatedCells = Math.round(((form.reachKm + form.widthKm) * form.widthKm * 1e6) / (form.cellSize * form.cellSize));
   const building = steps !== null && steps.some((s) => s.state === 'active');
@@ -341,7 +350,7 @@ export default function ScenarioBuilder() {
                           >
                             <div className="truncate text-[12.5px] font-medium">{d.name}</div>
                             <div className={cn('truncate text-[11px]', catalogId === d.id ? 'text-canvas/70' : 'text-muted')}>
-                              {d.river} · {d.state}
+                              {d.river} · {d.district ? `${d.district}, ` : ''}{d.state}
                             </div>
                           </button>
                         ))}

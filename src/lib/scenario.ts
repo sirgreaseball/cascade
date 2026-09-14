@@ -79,6 +79,8 @@ export interface ScenarioMeta {
   id: string;
   name: string;
   river: string;
+  state?: string;
+  district?: string;
   event: EventKind;
   custom?: boolean;
 }
@@ -188,7 +190,20 @@ export async function listCustomScenarios(): Promise<ScenarioMeta[]> {
   try {
     const all = await withStore<StoredScenario[]>('readonly', (s) => s.getAll() as IDBRequest<StoredScenario[]>);
     return all
-      .map((r) => ({ id: r.id, name: r.config.name, river: r.config.river, event: r.config.event, custom: true }))
+      .map((r) => {
+        const parts = r.config.region ? r.config.region.split(',').map((s) => s.trim()) : [];
+        const state = parts.length > 1 ? parts[1] : parts[0];
+        const district = parts.length > 1 ? parts[0] : undefined;
+        return {
+          id: r.id,
+          name: r.config.name,
+          river: r.config.river,
+          state,
+          district,
+          event: r.config.event,
+          custom: true,
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
