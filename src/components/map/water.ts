@@ -38,6 +38,9 @@ export class WaterExtension extends LayerExtension<WaterOptions> {
     return {
       modules: [waterModule],
       inject: {
+        'vs:#decl': 'out vec3 vViewDir;',
+        'vs:DECKGL_FILTER_GL_POSITION': 'vViewDir = project.cameraPosition - geometry.position.xyz;',
+        'fs:#decl': 'in vec3 vViewDir;',
         'fs:#main-end': `
           if (fragColor.a > 0.001) {
             vec2 p = vTexCoord * vec2(${cols.toFixed(1)}, ${rows.toFixed(1)});
@@ -48,7 +51,7 @@ export class WaterExtension extends LayerExtension<WaterOptions> {
             float a3 = (p.x + p.y) * 4.1 - t * 2.4;
             vec2 grad = vec2(1.9, 0.7) * cos(a1) + vec2(-0.8, 2.3) * cos(a2) * 0.8 + vec2(4.1) * cos(a3) * 0.25;
             vec3 n = normalize(vec3(-grad * 0.045, 1.0));
-            vec3 viewDir = normalize(cameraPosition - position_commonspace.xyz);
+            vec3 viewDir = length(vViewDir) > 1e-4 ? normalize(vViewDir) : vec3(0.0, 0.0, 1.0);
             vec3 sunDir = normalize(vec3(-0.35, 0.45, 0.82));
             float glint = pow(max(dot(reflect(-viewDir, n), sunDir), 0.0), 160.0);
             float fresnel = pow(1.0 - clamp(viewDir.z, 0.0, 1.0), 4.0);

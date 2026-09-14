@@ -258,6 +258,7 @@ export class FloodExtension extends LayerExtension<FloodOptions> {
         inject: {
           'vs:#decl': /* glsl */ `
             out vec2 vFloodUv;
+            out vec3 vViewDir;
           `,
           'vs:DECKGL_FILTER_GL_POSITION': /* glsl */ `
             vec2 p = geometry.position.xy;
@@ -266,9 +267,11 @@ export class FloodExtension extends LayerExtension<FloodOptions> {
             float sinh_n = 0.5 * (exp(n) - exp(-n));
             float lat = 57.29577951308232 * atan(sinh_n);
             vFloodUv = vec2((lng - flood.bbox.x) / max(flood.bbox.z - flood.bbox.x, 1e-6), (flood.bbox.w - lat) / max(flood.bbox.w - flood.bbox.y, 1e-6));
+            vViewDir = project.cameraPosition - geometry.position.xyz;
           `,
           'fs:#decl': /* glsl */ `
             in vec2 vFloodUv;
+            in vec3 vViewDir;
           `,
           'fs:DECKGL_FILTER_COLOR': /* glsl */ `
             if (vFloodUv.x >= 0.0 && vFloodUv.x <= 1.0 && vFloodUv.y >= 0.0 && vFloodUv.y <= 1.0) {
@@ -281,7 +284,7 @@ export class FloodExtension extends LayerExtension<FloodOptions> {
                 float a3 = (p.x + p.y) * 4.1 - t * 2.4;
                 vec2 grad = vec2(1.9, 0.7) * cos(a1) + vec2(-0.8, 2.3) * cos(a2) * 0.8 + vec2(4.1) * cos(a3) * 0.25;
                 vec3 n = normalize(vec3(-grad * 0.045, 1.0));
-                vec3 viewDir = normalize(cameraPosition - position_commonspace.xyz);
+                vec3 viewDir = length(vViewDir) > 1e-4 ? normalize(vViewDir) : vec3(0.0, 0.0, 1.0);
                 vec3 sunDir = normalize(vec3(-0.35, 0.45, 0.82));
                 float glint = pow(max(dot(reflect(-viewDir, n), sunDir), 0.0), 160.0);
                 float fresnel = pow(1.0 - clamp(viewDir.z, 0.0, 1.0), 4.0);
