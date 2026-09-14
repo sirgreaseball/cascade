@@ -143,9 +143,9 @@ then 9.** The two goals above everything: **better performance and better visual
 | 3.6 | Main-thread churn per frame message | done (`5faf0ad`) |
 | 4 | Terrain detail everywhere; water in the terrain shader; reservoir at T+0; roads country-wide | done (`8f6276c`, `683d71e`) |
 | 5 | Evacuation routes that follow the clock | done (`d55a843`) |
-| 6 | Every dam in India; search by state, district and city | **next** — §9.6 |
-| 7 | Code health: lint to zero; model accuracy checks | done (`6a3c538`) |
-| 9 | Historical Events section; cascading dams | §9.8 |
+| 6 | Every dam in India; search by state, district and city | done (`55397b0`) |
+| 7 | Code health: lint to zero; model accuracy checks | done (`6c3b348`) |
+| 9 | Historical Events section; cascading dams | **next** — §9.8 |
 
 Open decision for the owner: **SPH off by default?** It runs on the CPU and takes about four times
 as long as even the CPU grid solver; recommended to default to the grid solver only, SPH one click
