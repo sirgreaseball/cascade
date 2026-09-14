@@ -129,11 +129,10 @@ const pickOnlyPlaces = ({ layer, renderPass }: { layer: Layer; renderPass: strin
 
 /** The flood's textures, shared by the 2D and 3D flood layers; rebuilt when the grid changes. */
 let floodField: FloodField | null = null;
+let terrainTileErrors = 0;
 /** The 2D flood layer needs an image of its own, but its colour comes from the flood shader. */
 const BLANK_IMAGE = typeof ImageData !== 'undefined' ? new ImageData(1, 1) : null;
 const OBSERVED_RGB = hexToRgb(IDENTITY.observed);
-/** Ripple time in ten-minute units: the water moves while the flood plays and rests when paused. */
-const waterClock = () => useSimStore.getState().playhead / 600;
 
 /**
  * The flood at the playhead, read from the stores on every draw so it animates at the display's own
@@ -313,22 +312,26 @@ interface Hover {
 function useLocalTerrain(enabled: boolean) {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
-  const [tex, setTex] = useState<{ id: string; elevation: string; texture: string } | null>(null);
+  const [satTex, setSatTex] = useState<{ id: string; url: string } | null>(null);
   useEffect(() => {
     if (!enabled || !config || !data) return;
     let cancelled = false;
-    const elevation = terrariumDataUrl(data.dem, data.grid.cols, data.grid.rows);
-    setTex({ id: config.id, elevation, texture: hillshadeDataUrl(data.dem, data.grid) });
     if (typeof navigator === 'undefined' || navigator.onLine) {
       satelliteDataUrl(data.grid.bbox).then((sat) => {
-        if (!cancelled && sat) setTex({ id: config.id, elevation, texture: sat });
+        if (!cancelled && sat) setSatTex({ id: config.id, url: sat });
       });
     }
     return () => {
       cancelled = true;
     };
   }, [enabled, config, data]);
-  return tex;
+
+  return useMemo(() => {
+    if (!enabled || !config || !data) return null;
+    const elevation = terrariumDataUrl(data.dem, data.grid.cols, data.grid.rows);
+    const texture = satTex && satTex.id === config.id ? satTex.url : hillshadeDataUrl(data.dem, data.grid);
+    return { id: config.id, elevation, texture };
+  }, [enabled, config, data, satTex]);
 }
 
 const metresPerPixel = (zoom: number, lat: number) => (156_543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
@@ -366,14 +369,13 @@ export default function MapView() {
   }, []);
   // Mesh terrain in a worker; if the worker cannot start, fall back to the main thread.
   const [terrainWorker, setTerrainWorker] = useState(true);
-  const tileErrors = useRef(0);
   const onTerrainError = useCallback((err?: unknown) => {
     const error = err as Error | undefined;
     // Normal camera movements (pan/zoom) abort in-flight tile requests; ignore them completely
     if (error?.name === 'AbortError' || error?.message?.includes('aborted')) return;
-    tileErrors.current++;
-    if (terrainWorker && tileErrors.current > 4) {
-      tileErrors.current = 0;
+    terrainTileErrors++;
+    if (terrainWorker && terrainTileErrors > 4) {
+      terrainTileErrors = 0;
       setTerrainWorker(false);
     }
   }, [terrainWorker]);
@@ -384,7 +386,7 @@ export default function MapView() {
    * every scenario loaded afterwards looking soft, with nothing to put it back.
    */
   const onTerrainTile = useCallback(() => {
-    tileErrors.current = 0;
+    terrainTileErrors = 0;
     if (!useUiStore.getState().mapReady) useUiStore.getState().setMapReady(true);
   }, []);
   // Offline, the scenario's own DEM stands in for the world terrain; back online, the world returns.
@@ -409,30 +411,36 @@ export default function MapView() {
   useEffect(() => {
     if (!config) return;
     const [w, s, e, n] = config.bbox;
-    setViewState((v) => ({
-      ...v,
-      longitude: (w + e) / 2,
-      latitude: (s + n) / 2,
-      zoom: config.view?.zoom ?? 10,
-      pitch: view.terrain3d ? config.view?.pitch ?? 55 : 0,
-      bearing: view.terrain3d ? config.view?.bearing ?? 0 : 0,
-      transitionDuration: 1800,
-      transitionInterpolator: new FlyToInterpolator({ speed: 1.6 }),
-    }));
-    setHover(null);
+    const id = requestAnimationFrame(() => {
+      setViewState((v) => ({
+        ...v,
+        longitude: (w + e) / 2,
+        latitude: (s + n) / 2,
+        zoom: config.view?.zoom ?? 10,
+        pitch: view.terrain3d ? config.view?.pitch ?? 55 : 0,
+        bearing: view.terrain3d ? config.view?.bearing ?? 0 : 0,
+        transitionDuration: 1800,
+        transitionInterpolator: new FlyToInterpolator({ speed: 1.6 }),
+      }));
+      setHover(null);
+    });
+    return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config?.id]);
 
   // Tilt in and out with the 2D / 3D toggle.
   useEffect(() => {
-    setViewState((v) => ({
-      ...v,
-      pitch: view.terrain3d ? config?.view?.pitch ?? 55 : 0,
-      bearing: view.terrain3d ? v.bearing : 0,
-      transitionDuration: 900,
-      transitionInterpolator: new FlyToInterpolator({ speed: 3 }),
-    }));
-    setHover(null);
+    const id = requestAnimationFrame(() => {
+      setViewState((v) => ({
+        ...v,
+        pitch: view.terrain3d ? config?.view?.pitch ?? 55 : 0,
+        bearing: view.terrain3d ? v.bearing : 0,
+        transitionDuration: 900,
+        transitionInterpolator: new FlyToInterpolator({ speed: 3 }),
+      }));
+      setHover(null);
+    });
+    return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.terrain3d]);
 
@@ -441,14 +449,17 @@ export default function MapView() {
     if (selectedAsset === null || !exposure) return;
     const a = exposure.assets[selectedAsset];
     if (!a) return;
-    setViewState((v) => ({
-      ...v,
-      longitude: a.lng,
-      latitude: a.lat,
-      zoom: Math.max(v.zoom, 12.4),
-      transitionDuration: 1200,
-      transitionInterpolator: new FlyToInterpolator({ speed: 1.8 }),
-    }));
+    const id = requestAnimationFrame(() => {
+      setViewState((v) => ({
+        ...v,
+        longitude: a.lng,
+        latitude: a.lat,
+        zoom: Math.max(v.zoom, 12.4),
+        transitionDuration: 1200,
+        transitionInterpolator: new FlyToInterpolator({ speed: 1.8 }),
+      }));
+    });
+    return () => cancelAnimationFrame(id);
   }, [selectedAsset, exposure]);
 
   // ---- Flood ------------------------------------------------------------------------------
@@ -478,28 +489,28 @@ export default function MapView() {
     void s.summaryVersion;
     return results.get(primary)?.summary?.t ?? -1;
   });
-  const [evacuation, setEvacuation] = useState<EvacuationRoute[] | null>(null);
+  const [plannedRoutes, setPlannedRoutes] = useState<{ id: string; t: number; routes: EvacuationRoute[] } | null>(null);
 
   useEffect(() => {
-    if (!data || !exposure || !view.showEvacuation || summaryTime < 0) {
-      setEvacuation(null);
-      return;
-    }
+    if (!data || !exposure || !view.showEvacuation || summaryTime < 0) return;
     const summary = results.get(primary)?.summary;
-    if (!summary) {
-      setEvacuation(null);
-      return;
-    }
+    if (!summary) return;
     let active = true;
     planEvacuation(exposure, data.grid, summary, { dem: data.dem }).then((routes) => {
       if (active) {
-        setEvacuation(routes.filter((r) => r.path.length > 0));
+        setPlannedRoutes({ id: config?.id ?? '', t: summaryTime, routes: routes.filter((r) => r.path.length > 0) });
       }
     });
     return () => {
       active = false;
     };
-  }, [data, exposure, primary, summaryTime, view.showEvacuation]);
+  }, [config?.id, data, exposure, primary, summaryTime, view.showEvacuation]);
+
+  const evacuation = useMemo(() => {
+    if (!data || !exposure || !view.showEvacuation || summaryTime < 0) return null;
+    if (!plannedRoutes || plannedRoutes.id !== (config?.id ?? '')) return null;
+    return plannedRoutes.routes;
+  }, [config?.id, data, exposure, plannedRoutes, summaryTime, view.showEvacuation]);
 
   const evacuationMap = useMemo(() => {
     if (!evacuation) return null;
@@ -885,7 +896,6 @@ export default function MapView() {
       );
     }
     return list;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
@@ -970,7 +980,7 @@ export default function MapView() {
       }
       setHover({ x: info.x, y: info.y, title: `${lat.toFixed(4)}°N ${lng.toFixed(4)}°E`, lines });
     },
-    [data, exposure, impacts, primary, view.terrain3d],
+    [data, exposure, impacts, primary, view.terrain3d, evacuationMap],
   );
 
   const onClick = useCallback((info: PickingInfo) => {
@@ -984,8 +994,22 @@ export default function MapView() {
   }, []);
 
   // Keep hover cards inside the map.
-  const width = containerRef.current?.clientWidth ?? 1600;
-  const height = containerRef.current?.clientHeight ?? 1000;
+  const [containerSize, setContainerSize] = useState({ width: 1600, height: 1000 });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setContainerSize({ width, height });
+        }
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const { width, height } = containerSize;
 
   if (!GPU.webgl2) {
     return (

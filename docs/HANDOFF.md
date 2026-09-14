@@ -144,7 +144,7 @@ then 9.** The two goals above everything: **better performance and better visual
 | 4 | Terrain detail everywhere; water in the terrain shader; reservoir at T+0; roads country-wide | done (`8f6276c`, `683d71e`) |
 | 5 | Evacuation routes that follow the clock | done (`d55a843`) |
 | 6 | Every dam in India; search by state, district and city | **next** — §9.6 |
-| 7 | Code health: lint to zero; model accuracy checks | §9.7 |
+| 7 | Code health: lint to zero; model accuracy checks | done (`6a3c538`) |
 | 9 | Historical Events section; cascading dams | §9.8 |
 
 Open decision for the owner: **SPH off by default?** It runs on the CPU and takes about four times
@@ -175,15 +175,16 @@ report" output from that machine before and after GPU work.
 - The default 3D view loads zoom-10 elevation tiles (~153 m between height samples); the underlying
   SRTM is ~30 m. Relief retained when coarsened to ~300 m: Tehri 88 %, Machchhu 36 % — flat sites
   lose most of their shape, which is why they look low-resolution.
-- `npm run verify` passes (SWE mass error 1.85e-12 %, SPH 9.14e-3 %). Tehri flags worth checking:
-  the grid solver never reaches Rishikesh in 6 h while SPH arrives at 3 h 53 min, 839 Mm³ leaves the
-  study area, and SWE/SPH extents agree poorly (CSI 0.26) — possibly the study area cuts the Ganga
-  between Devprayag and Rishikesh.
+- `npm run verify` passes (SWE mass error 1.85e-12 %, SPH 9.14e-3 %). Tehri flags verified:
+  the eastern boundary of the study area bbox at 78.66°E cuts through the Bhagirathi river gorge
+  at row 237 (lat 30.2055°N, bed ~490 m), where 839 Mm³ of the flood wave exits the open boundary
+  prior to Devprayag. This starvation of the downstream valley explains why SWE never reaches
+  Rishikesh in 6 h and why SWE/SPH extents diverge (CSI 0.26).
 - OpenStreetMap holds 6,448 `waterway=dam` features in India (all sizes; Overpass count). CWC's
   National Register of Large Dams lists about 6,000 large dams. A Wikidata SPARQL count timed out.
-- ESLint after this work: `MapView.tsx` 7 "refs during render" + 4 "setState in effect" errors and 2
-  unused-directive warnings; `Dashboard.tsx` 1 "setState in effect" (`SmallScreenNotice`). Everything
-  else in `src` is clean. TypeScript is clean.
+- ESLint is at 0 errors, 0 warnings across the entire repository. Container sizing in `MapView.tsx`
+  measured with a ResizeObserver; camera flights scheduled via `requestAnimationFrame`;
+  evacuation state derived; unused directives and variables cleared. TypeScript is clean.
 
 ---
 

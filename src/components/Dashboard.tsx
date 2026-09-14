@@ -156,16 +156,23 @@ function useResponsiveStart() {
 }
 
 function SmallScreenNotice() {
-  const [show, setShow] = React.useState(false);
-  useEffect(() => setShow(window.innerWidth < 760), []);
-  if (!show) return null;
+  const [dismissed, setDismissed] = React.useState(false);
+  const isSmall = React.useSyncExternalStore(
+    (cb) => {
+      window.addEventListener('resize', cb);
+      return () => window.removeEventListener('resize', cb);
+    },
+    () => window.innerWidth < 760,
+    () => false,
+  );
+  if (dismissed || !isSmall) return null;
   return (
     <div className="absolute inset-0 z-[60] flex items-end justify-center bg-black/25 p-4 backdrop-blur-sm">
       <div className="glass-strong w-full max-w-sm rounded-[26px] p-6 shadow-panel">
         <Logo className="h-9 w-9" />
         <div className="mt-4 text-[17px] font-semibold tracking-[-0.02em]">Cascade is built for bigger screens</div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">The simulator runs two hydrodynamic solvers and a 3D map side by side. It works best on a laptop or desktop.</p>
-        <button onClick={() => setShow(false)} className="mt-5 h-10 w-full rounded-full bg-ink text-[14px] font-medium text-canvas">
+        <button onClick={() => setDismissed(true)} className="mt-5 h-10 w-full rounded-full bg-ink text-[14px] font-medium text-canvas">
           Continue anyway
         </button>
       </div>
