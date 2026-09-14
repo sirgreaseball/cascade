@@ -145,7 +145,7 @@ then 9.** The two goals above everything: **better performance and better visual
 | 5 | Evacuation routes that follow the clock | done (`d55a843`) |
 | 6 | Every dam in India; search by state, district and city | done (`55397b0`) |
 | 7 | Code health: lint to zero; model accuracy checks | done (`6c3b348`) |
-| 9 | Historical Events section; cascading dams | **next** — §9.8 |
+| 9 | Historical Events section; cascading dams | done (`9301928`) |
 
 Open decision for the owner: **SPH off by default?** It runs on the CPU and takes about four times
 as long as even the CPU grid solver; recommended to default to the grid solver only, SPH one click
