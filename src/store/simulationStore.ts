@@ -146,7 +146,8 @@ export const useSimStore = create<SimState>((set, get) => ({
   resolution: 'standard',
   useGpu: true,
   fastCompute: false,
-  engines: { swe: true, sph: true },
+  // The grid solver is the reference; SPH is a coarse particle cross-check, switched on in Model.
+  engines: { swe: true, sph: false },
   setup: null,
   setupError: null,
   stale: false,
