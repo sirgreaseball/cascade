@@ -189,25 +189,64 @@ async function overpass<T>(
   onRetry: ((message: string) => void) | undefined,
   backoff: number[],
 ): Promise<T> {
-  const body = new URLSearchParams({ data: query });
+  const body = new URLSearchParams({ data: query }).toString();
   let lastError: unknown = null;
   for (const wait of backoff) {
     if (wait) {
       onRetry?.(`OpenStreetMap servers are busy — retrying in ${wait / 1000} s`);
       await sleep(wait);
     }
-    for (const endpoint of OVERPASS_ENDPOINTS) {
-      if (signal?.aborted) throw new Error('Cancelled');
-      try {
-        const res = await fetchImpl(endpoint, { method: 'POST', body, signal });
-        if (!res.ok) throw new Error(`Overpass ${new URL(endpoint).host} returned ${res.status}`);
-        return (await res.json()) as T;
-      } catch (err) {
-        lastError = err;
-      }
+    if (signal?.aborted) throw new Error('Cancelled');
+    // Ask every mirror at once and take the first good answer: trying them one after another let
+    // a single slow or silent server hold the build up for minutes.
+    const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
+    const stop = () => controllers.forEach((c) => c.abort());
+    signal?.addEventListener('abort', stop, { once: true });
+    const timer = setTimeout(stop, 90_000);
+    try {
+      return await Promise.any(
+        OVERPASS_ENDPOINTS.map(async (endpoint, i) => {
+          const res = await fetchImpl(endpoint, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: controllers[i].signal });
+          if (!res.ok) throw new Error(`Overpass ${new URL(endpoint).host} returned ${res.status}`);
+          const json = (await res.json()) as T;
+          controllers.forEach((c, j) => j !== i && c.abort());
+          return json;
+        }),
+      );
+    } catch (err) {
+      lastError = err instanceof AggregateError ? err.errors[0] : err;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', stop);
     }
   }
   throw lastError instanceof Error ? lastError : new Error('Overpass request failed');
+}
+
+/** Places and roads fetched before, kept on this device so rebuilding an area needs no network. */
+function cacheStore(mode: IDBTransactionMode): Promise<IDBObjectStore | null> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const req = indexedDB.open('cascade-osm', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('exposure');
+    req.onsuccess = () => resolve(req.result.transaction('exposure', mode).objectStore('exposure'));
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function cacheGet<T>(key: string): Promise<T | null> {
+  const store = await cacheStore('readonly').catch(() => null);
+  if (!store) return null;
+  return new Promise((resolve) => {
+    const req = store.get(key);
+    req.onsuccess = () => resolve((req.result as T) ?? null);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function cachePut(key: string, value: unknown): Promise<void> {
+  const store = await cacheStore('readwrite').catch(() => null);
+  store?.put(value, key);
 }
 
 export async function fetchOsmExposure(
@@ -216,7 +255,12 @@ export async function fetchOsmExposure(
   signal?: AbortSignal,
   onRetry?: (message: string) => void,
 ): Promise<{ assets: AssetCollection; roads: RoadCollection }> {
-  return parseOverpass(await overpass(overpassQuery(bbox), fetchImpl, signal, onRetry, [0, 8_000, 20_000]));
+  const key = bbox.map((v) => v.toFixed(3)).join(',');
+  const cached = await cacheGet<{ assets: AssetCollection; roads: RoadCollection }>(key);
+  if (cached) return cached;
+  const result = parseOverpass(await overpass(overpassQuery(bbox), fetchImpl, signal, onRetry, [0, 5_000]));
+  await cachePut(key, result).catch(() => undefined);
+  return result;
 }
 
 // ---- Dam crest lines ------------------------------------------------------------------------
