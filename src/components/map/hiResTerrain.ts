@@ -29,8 +29,9 @@ const RETRIES = 3;
 /** Compressed tiles kept in memory, so neighbouring tiles and reloads skip the network. */
 const BLOB_CACHE = 600;
 /** A low-quality tile is reloaded at most this many times, the first after this delay. */
-const RELOAD_ATTEMPTS = 3;
-const RELOAD_DELAY_MS = 4000;
+const RELOAD_ATTEMPTS = 4;
+/** First retry of a tile that came back coarse. Four seconds was long enough to be seen. */
+const RELOAD_DELAY_MS = 1200;
 
 const fill = (template: string, x: number, y: number, z: number) => template.replace('{x}', String(x)).replace('{y}', String(y)).replace('{z}', String(z));
 

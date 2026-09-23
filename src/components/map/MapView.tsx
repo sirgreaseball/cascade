@@ -632,6 +632,11 @@ export default function MapView() {
           extensions: [haze],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
+          // Hold on to far more tiles than the view needs. deck.gl otherwise sizes the cache from
+          // the current viewport, so zooming out and back in throws away what was just on screen
+          // and downloads it again — which is when a coarse parent tile is left showing as a
+          // blurred rectangle among sharp neighbours.
+          maxCacheSize: 240,
           ...meshing,
           material: TERRAIN_MATERIAL,
           onTileError: onTerrainError,
