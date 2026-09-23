@@ -268,6 +268,41 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 
 // ---- Figures ---------------------------------------------------------------------------------
 
+/** How long a figure takes to travel from its old value to its new one. */
+const COUNT_MS = 420;
+
+/**
+ * A figure that counts to its new value instead of snapping. Headline numbers change every time the
+ * flood reaches another settlement, and a number that jumps is read as a glitch rather than as the
+ * water arriving somewhere.
+ */
+export function Count({ value, format, className }: { value: number; format: (v: number) => React.ReactNode; className?: string }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(value);
+  const raf = useRef<number | null>(null);
+  useEffect(() => {
+    const start = performance.now();
+    const a = from.current;
+    const b = value;
+    if (a === b) return;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / COUNT_MS);
+      // Ease out: quick off the mark, gentle as it lands.
+      const eased = 1 - (1 - t) ** 3;
+      const at = a + (b - a) * eased;
+      from.current = at;
+      setShown(at);
+      if (t < 1) raf.current = requestAnimationFrame(step);
+      else from.current = b;
+    };
+    raf.current = requestAnimationFrame(step);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+    };
+  }, [value]);
+  return <span className={className}>{format(shown)}</span>;
+}
+
 export function Stat({ label, value, sub, className }: { label: React.ReactNode; value: React.ReactNode; sub?: React.ReactNode; className?: string }) {
   return (
     <div className={cn('min-w-0', className)}>

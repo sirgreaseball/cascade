@@ -9,7 +9,7 @@ import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import { usePrimaryEngine, useImpacts } from '@/components/useSimView';
-import { Divider, Dot, Section, Segmented, Stat, Tag } from '@/components/ui/primitives';
+import { Count, Divider, Dot, Hint, Section, Segmented, Stat, Tag } from '@/components/ui/primitives';
 import { LineChart } from '@/components/ui/charts';
 import { HAZARD_COLORS, IDENTITY } from '@/components/map/colormaps';
 import { extentAgreement, depthDifference } from '@/lib/compare';
@@ -256,8 +256,23 @@ export default function RightPanel() {
               ) : (
                 <>
                   <div>
-                    <div className="text-[12px] text-muted">People in flooded places</div>
-                    <div className="mt-0.5 text-[48px] font-semibold leading-none tracking-[-0.04em]">{formatCompact(i.peopleExposed)}</div>
+                    <Hint
+                      title="People in flooded places"
+                      body="Each settlement's population times the share of its footprint under at least 0.1 m of water at this moment. Populations come from OpenStreetMap, or from typical figures for the place type where it gives none. Click to see the method and its sources."
+                    >
+                      <button
+                        className="block text-left"
+                        onClick={() => {
+                          useUiStore.getState().setLeftOpen(true);
+                          useUiStore.getState().setLeftTab('model');
+                        }}
+                      >
+                        <div className="text-[12px] text-muted">People in flooded places</div>
+                        <div className="mt-0.5 text-[48px] font-semibold leading-none tracking-[-0.04em]">
+                          <Count value={i.peopleExposed} format={formatCompact} />
+                        </div>
+                      </button>
+                    </Hint>
                     <div className="mt-1.5 text-[12px] text-muted">
                       in {formatNumber(i.settlementsFlooded)} settlement{i.settlementsFlooded === 1 ? '' : 's'}
                       {i.firstArrivalPlace && (
@@ -270,11 +285,15 @@ export default function RightPanel() {
                   {i.peopleExposed > 0 && <LifeLossCard statuses={impacts.statuses} />}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     <Stat
-                      label="Flooded now"
-                      value={formatArea(impacts.floodedArea)}
+                      label={<Hint title="Flooded now" body="Ground under at least 0.1 m of water at this moment, counted cell by cell on the model grid.">{'Flooded now'}</Hint>}
+                      value={<Count value={impacts.floodedArea} format={formatArea} />}
                       sub={impacts.leftArea > 1e5 ? `${formatVolume(impacts.leftArea)} left the area` : undefined}
                     />
-                    <Stat label="Outflow now" value={formatDischarge(impacts.inflowRate)} sub={`${formatVolume(impacts.released)} released`} />
+                    <Stat
+                      label={<Hint title="Outflow now" body="Water leaving the breach this moment, from the reservoir routed against the water level downstream: a drowned breach passes less.">{'Outflow now'}</Hint>}
+                      value={<Count value={impacts.inflowRate} format={formatDischarge} />}
+                      sub={`${formatVolume(impacts.released)} released`}
+                    />
                     <Stat label="Critical facilities" value={formatNumber(i.facilitiesFlooded)} sub="health, schools, emergency" />
                     <Stat label="Bridges" value={formatNumber(i.bridgesFlooded)} sub="under water" />
                     <Stat label="Major roads cut" value={`${formatNumber(i.roadKmCut, i.roadKmCut < 10 ? 1 : 0)} km`} sub="≥ 0.3 m deep" />

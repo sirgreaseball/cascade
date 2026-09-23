@@ -404,6 +404,39 @@ export default function MapView() {
     [],
   );
   const hasFlood = hasResults || !!(observed && view.showObserved) || !!ensemble;
+  // Switching between depth, hazard, arrival and the rest used to swap one picture for another
+  // between frames; the new one now fades up over a quarter of a second.
+  const [layerFade, setLayerFade] = useState(1);
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 250);
+      setLayerFade(t * t * (3 - 2 * t));
+      if (t < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [view.layer]);
+
+  // A run is the moment everything turns on: ease the camera towards the dam as it starts.
+  const running = useSimStore((s) => isRunning(s.runs));
+  useEffect(() => {
+    if (!running || !setup) return;
+    const { bed } = setup.site;
+    const raf = requestAnimationFrame(() =>
+      setViewState((v) => ({
+        ...v,
+        longitude: bed.lng,
+        latitude: bed.lat,
+        zoom: Math.max(v.zoom, 10.6),
+        transitionDuration: 2200,
+        transitionInterpolator: new FlyToInterpolator({ speed: 1.2 }),
+      })),
+    );
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
   // The 3D flood is drawn on its own mesh of the scenario DEM, lifted clear of the terrain tiles,
   // and only where ground lies below the crest (higher ground can never flood).
   const crestElevation = setup?.site.crestElevation ?? Infinity;
@@ -608,6 +641,7 @@ export default function MapView() {
           getPosition: () => [skin.anchor[0], skin.anchor[1], 0],
           getColor: [255, 255, 255, 255],
           material: WATER_MATERIAL,
+          opacity: layerFade,
           parameters: { depthWriteEnabled: false },
           extensions: water ? [FLOOD, water, haze] : [FLOOD, haze],
         } as never),
@@ -617,6 +651,7 @@ export default function MapView() {
         new BitmapLayer({
           id: 'flood',
           image: BLANK_IMAGE,
+          opacity: layerFade,
           bounds: bbox,
           _imageCoordinateSystem: COORDINATE_SYSTEM.LNGLAT,
           extensions: [FLOOD],
@@ -843,7 +878,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, layerFade, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
