@@ -118,6 +118,10 @@ const HAZE_SATELLITE: [number, number, number] = [0.682, 0.749, 0.816];
 const HAZE_MAP = [0.114, 0.129, 0.153] as [number, number, number];
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
+/** How long one ring takes to travel out from the breach, and how far apart the rings are sent. */
+const PULSE_MS = 1150;
+const PULSE_GAP = 0.42;
+const PULSE_RINGS = 1 + PULSE_GAP * 2;
 /** The water shader adds its own glints; the material keeps only a soft sheen. */
 const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [25, 25, 25] as [number, number, number] };
 const waterClock = () => useSimStore.getState().playhead / 600;
@@ -437,6 +441,27 @@ export default function MapView() {
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
+
+  // Rings travel out from the breach for the first couple of seconds of a run. The camera is still
+  // flying and no water has been computed yet, so this is what says where to look.
+  const [pulse, setPulse] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    let raf = 0;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = (now - start) / PULSE_MS;
+      setPulse(t >= PULSE_RINGS ? 0 : t);
+      if (t < PULSE_RINGS) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [running]);
+  // Each ring is one lap behind the one before it, and fades as it widens.
+  const rings = useMemo(
+    () => (running && pulse > 0 ? [0, 1, 2].map((k) => pulse - k * PULSE_GAP).filter((p) => p > 0 && p < 1) : []),
+    [running, pulse],
+  );
   // The 3D flood is drawn on its own mesh of the scenario DEM, lifted clear of the terrain tiles,
   // and only where ground lies below the crest (higher ground can never flood).
   const crestElevation = setup?.site.crestElevation ?? Infinity;
@@ -818,6 +843,24 @@ export default function MapView() {
       const z = view.terrain3d ? bed.elevation + config.dam.height + 80 : 0;
       const at = [{ position: [bed.lng, bed.lat, z] as [number, number, number] }];
       const position = (d: { position: [number, number, number] }) => d.position;
+      if (rings.length) {
+        list.push(
+          new ScatterplotLayer({
+            id: 'dam-pulse',
+            data: rings.map((p) => ({ position: at[0].position, p })),
+            getPosition: (d: { position: [number, number, number] }) => d.position,
+            getRadius: (d: { p: number }) => 17 + d.p * 52,
+            radiusUnits: 'pixels',
+            filled: false,
+            stroked: true,
+            getLineColor: (d: { p: number }) => [208, 59, 59, Math.round(190 * (1 - d.p) ** 1.6)] as [number, number, number, number],
+            getLineWidth: 2,
+            lineWidthUnits: 'pixels',
+            parameters: { depthTest: false },
+            updateTriggers: { getRadius: rings, getLineColor: rings },
+          }),
+        );
+      }
       if (view.terrain3d) {
         list.push(
           new PathLayer({
@@ -878,7 +921,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, layerFade, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(

@@ -40,8 +40,15 @@ function LifeLossCard({ statuses }: { statuses: AssetStatus[] }) {
   return (
     <div className="space-y-2.5 rounded-2xl bg-fill/70 px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[12px] text-muted">Estimated loss of life</div>
-        <div className="tnum text-[20px] font-semibold tracking-[-0.02em]">{fmt(estimate.central)}</div>
+        <Hint
+          title="Estimated loss of life"
+          body="Graham (1999): the people standing in the flood, multiplied by the fatality rate for how severe the water is where they are and how much warning they had. It is a planning figure, not a forecast."
+        >
+          <span className="text-[12px] text-muted">Estimated loss of life</span>
+        </Hint>
+        <div className="tnum text-[20px] font-semibold tracking-[-0.02em]">
+          <Count value={estimate.central} format={fmt} />
+        </div>
       </div>
       <div>
         <div className="mb-1 text-[11px] text-muted">Warning issued</div>
@@ -294,10 +301,26 @@ export default function RightPanel() {
                       value={<Count value={impacts.inflowRate} format={formatDischarge} />}
                       sub={`${formatVolume(impacts.released)} released`}
                     />
-                    <Stat label="Critical facilities" value={formatNumber(i.facilitiesFlooded)} sub="health, schools, emergency" />
-                    <Stat label="Bridges" value={formatNumber(i.bridgesFlooded)} sub="under water" />
-                    <Stat label="Major roads cut" value={`${formatNumber(i.roadKmCut, i.roadKmCut < 10 ? 1 : 0)} km`} sub="≥ 0.3 m deep" />
-                    <Stat label="Indicative loss" value={formatINR(i.loss)} sub="JRC depth–damage" />
+                    <Stat
+                      label={<Hint title="Critical facilities" body="Hospitals, clinics, schools and emergency services standing in water at this moment. Which buildings count comes from how OpenStreetMap tags them.">{'Critical facilities'}</Hint>}
+                      value={<Count value={i.facilitiesFlooded} format={(v) => formatNumber(Math.round(v))} />}
+                      sub="health, schools, emergency"
+                    />
+                    <Stat
+                      label={<Hint title="Bridges" body="Road and rail bridges with water over the deck. One cut bridge severs the route even where the road either side stays dry.">{'Bridges'}</Hint>}
+                      value={<Count value={i.bridgesFlooded} format={(v) => formatNumber(Math.round(v))} />}
+                      sub="under water"
+                    />
+                    <Stat
+                      label={<Hint title="Major roads cut" body="Primary and secondary roads under at least 0.3 m of water — about the depth at which driving through stops being survivable.">{'Major roads cut'}</Hint>}
+                      value={<Count value={i.roadKmCut} format={(v) => `${formatNumber(v, i.roadKmCut < 10 ? 1 : 0)} km`} />}
+                      sub="≥ 0.3 m deep"
+                    />
+                    <Stat
+                      label={<Hint title="Indicative loss" body="Each flooded building's depth read against the JRC global depth–damage curve for its type in Asia, at Indian replacement values. Indicative: nobody has surveyed what is actually inside.">{'Indicative loss'}</Hint>}
+                      value={<Count value={i.loss} format={formatINR} />}
+                      sub="JRC depth–damage"
+                    />
                   </div>
                   <Divider />
                   <Section title="Places reached, by arrival">
