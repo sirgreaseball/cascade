@@ -13,6 +13,7 @@ import { fillNoData, sampleTerrariumGrid, TERRARIUM_ATTRIBUTION } from '@/lib/ge
 import { fetchTerrariumTile } from '@/lib/geo/tiles';
 import { crsLabel, readRasterFile, resampleToGrid } from '@/lib/geo/raster';
 import { fetchDamLine, fetchOsmExposure, OSM_ATTRIBUTION } from '@/lib/osm';
+import { computeBlockageLake } from '@/lib/blockageLake';
 import type { AssetCollection, AssetKind, RoadCollection } from '@/lib/osm';
 import { makeScenarioData, unpackageScenario } from '@/lib/scenario';
 import type { ScenarioConfig } from '@/lib/scenario';
@@ -228,6 +229,12 @@ export default function ScenarioBuilder() {
           : (catalogCrestLine(form.lng, form.lat) ?? (await fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined)));
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
+      // A river blockage impounds whatever the valley behind it can hold: fill the terrain to the
+      // barrier's crest rather than ask for a volume nobody has surveyed.
+      const lake = form.event === 'lake-outburst' ? computeBlockageLake(dem, spec, { lng: form.lng, lat: form.lat, barrierHeight: form.height, barrierLength: form.crestLength }) : null;
+      // A barrier dropped beside the channel rather than across it holds nothing back; fall back to
+      // the figure that was typed in instead of building a scenario with no water in it.
+      const measured = !!lake && lake.volumeMCM > 0.05;
       const today = new Date().toISOString().slice(0, 10);
       const slug = form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'scenario';
       const spanKm = Math.max((spec.bbox[2] - spec.bbox[0]) * 96, (spec.bbox[3] - spec.bbox[1]) * 111);
@@ -249,21 +256,27 @@ export default function ScenarioBuilder() {
           lat: form.lat,
           height: form.height,
           crestLength: form.crestLength,
-          volumeMCM: form.volumeMCM,
-          waterDepth: form.height * 0.95,
+          volumeMCM: measured ? lake!.volumeMCM : form.volumeMCM,
+          waterDepth: measured ? Math.min(lake!.waterDepth, form.height) : form.height * 0.95,
           snapRadius: 500,
           crestLine,
         },
         defaults: { manning: 0.045, duration: Math.min(12, Math.max(2, Math.round(area.reachKm / 12) + 2)) * 3600, failureMode: 'overtopping' },
         view: { zoom: Math.max(8.5, Math.min(12, 13.6 - Math.log2(spanKm))), pitch: 55, bearing: 0 },
-        notes: 'Dam figures are approximate; verify against the owner’s data before operational use.',
+        notes: measured && lake
+          ? `Lake measured from the terrain behind the blockage: ${lake.volumeMCM.toFixed(1)} Mm³ over ${lake.areaKm2.toFixed(2)} km², ${lake.waterDepth.toFixed(0)} m deep at the barrier${lake.spills ? ', and still rising where it meets the edge of the study area, so this is a lower bound' : ''}.`
+          : 'Dam figures are approximate; verify against the owner’s data before operational use.',
         custom: true,
         createdAt: new Date().toISOString(),
       };
       const data = makeScenarioData(config, dem, assets, roads);
       await addCustom(config, data);
       update(stepIndex, 'done');
-      toast({ title: `${form.name} is ready`, body: 'Press Run simulation to model the flood.', tone: 'success' });
+      toast({
+        title: `${form.name} is ready`,
+        body: measured && lake ? `Blockage lake measured from the terrain: ${lake.volumeMCM.toFixed(1)} Mm³ over ${lake.areaKm2.toFixed(2)} km². Press Run simulation.` : 'Press Run simulation to model the flood.',
+        tone: 'success',
+      });
       setTimeout(() => {
         setOpen(false);
         setSteps(null);
