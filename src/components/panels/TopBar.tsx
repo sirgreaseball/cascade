@@ -11,7 +11,8 @@ import { useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
 import type { MapLayer } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
-import { Button, Segmented } from '@/components/ui/primitives';
+import { Button, Hint, Segmented } from '@/components/ui/primitives';
+import { SPLASH_URL } from '@/lib/links';
 import { cn } from '@/lib/utils';
 
 export function Logo({ className }: { className?: string }) {
@@ -361,10 +362,16 @@ export default function TopBar() {
   return (
     <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex items-start justify-between gap-3">
       <div className="glass-pill pointer-events-auto flex h-12 items-center gap-1 rounded-full pl-2 pr-1 shadow-float">
-        <div className="flex items-center gap-2 pr-2">
-          <Logo className="h-8 w-8" />
-          <span className="text-[15px] font-semibold tracking-[-0.02em]">Cascade</span>
-        </div>
+        <Hint title="Cascade" body="Back to the Cascade front page.">
+          <a
+            href={SPLASH_URL}
+            className="flex items-center gap-2 rounded-full pr-2 transition-opacity hover:opacity-80"
+            aria-label="Back to the Cascade front page"
+          >
+            <Logo className="h-8 w-8" />
+            <span className="text-[15px] font-semibold tracking-[-0.02em]">Cascade</span>
+          </a>
+        </Hint>
         <div className="h-6 w-px bg-hairline" />
         <ScenarioSwitcher />
       </div>
@@ -403,9 +410,9 @@ export default function TopBar() {
             value={view.engine}
             onChange={(engine) => setView({ engine })}
             options={[
-              { value: 'swe', label: 'Grid' },
-              { value: 'sph', label: 'SPH' },
-              { value: 'overlay', label: 'Both' },
+              { value: 'swe', label: 'Grid', title: 'The shallow-water grid solver: the reference result, and the one the impact figures use.' },
+              { value: 'sph', label: 'SPH', title: 'Smoothed-particle hydrodynamics: an independent check with far fewer degrees of freedom, so it spreads wider.' },
+              { value: 'overlay', label: 'Both', title: 'Draw both solvers together to see where they agree.' },
             ]}
           />
         )}
@@ -415,8 +422,8 @@ export default function TopBar() {
           value={view.terrain3d ? '3d' : '2d'}
           onChange={(v) => setView({ terrain3d: v === '3d' })}
           options={[
-            { value: '2d', label: '2D' },
-            { value: '3d', label: '3D' },
+            { value: '2d', label: '2D', title: 'Flat map: fastest, and the clearest view of the flood extent.' },
+            { value: '3d', label: '3D', title: 'Terrain from SRTM elevation tiles, with the flood draped over the valley.' },
           ]}
         />
         <div className="hidden min-[1180px]:block">
@@ -426,8 +433,8 @@ export default function TopBar() {
             value={view.basemap}
             onChange={(basemap) => setView({ basemap })}
             options={[
-              { value: 'satellite', label: 'Satellite' },
-              { value: 'light', label: 'Map' },
+              { value: 'satellite', label: 'Satellite', title: 'Esri World Imagery: real ground cover, the best backdrop for judging what floods.' },
+              { value: 'light', label: 'Map', title: 'Dark canvas map: roads and place names stay legible under the flood colours.' },
             ]}
           />
         </div>

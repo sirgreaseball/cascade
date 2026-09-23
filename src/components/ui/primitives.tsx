@@ -1,8 +1,60 @@
 'use client';
 
-import React, { useId } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+
+// ---- Hints ----------------------------------------------------------------------------------
+
+/** How long the pointer must rest on something before its explanation appears. */
+const HINT_DELAY_MS = 450;
+
+/**
+ * An explanation that appears when the pointer rests on a control, the way a file manager explains
+ * a file. It is rendered at the top of the page rather than beside the control, so panels that
+ * scroll or slide cannot clip it, and it never takes the pointer.
+ */
+export function Hint({ title, body, children }: { title: React.ReactNode; body?: React.ReactNode; children: React.ReactNode }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; above: boolean } | null>(null);
+  const hide = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setAt(null);
+  };
+  const show = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const r = anchor.current?.getBoundingClientRect();
+      if (!r) return;
+      const above = r.bottom + 132 > window.innerHeight;
+      setAt({ x: Math.min(Math.max(r.left + r.width / 2, 150), window.innerWidth - 150), y: above ? r.top - 10 : r.bottom + 10, above });
+    }, HINT_DELAY_MS);
+  };
+  useEffect(() => () => hide(), []);
+  return (
+    <span ref={anchor} className="contents" onPointerEnter={show} onPointerLeave={hide} onPointerDown={hide} onFocusCapture={show} onBlurCapture={hide}>
+      {children}
+      {at &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <motion.div
+            initial={{ opacity: 0, y: at.above ? 4 : -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+            style={{ left: at.x, top: at.y, transform: `translate(-50%, ${at.above ? '-100%' : '0'})` }}
+            className="glass-strong pointer-events-none fixed z-[80] max-w-[280px] rounded-xl px-3 py-2 shadow-float"
+          >
+            <div className="text-[12px] font-semibold leading-snug text-ink">{title}</div>
+            {body && <div className="mt-1 text-[11.5px] leading-snug text-muted">{body}</div>}
+          </motion.div>,
+          document.body,
+        )}
+    </span>
+  );
+}
 
 // ---- Surfaces -------------------------------------------------------------------------------
 
@@ -102,13 +154,12 @@ export function Segmented<T extends string>({
     <div role="radiogroup" className={cn('relative flex rounded-[10px] bg-fill p-[2px]', className)}>
       {options.map((o) => {
         const active = o.value === value;
-        return (
+        const button = (
           <button
             key={o.value}
             role="radio"
             aria-checked={active}
             disabled={o.disabled}
-            title={o.title}
             onClick={() => onChange(o.value)}
             className={cn(
               'relative z-0 flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-[8px] px-2.5 font-medium transition-colors',
@@ -126,6 +177,13 @@ export function Segmented<T extends string>({
             )}
             {o.label}
           </button>
+        );
+        return o.title ? (
+          <Hint key={o.value} title={o.label} body={o.title}>
+            {button}
+          </Hint>
+        ) : (
+          button
         );
       })}
     </div>
