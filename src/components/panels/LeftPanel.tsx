@@ -918,10 +918,10 @@ export default function LeftPanel() {
       <AnimatePresence initial={false}>
         {open && (
           <motion.aside
-            initial={{ opacity: 0, x: -24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -24 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+            initial={{ opacity: 0, x: -28, scale: 0.985 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -28, scale: 0.985, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
+            transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }}
             className="glass pointer-events-auto absolute bottom-4 left-4 top-[76px] z-20 flex w-[var(--left-w)] flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center gap-2 px-4 pb-3 pt-4">
@@ -952,14 +952,21 @@ export default function LeftPanel() {
           </motion.aside>
         )}
       </AnimatePresence>
-      {!open && (
-        <button
-          onClick={() => setOpen(true)}
-          className="glass pointer-events-auto absolute left-4 top-[76px] z-20 flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
-        >
-          Controls <ChevronRight className={cn('h-4 w-4')} />
-        </button>
-      )}
+      <AnimatePresence initial={false}>
+        {!open && (
+          <motion.button
+            key="controls-pill"
+            onClick={() => setOpen(true)}
+            // Enters as the panel finishes leaving, from the edge it collapsed into.
+            initial={{ opacity: 0, x: -16, scale: 0.94 }}
+            animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 460, damping: 34, delay: 0.12 } }}
+            exit={{ opacity: 0, x: -16, scale: 0.94, transition: { duration: 0.14 } }}
+            className="glass pointer-events-auto absolute left-4 top-[76px] z-20 flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
+          >
+            Controls <ChevronRight className={cn('h-4 w-4')} />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </>
   );
 }

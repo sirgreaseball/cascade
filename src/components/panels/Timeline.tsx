@@ -110,7 +110,7 @@ export default function Timeline() {
 
   return (
     <div
-      className="pointer-events-none absolute bottom-[3px] z-20 transition-[left,right] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+      className="pointer-events-none absolute bottom-[3px] z-20 transition-[left,right] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16, right: rightOpen ? 'calc(var(--right-w) + 32px)' : 16 }}
     >
       <div className="glass pointer-events-auto flex h-[76px] items-center gap-4 rounded-[26px] pl-3 pr-4 shadow-panel">

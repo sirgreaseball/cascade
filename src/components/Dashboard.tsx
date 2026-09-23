@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
 import { X } from 'lucide-react';
 import { lastScenarioId, useScenarioStore } from '@/store/scenarioStore';
 import { useSimStore } from '@/store/simulationStore';
@@ -340,7 +340,8 @@ export default function Dashboard() {
   // Drop frames from a previous session's run when this component unmounts (route change).
   useEffect(() => () => results.clear(), []);
   return (
-    <main className="relative h-dvh w-screen select-none overflow-hidden bg-canvas text-ink">
+    <MotionConfig reducedMotion="user">
+      <main className="relative h-dvh w-screen select-none overflow-hidden bg-canvas text-ink">
       <MapView />
       <TopBar />
       <LeftPanel />
@@ -352,6 +353,7 @@ export default function Dashboard() {
       <ExportSheet />
       <LoadingVeil />
       <SmallScreenNotice />
-    </main>
+      </main>
+    </MotionConfig>
   );
 }
