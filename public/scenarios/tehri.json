@@ -101,7 +101,7 @@
   },
   "defaults": {
     "manning": 0.045,
-    "duration": 21600,
+    "duration": 32400,
     "failureMode": "overtopping"
   },
   "cascadingDams": [

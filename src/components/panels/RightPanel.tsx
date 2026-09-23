@@ -226,7 +226,22 @@ export default function RightPanel() {
   const primary = usePrimaryEngine();
   const impacts = useImpacts(primary);
   const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
+  const finished = useSimStore((s) => s.runs[primary].status === 'done');
+  const outputInterval = useSimStore((s) => s.setup?.outputInterval ?? 180);
+  const summaryVersion = useSimStore((s) => s.summaryVersion);
   const i = impacts?.impact;
+
+  // A run can end while the water is still moving — Tehri's flood is a day long, and six hours of
+  // it stops short of Rishikesh. Saying so is the difference between a result and a wrong answer.
+  const stillAdvancing = useMemo(() => {
+    void summaryVersion;
+    const r = results.get(primary);
+    if (!finished || !r?.summary) return false;
+    const a = r.summary.arrival;
+    let latest = 0;
+    for (let k = 0; k < a.length; k++) if (a[k] > latest) latest = a[k];
+    return latest > r.summary.t - 2 * outputInterval;
+  }, [primary, finished, outputInterval, summaryVersion]);
 
   return (
     <>
@@ -290,6 +305,11 @@ export default function RightPanel() {
                       )}
                     </div>
                   </div>
+                  {stillAdvancing && (
+                    <div className="rounded-2xl bg-accent/[0.08] px-3 py-2.5 text-[11.5px] leading-snug text-ink-2 ring-1 ring-accent/20">
+                      The flood was still reaching new ground when the run ended, so everything below counts only what it had reached by then. Raise <span className="font-medium">Simulated time</span> under Model to follow it further downstream.
+                    </div>
+                  )}
                   {i.peopleExposed > 0 && <LifeLossCard statuses={impacts.statuses} />}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                     <Stat
