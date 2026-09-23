@@ -421,7 +421,8 @@ export default function MapView() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [view.layer]);
+    // A new scenario is a new picture too: let its layers arrive the same way.
+  }, [view.layer, config?.id]);
 
   // A run is the moment everything turns on: ease the camera towards the dam as it starts.
   const running = useSimStore((s) => isRunning(s.runs));

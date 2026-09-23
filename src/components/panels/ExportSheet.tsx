@@ -8,11 +8,13 @@ import { useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
 import { results } from '@/simulation/results';
 import type { EngineId } from '@/simulation/types';
-import { assessAssets, summarizeImpacts } from '@/lib/analytics';
+import { assessAssets, lossOfLife, summarizeImpacts } from '@/lib/analytics';
 import { buildLayers, exportGeoJson, exportKml, exportPlacesCsv, exportRasterZip, exportShapefileZip } from '@/lib/export';
 import type { ExportContext, ExportLayers } from '@/lib/export';
 import { download } from '@/lib/export/formats';
 import { exportCap } from '@/lib/export/cap';
+import { exportBrief } from '@/lib/export/brief';
+import type { BriefMeta } from '@/lib/export/brief';
 import { formatDischarge, formatDuration } from '@/lib/format';
 import { Segmented, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
@@ -23,6 +25,7 @@ const FORMATS = [
   { id: 'geojson', title: 'GeoJSON', sub: 'QGIS · geojson.io · every vector layer in one file', ext: 'geojson', mime: 'application/geo+json' },
   { id: 'raster', title: 'Rasters', sub: 'QGIS · ArcGIS · HEC-RAS · peak depth, arrival, velocity and hazard as ESRI ASCII grids', ext: 'zip', mime: 'application/zip' },
   { id: 'csv', title: 'Places table', sub: 'Excel · Sheets · evacuation list sorted by arrival time', ext: 'csv', mime: 'text/csv' },
+  { id: 'brief', title: 'One-page brief', sub: 'Print or save as PDF · the figures, the map, the arrivals and the assumptions behind them', ext: 'html', mime: 'text/html' },
   { id: 'cap', title: 'CAP alert', sub: 'Common Alerting Protocol 1.2 (SACHET), English and Hindi, marked as an exercise', ext: 'xml', mime: 'application/xml' },
 ] as const;
 
@@ -39,9 +42,11 @@ export default function ExportSheet() {
   const available = (['swe', 'sph'] as EngineId[]).filter((e) => runs[e].frames > 0);
   const [engine, setEngine] = useState<EngineId>('swe');
   const eng = available.includes(engine) ? engine : available[0];
+  const manning = useSimStore((s) => s.manning);
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<string[]>([]);
   const cache = useRef<{ key: string; layers: ExportLayers } | null>(null);
+  const briefMeta = useRef<BriefMeta | null>(null);
 
   const ctx = useMemo<ExportContext | null>(() => {
     void version;
@@ -53,6 +58,20 @@ export default function ExportSheet() {
     const impact = summarizeImpacts(exposure, statuses, r.exposure[last]);
     const peak = Math.max(...r.stats.map((s) => s.inflowRate));
     const kind = event.kind === 'controlled-release' ? 'Controlled release' : event.kind === 'lake-outburst' ? 'Lake outburst' : 'Dam break';
+    // What the brief needs beyond the shared export context: the settings that produced the run.
+    briefMeta.current = {
+      breachWidth: event.breachWidth,
+      breachDepth: event.breachDepth,
+      formationTime: event.formationTime,
+      waterDepth: event.waterDepth,
+      volume: event.volume,
+      manning,
+      cellSize: data.grid.dx,
+      damHeight: config.dam.height,
+      peakOutflow: peak,
+      kind,
+      livesSavedByWarning: lossOfLife(exposure, statuses, 1800).central - lossOfLife(exposure, statuses, -1).central,
+    };
     return {
       scenarioId: config.id,
       scenarioName: config.name,
@@ -69,7 +88,7 @@ export default function ExportSheet() {
       dam: { name: config.dam.name, axis: setup.site.axis },
       eventSummary: `${kind}${event.kind !== 'controlled-release' ? `, breach ${Math.round(event.breachWidth)} m wide forming over ${formatDuration(event.formationTime)}` : ''}; peak outflow ${formatDischarge(peak)}`,
     };
-  }, [open, eng, config, data, exposure, setup, event, runs, version]);
+  }, [open, eng, config, data, exposure, setup, event, runs, version, manning]);
 
   const make = async (id: (typeof FORMATS)[number]['id']) => {
     if (!ctx || !config) return;
@@ -81,6 +100,15 @@ export default function ExportSheet() {
       if (cache.current?.key !== key) cache.current = { key, layers: buildLayers(ctx) };
       const layers = cache.current.layers;
       const f = FORMATS.find((x) => x.id === id)!;
+      if (id === 'brief' && briefMeta.current) {
+        // A brief is read, not filed: open it in its own tab with the print dialogue a click away.
+        const url = URL.createObjectURL(new Blob([exportBrief(ctx, layers, briefMeta.current)], { type: 'text/html' }));
+        const tab = window.open(url, '_blank');
+        if (!tab) download(exportBrief(ctx, layers, briefMeta.current), `cascade_${config.id}_brief.html`, 'text/html');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        setDone((d) => [...new Set([...d, id])]);
+        return;
+      }
       const base = `cascade_${config.id}_${eng}`;
       const payload =
         id === 'cap'
