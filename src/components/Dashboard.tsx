@@ -17,6 +17,7 @@ import LeftPanel from './panels/LeftPanel';
 import RightPanel from './panels/RightPanel';
 import ScenarioBuilder from './panels/ScenarioBuilder';
 import ExportSheet from './panels/ExportSheet';
+import FirstRun from './panels/FirstRun';
 import { cn } from '@/lib/utils';
 
 const MapView = dynamic(() => import('./map/MapView'), {
@@ -351,6 +352,7 @@ export default function Dashboard() {
       <Toasts />
       <ScenarioBuilder />
       <ExportSheet />
+      <FirstRun />
       <LoadingVeil />
       <SmallScreenNotice />
       </main>

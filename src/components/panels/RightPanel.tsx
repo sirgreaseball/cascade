@@ -237,6 +237,7 @@ export default function RightPanel() {
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 28, scale: 0.985, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
             transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }}
+            data-coach="right"
             className="glass pointer-events-auto absolute bottom-4 right-4 top-[76px] z-20 flex w-[var(--right-w)] flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center justify-between px-5 pb-2 pt-4">

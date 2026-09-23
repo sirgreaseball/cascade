@@ -110,6 +110,7 @@ export default function Timeline() {
 
   return (
     <div
+      data-coach="timeline"
       className="pointer-events-none absolute bottom-[3px] z-20 transition-[left,right] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16, right: rightOpen ? 'calc(var(--right-w) + 32px)' : 16 }}
     >
@@ -117,7 +118,7 @@ export default function Timeline() {
         {/* Transport */}
         <div className="flex shrink-0 items-center gap-1.5">
           {!hasResults && !running ? (
-            <Button variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
+            <Button data-coach="run" variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
               <Play className="h-4 w-4 fill-current" />
               Run simulation
             </Button>
