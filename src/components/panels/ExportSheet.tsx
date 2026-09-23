@@ -46,7 +46,6 @@ export default function ExportSheet() {
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<string[]>([]);
   const cache = useRef<{ key: string; layers: ExportLayers } | null>(null);
-  const briefMeta = useRef<BriefMeta | null>(null);
 
   const ctx = useMemo<ExportContext | null>(() => {
     void version;
@@ -58,20 +57,6 @@ export default function ExportSheet() {
     const impact = summarizeImpacts(exposure, statuses, r.exposure[last]);
     const peak = Math.max(...r.stats.map((s) => s.inflowRate));
     const kind = event.kind === 'controlled-release' ? 'Controlled release' : event.kind === 'lake-outburst' ? 'Lake outburst' : 'Dam break';
-    // What the brief needs beyond the shared export context: the settings that produced the run.
-    briefMeta.current = {
-      breachWidth: event.breachWidth,
-      breachDepth: event.breachDepth,
-      formationTime: event.formationTime,
-      waterDepth: event.waterDepth,
-      volume: event.volume,
-      manning,
-      cellSize: data.grid.dx,
-      damHeight: config.dam.height,
-      peakOutflow: peak,
-      kind,
-      livesSavedByWarning: lossOfLife(exposure, statuses, 1800).central - lossOfLife(exposure, statuses, -1).central,
-    };
     return {
       scenarioId: config.id,
       scenarioName: config.name,
@@ -88,7 +73,26 @@ export default function ExportSheet() {
       dam: { name: config.dam.name, axis: setup.site.axis },
       eventSummary: `${kind}${event.kind !== 'controlled-release' ? `, breach ${Math.round(event.breachWidth)} m wide forming over ${formatDuration(event.formationTime)}` : ''}; peak outflow ${formatDischarge(peak)}`,
     };
-  }, [open, eng, config, data, exposure, setup, event, runs, version, manning]);
+  }, [open, eng, config, data, exposure, setup, event, runs, version]);
+
+  // What the brief needs beyond the shared export context: the settings that produced the run.
+  const briefMeta = useMemo<BriefMeta | null>(() => {
+    if (!ctx || !config || !data || !event || !exposure || !eng) return null;
+    const r = results.get(eng);
+    return {
+      breachWidth: event.breachWidth,
+      breachDepth: event.breachDepth,
+      formationTime: event.formationTime,
+      waterDepth: event.waterDepth,
+      volume: event.volume,
+      manning,
+      cellSize: data.grid.dx,
+      damHeight: config.dam.height,
+      peakOutflow: r ? Math.max(...r.stats.map((s) => s.inflowRate)) : 0,
+      kind: event.kind === 'controlled-release' ? 'Controlled release' : event.kind === 'lake-outburst' ? 'Lake outburst' : 'Dam break',
+      livesSavedByWarning: lossOfLife(exposure, ctx.statuses, 1800).central - lossOfLife(exposure, ctx.statuses, -1).central,
+    };
+  }, [ctx, config, data, event, exposure, eng, manning]);
 
   const make = async (id: (typeof FORMATS)[number]['id']) => {
     if (!ctx || !config) return;
@@ -100,11 +104,12 @@ export default function ExportSheet() {
       if (cache.current?.key !== key) cache.current = { key, layers: buildLayers(ctx) };
       const layers = cache.current.layers;
       const f = FORMATS.find((x) => x.id === id)!;
-      if (id === 'brief' && briefMeta.current) {
+      if (id === 'brief' && briefMeta) {
         // A brief is read, not filed: open it in its own tab with the print dialogue a click away.
-        const url = URL.createObjectURL(new Blob([exportBrief(ctx, layers, briefMeta.current)], { type: 'text/html' }));
+        const html = exportBrief(ctx, layers, briefMeta);
+        const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
         const tab = window.open(url, '_blank');
-        if (!tab) download(exportBrief(ctx, layers, briefMeta.current), `cascade_${config.id}_brief.html`, 'text/html');
+        if (!tab) download(html, `cascade_${config.id}_brief.html`, 'text/html');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
         setDone((d) => [...new Set([...d, id])]);
         return;
