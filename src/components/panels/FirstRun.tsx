@@ -36,15 +36,27 @@ const STEPS = [
   },
 ] as const;
 
-/** Where the card sits relative to the thing it points at. */
-function place(r: DOMRect) {
+/** Roughly how tall a card gets, used to keep one from hanging off the top or the bottom. */
+const CARD_H = 190;
+
+/**
+ * Where the card sits relative to the thing it points at. Every case gives real coordinates rather
+ * than a CSS transform: the card animates in with Framer Motion, which writes `transform` itself,
+ * and a placement written there is thrown away on the first frame.
+ */
+function place(r: DOMRect): { left: number; top?: number; bottom?: number } {
   const W = 320;
   const M = 14;
-  if (r.bottom > window.innerHeight - 160) {
-    return { left: Math.min(Math.max(r.left + r.width / 2 - W / 2, M), window.innerWidth - W - M), top: r.top - M, translate: '0, -100%' };
+  const clampX = (x: number) => Math.min(Math.max(x, M), window.innerWidth - W - M);
+  const clampY = (y: number) => Math.min(Math.max(y, M), window.innerHeight - CARD_H - M);
+  // A side panel runs the height of the window; only a short control near the foot of it — the
+  // Run button, the timeline — gets explained from above.
+  const tall = r.height > window.innerHeight / 2;
+  if (!tall && r.bottom > window.innerHeight - CARD_H - M * 2) {
+    return { left: clampX(r.left + r.width / 2 - W / 2), bottom: Math.min(Math.max(window.innerHeight - r.top + M, M), window.innerHeight - CARD_H - M) };
   }
-  if (r.left > window.innerWidth / 2) return { left: r.left - W - M, top: r.top + 8, translate: '0, 0' };
-  return { left: r.right + M, top: r.top + 8, translate: '0, 0' };
+  const onRight = r.left > window.innerWidth / 2;
+  return { left: clampX(onRight ? r.left - W - M : r.right + M), top: clampY(r.top + (tall ? 24 : 8)) };
 }
 
 export default function FirstRun() {
@@ -134,7 +146,7 @@ export default function FirstRun() {
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            style={{ left: pos.left, top: pos.top, width: 320, transform: `translate(${pos.translate})` }}
+            style={{ ...pos, width: 320 }}
             className="glass-strong pointer-events-auto absolute rounded-2xl p-4 shadow-float"
           >
             <div className="flex items-center gap-2">
