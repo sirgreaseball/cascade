@@ -18,19 +18,30 @@ const HINT_DELAY_MS = 450;
 export function Hint({ title, body, children }: { title: React.ReactNode; body?: React.ReactNode; children: React.ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointer = useRef<{ x: number; y: number } | null>(null);
   const [at, setAt] = useState<{ x: number; y: number; above: boolean } | null>(null);
   const hide = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     setAt(null);
   };
-  const show = () => {
+  const show = (e?: React.PointerEvent | React.FocusEvent) => {
+    if (e && 'clientX' in e) pointer.current = { x: e.clientX, y: e.clientY };
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      const r = anchor.current?.getBoundingClientRect();
-      if (!r) return;
-      const above = r.bottom + 132 > window.innerHeight;
-      setAt({ x: Math.min(Math.max(r.left + r.width / 2, 150), window.innerWidth - 150), y: above ? r.top - 10 : r.bottom + 10, above });
+      // The wrapper is `display: contents`, which has no box of its own — asking it where it is
+      // returns the top-left corner of the page. Measure the control inside it instead, and fall
+      // back to the pointer when the child is a bare string with no element to measure.
+      const child = anchor.current?.firstElementChild;
+      const r = child?.getBoundingClientRect();
+      const box = r && (r.width > 0 || r.height > 0) ? r : null;
+      const p = pointer.current;
+      if (!box && !p) return;
+      const cx = box ? box.left + box.width / 2 : (p as { x: number }).x;
+      const under = box ? box.bottom : (p as { y: number }).y + 14;
+      const over = box ? box.top : (p as { y: number }).y - 8;
+      const above = under + 132 > window.innerHeight;
+      setAt({ x: Math.min(Math.max(cx, 150), window.innerWidth - 150), y: above ? over - 10 : under + 10, above });
     }, HINT_DELAY_MS);
   };
   useEffect(() => () => hide(), []);
@@ -40,16 +51,22 @@ export function Hint({ title, body, children }: { title: React.ReactNode; body?:
       {at &&
         typeof document !== 'undefined' &&
         createPortal(
-          <motion.div
-            initial={{ opacity: 0, y: at.above ? 4 : -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+          // Centring lives on this wrapper, not on the animated box: Framer Motion writes `transform`
+          // itself, and a translate set beside its animation is thrown away on the first frame.
+          <div
             style={{ left: at.x, top: at.y, transform: `translate(-50%, ${at.above ? '-100%' : '0'})` }}
-            className="glass-strong pointer-events-none fixed z-[80] max-w-[280px] rounded-xl px-3 py-2 shadow-float"
+            className="pointer-events-none fixed z-[80]"
           >
-            <div className="text-[12px] font-semibold leading-snug text-ink">{title}</div>
-            {body && <div className="mt-1 text-[11.5px] leading-snug text-muted">{body}</div>}
-          </motion.div>,
+            <motion.div
+              initial={{ opacity: 0, y: at.above ? 4 : -4, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              className="glass-strong max-w-[280px] rounded-xl px-3 py-2 shadow-float"
+            >
+              <div className="text-[12px] font-semibold leading-snug text-ink">{title}</div>
+              {body && <div className="mt-1 text-[11.5px] leading-snug text-muted">{body}</div>}
+            </motion.div>
+          </div>,
           document.body,
         )}
     </span>
