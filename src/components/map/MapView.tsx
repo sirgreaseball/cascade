@@ -119,8 +119,8 @@ const HAZE_MAP = [0.114, 0.129, 0.153] as [number, number, number];
 /** Metres the water skin and roads float above the scenario DEM, to stay clear of the terrain mesh. */
 const SKIN_LIFT = 8;
 /** How long one ring takes to travel out from the breach, and how far apart the rings are sent. */
-const PULSE_MS = 1150;
-const PULSE_GAP = 0.42;
+const PULSE_MS = 1500;
+const PULSE_GAP = 0.36;
 const PULSE_RINGS = 1 + PULSE_GAP * 2;
 /** The water shader adds its own glints; the material keeps only a soft sheen. */
 const WATER_MATERIAL = { ambient: 0.8, diffuse: 0.35, shininess: 48, specularColor: [25, 25, 25] as [number, number, number] };
@@ -850,12 +850,12 @@ export default function MapView() {
             id: 'dam-pulse',
             data: rings.map((p) => ({ position: at[0].position, p })),
             getPosition: (d: { position: [number, number, number] }) => d.position,
-            getRadius: (d: { p: number }) => 17 + d.p * 52,
+            getRadius: (d: { p: number }) => 17 + d.p * 78,
             radiusUnits: 'pixels',
             filled: false,
             stroked: true,
-            getLineColor: (d: { p: number }) => [208, 59, 59, Math.round(190 * (1 - d.p) ** 1.6)] as [number, number, number, number],
-            getLineWidth: 2,
+            getLineColor: (d: { p: number }) => [232, 78, 78, Math.round(225 * (1 - d.p) ** 1.1)] as [number, number, number, number],
+            getLineWidth: 2.5,
             lineWidthUnits: 'pixels',
             parameters: { depthTest: false },
             updateTriggers: { getRadius: rings, getLineColor: rings },
