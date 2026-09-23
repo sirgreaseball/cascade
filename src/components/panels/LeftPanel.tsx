@@ -542,6 +542,7 @@ function ModelTab() {
   const setDuration = useSimStore((s) => s.setDuration);
   const manning = useSimStore((s) => s.manning);
   const setManning = useSimStore((s) => s.setManning);
+  const event = useSimStore((s) => s.event);
   const setup = useSimStore((s) => s.setup);
   const stale = useSimStore((s) => s.stale);
   const summaryVersion = useSimStore((s) => s.summaryVersion);
@@ -707,10 +708,34 @@ function ModelTab() {
 
       <Divider />
 
-      <Section title="Compare with another model">
+      <Section title="Compare runs">
         <p className="text-[12px] leading-snug text-muted">
-          Load a maximum-depth raster from Delft3D, HEC-RAS or any other model (GeoTIFF or ESRI ASCII, WGS 84 or UTM) to compare it with the grid solver.
+          Keep a run, change the settings and run again: the Difference layer then shows what changed, cell by cell, and the figures below score one against the other. The same comparison works
+          against a maximum-depth raster from Delft3D, HEC-RAS or any other model (GeoTIFF or ESRI ASCII, WGS 84 or UTM).
         </p>
+        <Button
+          className="w-full"
+          disabled={!results.get('swe')?.summary}
+          onClick={() => {
+            const s = results.get('swe')?.summary;
+            if (!s || !event) return;
+            const how =
+              event.kind === 'cloudburst'
+                ? `${formatNumber(event.rainIntensity)} mm/h for ${formatDuration(event.rainDuration)}`
+                : event.kind === 'controlled-release'
+                  ? `${formatDischarge(event.releaseDischarge)} release`
+                  : `${formatNumber(event.breachWidth)} m breach over ${formatDuration(event.formationTime)}`;
+            setExternal({
+              name: `Kept run · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+              source: `${how} · roughness ${manning.toFixed(3)} · ${formatDuration(s.t)} simulated`,
+              // A copy, so the next run overwriting the envelope cannot quietly change the baseline.
+              maxDepth: Float32Array.from(s.maxDepth),
+            });
+            toast({ title: 'Run kept as the baseline', body: 'Change the settings, run again, and switch the map to Difference.', tone: 'success' });
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" /> Keep this run to compare
+        </Button>
         <input
           ref={fileRef}
           type="file"
