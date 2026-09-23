@@ -25,6 +25,54 @@ export interface Runtime {
  * The one place a runtime is chosen, for both the worker and the main-thread fallback: the grid
  * solver on the GPU when WebGPU is available (and not switched off), otherwise on the CPU.
  */
+/**
+ * How much slower than the processor the graphics card may be over the first slice and still be
+ * used. Some slack, because this slice is the flood at its smallest: the graphics card does the
+ * whole grid at once however wide the water gets, while the processor pays for every wet cell.
+ */
+const GPU_TOLERANCE = 2;
+
+/** Simulated seconds each solver is asked for when they are raced. */
+const RACE_SPAN = 30;
+
+/** One verdict per grid size per session: the race costs a moment, and the answer does not change. */
+const raced = new Map<string, string | null>();
+
+/**
+ * Which solver is actually faster on this machine, measured rather than assumed.
+ *
+ * A browser hands WebGPU whichever adapter it likes, and on a laptop that is usually the
+ * integrated one — the same chip drawing the map. This solver's per-step cost is mostly fixed
+ * (four dispatches, two of them single-threaded), so on integrated graphics it has measured about
+ * thirty times slower than the processor, while also starving the terrain tiles. So both solvers
+ * are given the same opening slice, and the loser is dropped. Returns null when the graphics card
+ * wins, or the reason to report when it does not.
+ */
+async function raceTheProcessor(cfg: EngineConfig, gpu: GpuShallowWaterSolver): Promise<string | null> {
+  const key = `${cfg.cols}x${cfg.rows}:${cfg.engine}`;
+  const seen = raced.get(key);
+  if (seen !== undefined) return seen;
+  let verdict: string | null = null;
+  try {
+    const gpuStart = now();
+    await gpu.advanceTo(RACE_SPAN);
+    const gpuMs = now() - gpuStart;
+    const cpu = new ShallowWaterSolver(cfg);
+    const cpuStart = now();
+    while (cpu.t < RACE_SPAN) cpu.step(RACE_SPAN - cpu.t);
+    const cpuMs = now() - cpuStart;
+    if (gpuMs > cpuMs * GPU_TOLERANCE) {
+      const times = cpuMs > 0 ? Math.round(gpuMs / cpuMs) : 0;
+      verdict = `the graphics card the browser gave it (${gpu.adapter.architecture || gpu.adapter.vendor || 'unknown'}) solved the first half-minute ${times}× slower than the processor`;
+    }
+  } catch {
+    // A solver that cannot even be raced is not one to run the simulation on.
+    verdict = 'the graphics card failed on the first steps';
+  }
+  raced.set(key, verdict);
+  return verdict;
+}
+
 export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void): Promise<Runtime> {
   // Why the grid solver ends up on the processor is worth reporting: it is many times slower there.
   let gpuFallback: string | undefined;
@@ -33,9 +81,16 @@ export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutboun
     else if (!(globalThis as { navigator?: Navigator }).navigator?.gpu) gpuFallback = 'this browser does not offer WebGPU';
     else {
       try {
-        const solver = await GpuShallowWaterSolver.create(cfg);
-        if (solver) return new GpuEngineRuntime(cfg, solver, emit);
-        gpuFallback = 'the browser found no WebGPU graphics adapter';
+        const probe = await GpuShallowWaterSolver.create(cfg);
+        if (probe) {
+          gpuFallback = (await raceTheProcessor(cfg, probe)) ?? undefined;
+          // The probe has run its slice, so the real solver starts again from nothing.
+          probe.dispose();
+          if (!gpuFallback) {
+            const solver = await GpuShallowWaterSolver.create(cfg);
+            if (solver) return new GpuEngineRuntime(cfg, solver, emit);
+          }
+        } else gpuFallback = 'the browser found no WebGPU graphics adapter';
       } catch (err) {
         console.warn('[cascade] WebGPU solver unavailable; using the CPU.', err);
         gpuFallback = err instanceof Error ? err.message : String(err);

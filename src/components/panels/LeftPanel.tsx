@@ -478,7 +478,7 @@ function DevicePerformance() {
         If this laptop also has an NVIDIA or AMD graphics card, give the browser the high-performance GPU: Settings → System → Display → Graphics → your browser → High performance, then fully restart it. <span className="font-mono">chrome://gpu</span> then lists the graphics card as active.
       </>,
     );
-  if (swe.status !== 'idle' && swe.backend === 'cpu' && swe.gpuFallback) hints.push(`The grid solver ran on the processor because ${swe.gpuFallback}. Current Chrome and Edge run it on the graphics card, many times faster.`);
+  if (swe.status !== 'idle' && swe.backend === 'cpu' && swe.gpuFallback) hints.push(`The grid solver ran on the processor because ${swe.gpuFallback}.`);
 
   const copy = () => {
     const engines = (['swe', 'sph'] as const)
@@ -620,10 +620,10 @@ function ModelTab() {
         </p>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[12.5px] text-ink-2">Grid solver on the graphics card</div>
-            <div className="text-[11px] leading-snug text-faint">WebGPU, many times faster; the processor takes over where it is unavailable.</div>
+            <div className="text-[12.5px] text-ink-2">Let the grid solver try the graphics card</div>
+            <div className="text-[11px] leading-snug text-faint">Allowed to try. Both solvers are raced over the first half-minute and the faster one runs the simulation — on a laptop’s integrated graphics that is nearly always the processor.</div>
           </div>
-          <Switch checked={useGpu} onChange={setUseGpu} disabled={running} label="Run the grid solver on the graphics card" />
+          <Switch checked={useGpu} onChange={setUseGpu} disabled={running} label="Let the grid solver try the graphics card" />
         </div>
         {useGpu && (
           <div className="flex items-center justify-between gap-3">
