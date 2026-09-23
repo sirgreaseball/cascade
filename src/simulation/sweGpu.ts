@@ -66,7 +66,7 @@ struct Params {
 // per cell: wave speed rate for the CFL condition, outflow through the domain edge, wet (0 or 1)
 @group(0) @binding(5) var<storage, read_write> aux: array<vec4<f32>>;
 // per tile: awake (0 or 1)
-@group(0) @binding(8) var<storage, read_write> active: array<f32>;
+@group(0) @binding(8) var<storage, read_write> awake: array<f32>;
 // per tile: largest rate, edge outflow, holds water
 @group(0) @binding(9) var<storage, read_write> tileStat: array<vec4<f32>>;
 // breach cells: index (exact as f32), weight
@@ -160,7 +160,7 @@ fn prepare() {
 
 @compute @workgroup_size(16, 16)
 fn update(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
-  if (gid.x >= P.cols || gid.y >= P.rows || active[wid.y * P.tcols + wid.x] < 0.5) {
+  if (gid.x >= P.cols || gid.y >= P.rows || awake[wid.y * P.tcols + wid.x] < 0.5) {
     return;
   }
   let k = gid.y * P.cols + gid.x;
@@ -332,7 +332,7 @@ fn reduce(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (t >= P.tiles) {
     return;
   }
-  if (active[t] < 0.5) {
+  if (awake[t] < 0.5) {
     tileStat[t] = vec4(0.0);
     return;
   }
@@ -374,7 +374,7 @@ fn finalize() {
         let x = tc + dx;
         let y = tr + dy;
         if (x >= 0 && y >= 0 && x < i32(P.tcols) && y < i32(P.trows)) {
-          active[u32(y) * P.tcols + u32(x)] = 1.0;
+          awake[u32(y) * P.tcols + u32(x)] = 1.0;
         }
       }
     }
