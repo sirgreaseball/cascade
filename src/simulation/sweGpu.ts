@@ -50,7 +50,7 @@ struct Params {
   maxDt: f32, n2: f32, wet: f32, jet: f32,
   dirX: f32, dirY: f32, q0: f32, q1: f32,
   span: f32, t0: f32, tiles: u32, tcols: u32,
-  trows: u32, pad0: u32, pad1: u32, pad2: u32,
+  trows: u32, rain: f32, infil: f32, stormEnd: f32,
 };
 
 @group(0) @binding(0) var<uniform> P: Params;
@@ -151,6 +151,10 @@ fn prepare() {
   }
   state[1] = dt;
   state[3] += vol;
+  // The storm counts as inflow too: it is the water arriving over the whole domain.
+  if (P.rain > 0.0 && P.t0 + tau < P.stormEnd) {
+    state[3] += P.rain * dt * P.cellArea * f32(P.n);
+  }
   state[6] = q;
 }
 
@@ -268,8 +272,14 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) 
       dU -= sy * F.z;
       edge += F.x * P.dx;
     }
-    // Update, friction and envelopes.
-    let hn = hk + dH;
+    // Update, friction and envelopes. A storm adds its rain to every cell here, and the ground
+    // takes its losses back off whatever is standing on it.
+    var src = 0.0;
+    if (P.rain > 0.0 || P.infil > 0.0) {
+      let now = P.t0 + state[0];
+      src = select(0.0, P.rain, now < P.stormEnd) * dt - P.infil * dt;
+    }
+    let hn = hk + dH + src;
     var outCell = vec4(0.0, 0.0, 0.0, zk);
     if (hn > 0.0) {
       var qx = me.y + dU;
@@ -542,6 +552,8 @@ export class GpuShallowWaterSolver {
   private initialTiles(): Float32Array {
     const { cols } = this.cfg;
     const active = new Float32Array(this.tiles);
+    // Rain falls everywhere, so nowhere can be left asleep.
+    if (this.cfg.storm) return active.fill(1);
     for (const s of this.cfg.sources) {
       const tx = Math.floor((s.index % cols) / TILE);
       const ty = Math.floor(Math.floor(s.index / cols) / TILE);
@@ -597,6 +609,10 @@ export class GpuShallowWaterSolver {
     u[18] = this.tiles;
     u[19] = this.tcols;
     u[20] = this.trows;
+    const storm = cfg.storm;
+    f[21] = storm ? storm.intensity : 0;
+    f[22] = storm ? storm.infiltration : 0;
+    f[23] = storm ? storm.duration : 0;
     this.device.queue.writeBuffer(this.params, 0, buf);
   }
 

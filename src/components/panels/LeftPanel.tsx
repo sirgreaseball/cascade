@@ -78,6 +78,7 @@ function EventTab() {
 
   if (!config || !event) return null;
   const release = event.kind === 'controlled-release';
+  const storm = event.kind === 'cloudburst';
   const fr = froehlich2008(event.volume, event.breachDepth, event.failureMode);
   const h = setup?.hydrograph;
   const head = event.waterDepth - (event.damHeight - event.breachDepth);
@@ -129,9 +130,47 @@ function EventTab() {
             { value: 'dam-break', label: 'Dam break', title: 'The dam fails and the reservoir drains through the breach.' },
             { value: 'lake-outburst', label: 'Outburst', title: 'A moraine-dammed glacial lake bursts: the lake drains through a gap that cuts down fast, as at Chorabari in 2013.' },
             { value: 'controlled-release', label: 'Release', title: 'Gates opened on purpose: a discharge that ramps up to its full rate with the dam intact.' },
+            { value: 'cloudburst', label: 'Cloudburst', title: 'Nothing fails: rain falls on the whole basin and runs off downhill. This is how a flash flood starts.' },
           ]}
         />
-        {release ? (
+        {storm ? (
+          <div className="space-y-4 pt-1">
+            <Slider
+              tip="How hard it rains over the whole basin. India's definition of a cloudburst is 100 mm in an hour; Kedarnath in June 2013 took around 325 mm in a day."
+              label="Rainfall"
+              value={event.rainIntensity}
+              min={5}
+              max={300}
+              step={5}
+              onChange={(v) => setEvent({ rainIntensity: v })}
+              format={(v) => `${formatNumber(v)} mm/h`}
+            />
+            <Slider
+              tip="How long the storm lasts. The rain lands on every cell of the model for this long, and the valley keeps routing it afterwards."
+              label="Storm lasts"
+              value={event.rainDuration}
+              min={600}
+              max={6 * 3600}
+              step={300}
+              onChange={(v) => setEvent({ rainDuration: v })}
+              format={formatDuration}
+            />
+            <Slider
+              tip="What the ground takes back: infiltration into the soil plus what the trees hold. Saturated Himalayan slopes in the monsoon manage only a few millimetres an hour, which is why a cloudburst runs off almost entirely."
+              label="Ground takes"
+              value={event.infiltration}
+              min={0}
+              max={40}
+              step={1}
+              onChange={(v) => setEvent({ infiltration: v })}
+              format={(v) => `${formatNumber(v)} mm/h`}
+              hint={`${formatNumber(Math.max(0, event.rainIntensity - event.infiltration))} mm/h runs off · ${formatNumber((Math.max(0, event.rainIntensity - event.infiltration) * event.rainDuration) / 3600)} mm over the storm`}
+            />
+            <p className="text-[11.5px] leading-snug text-ink-2">
+              The grid solver lands this rain on every cell and routes it downhill; the particle solver receives the same storm as runoff entering the head of the reach. A storm wets the whole basin at once, so the grid solver has far more to do than for a breach — the graphics card handles it best.
+            </p>
+          </div>
+        ) : release ? (
           <div className="space-y-4 pt-1">
             <Slider tip="Discharge passed by the gates during a controlled release." label="Release discharge" value={event.releaseDischarge} min={100} max={100_000} log step={50} onChange={(v) => setEvent({ releaseDischarge: v })} format={formatDischarge} hint="Gated spillway release on top of base flow." />
             <Slider tip="How quickly the gates reach that discharge." label="Gates fully open after" value={event.releaseRamp} min={60} max={4 * 3600} log step={60} onChange={(v) => setEvent({ releaseRamp: v })} format={formatDuration} />
@@ -171,7 +210,7 @@ function EventTab() {
 
       <Divider />
 
-      <Section title={release ? 'Release hydrograph' : 'Breach outflow'}>
+      <Section title={storm ? 'Runoff into the reach' : release ? 'Release hydrograph' : 'Breach outflow'}>
         {setupError && <p className="text-[12px] text-critical">{setupError}</p>}
         {series.length > 0 && (
           <LineChart series={series} xMax={duration} yFormat={(v) => formatCompact(v)} xFormat={hours} marker={hasResults ? playhead : null} />
@@ -184,7 +223,7 @@ function EventTab() {
               <div className="text-[10.5px] text-faint">{modelledPeak ? `at ${formatDuration(modelledPeak.t)}, with tailwater` : 'after a run'}</div>
             </div>
             <div>
-              <div className="text-[11px] text-muted">{release ? 'Peak' : 'Free-outflow bound'}</div>
+              <div className="text-[11px] text-muted">{release || storm ? 'Peak' : 'Free-outflow bound'}</div>
               <div className="text-[14px] font-semibold">{formatDischarge(h.peak)}</div>
               <div className="text-[10.5px] text-faint">at {formatDuration(h.timeToPeak)}</div>
             </div>

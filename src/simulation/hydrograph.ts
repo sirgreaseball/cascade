@@ -8,7 +8,7 @@
 //
 // Self-contained on purpose (no runtime imports) so Node verification scripts can run it.
 
-export type EventKind = 'dam-break' | 'controlled-release' | 'lake-outburst';
+export type EventKind = 'dam-break' | 'controlled-release' | 'lake-outburst' | 'cloudburst';
 export type FailureMode = 'overtopping' | 'piping';
 
 export interface EventParams {
@@ -34,6 +34,22 @@ export interface EventParams {
   releaseRamp: number;
   /** Exponent m of the stage-storage power law V(h) = V0 (h / h0)^m. 2–3 fits V-shaped valleys. */
   storageExponent: number;
+  /** Cloudburst: rain falling on the whole basin while the storm lasts (mm/h). */
+  rainIntensity: number;
+  /** Cloudburst: how long the storm lasts (s). */
+  rainDuration: number;
+  /** Ground losses — infiltration and interception — taken off standing water (mm/h). */
+  infiltration: number;
+  /** Cloudburst: the catchment contributing runoff to the reach (m²); filled in by the setup. */
+  catchmentArea?: number;
+}
+
+/** Millimetres per hour as metres per second. */
+export const mmPerHour = (v: number) => v / 3.6e6;
+
+/** What the ground actually sheds at time `t` (m/s): the rain left after losses, which may be negative. */
+export function netRainRate(p: Pick<EventParams, 'rainIntensity' | 'rainDuration' | 'infiltration'>, t: number): number {
+  return mmPerHour((t <= p.rainDuration ? p.rainIntensity : 0) - p.infiltration);
 }
 
 export interface Hydrograph {
@@ -165,7 +181,44 @@ export class BreachReservoir {
 }
 
 /** Free-outflow (no tailwater) hydrograph: the upper bound shown before a run. */
+/**
+ * A cloudburst as the reach downstream sees it: net rain over the contributing catchment passed
+ * through a single linear reservoir, so the runoff rises and recedes instead of switching on and
+ * off. This is the lumped view of the storm, which is what the particle solver and the preview
+ * chart need; the grid solver instead lands the same rain on every cell it owns.
+ */
+function stormHydrograph(p: EventParams, duration: number, sampleEvery: number): Hydrograph {
+  const area = p.catchmentArea ?? 0;
+  // Catchment response time: how long the basin takes to pass its water on.
+  const lag = 1800;
+  const dt = 10;
+  const t: number[] = [];
+  const q: number[] = [];
+  let store = 0;
+  let peak = 0;
+  let timeToPeak = 0;
+  let volume = 0;
+  let nextSample = 0;
+  for (let time = 0; time <= duration + 1e-9; time += dt) {
+    const released = store / lag;
+    const qNow = released + p.baseFlow;
+    if (time >= nextSample - 1e-9) {
+      t.push(time);
+      q.push(qNow);
+      nextSample += sampleEvery;
+    }
+    if (qNow > peak) {
+      peak = qNow;
+      timeToPeak = time;
+    }
+    volume += released * dt;
+    store = Math.max(0, store + (Math.max(0, netRainRate(p, time)) * area - released) * dt);
+  }
+  return { t, q, level: [], peak, timeToPeak, volumeReleased: volume, froehlichPeak: null };
+}
+
 export function computeHydrograph(p: EventParams, duration: number, sampleEvery = 30): Hydrograph {
+  if (p.kind === 'cloudburst') return stormHydrograph(p, duration, sampleEvery);
   if (p.kind === 'controlled-release') return releaseHydrograph(p, duration, sampleEvery);
 
   const reservoir = new BreachReservoir(p);
@@ -235,6 +288,11 @@ export function defaultEventParams(
     formationTime: Math.round(fr.formationTime),
     failureMode: mode,
     baseFlow: 150,
+    // India’s definition of a cloudburst is 100 mm in an hour; the ground keeps taking a few
+    // millimetres of it, which is what a saturated mountain soil manages.
+    rainIntensity: 100,
+    rainDuration: 3600,
+    infiltration: 8,
     releaseDischarge: 5_000,
     releaseRamp: 1_800,
     storageExponent: 2.5,

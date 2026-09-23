@@ -244,7 +244,7 @@ export default function ScenarioBuilder() {
         river: form.river,
         region: form.region,
         event: form.event,
-        summary: `${form.event === 'lake-outburst' ? 'Outburst of a blockage lake' : form.event === 'controlled-release' ? 'Controlled release' : 'Hypothetical breach'} on the ${form.river}, routed ${formatNumber(area.reachKm, 0)} km downstream. Built in Cascade on ${today}.`,
+        summary: `${form.event === 'lake-outburst' ? 'Outburst of a blockage lake' : form.event === 'controlled-release' ? 'Controlled release' : form.event === 'cloudburst' ? 'Cloudburst over the basin' : 'Hypothetical breach'} on the ${form.river}, routed ${formatNumber(area.reachKm, 0)} km downstream. Built in Cascade on ${today}.`,
         bbox: spec.bbox,
         cellSize: form.cellSize,
         grid: { cols: spec.cols, rows: spec.rows },
@@ -395,6 +395,7 @@ export default function ScenarioBuilder() {
                           { value: 'dam-break', label: 'Dam break', title: 'The dam fails and the reservoir drains through the breach.' },
                           { value: 'lake-outburst', label: 'Lake outburst', title: 'A glacial or landslide-dammed lake bursts through its own barrier.' },
                           { value: 'controlled-release', label: 'Release', title: 'Gates opened on purpose, with the dam intact.' },
+                          { value: 'cloudburst', label: 'Cloudburst', title: 'Rain on the whole basin, with nothing failing: a flash flood.' },
                         ]}
                       />
                       <div className="grid grid-cols-3 gap-3">

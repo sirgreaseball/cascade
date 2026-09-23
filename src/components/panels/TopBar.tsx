@@ -30,6 +30,7 @@ const EVENT_LABEL: Record<string, string> = {
   'dam-break': 'Dam break',
   'lake-outburst': 'Lake outburst',
   'controlled-release': 'Controlled release',
+  cloudburst: 'Cloudburst',
 };
 
 type VirtualRow =

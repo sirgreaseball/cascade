@@ -33,6 +33,12 @@ export interface EngineConfig {
     /** Elevation (m a.s.l.) of the final breach invert. */
     datumElevation: number;
   };
+  /**
+   * A cloudburst landing on the whole domain rather than a flood arriving at one point. The grid
+   * solver adds `intensity` to every cell while the storm lasts and takes `infiltration` back off
+   * whatever is standing on the ground; both are in metres per second.
+   */
+  storm?: { intensity: number; duration: number; infiltration: number };
   /** Manning roughness (s/m^1/3), used wherever `manningField` is absent. */
   manning: number;
   /**

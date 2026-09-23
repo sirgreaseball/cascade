@@ -4,7 +4,7 @@
 
 import { gridGeometry } from '../lib/geo/grid.ts';
 import type { BBox, GridGeometry } from '../lib/geo/grid.ts';
-import { computeHydrograph } from './hydrograph.ts';
+import { computeHydrograph, mmPerHour } from './hydrograph.ts';
 import type { EventParams, Hydrograph } from './hydrograph.ts';
 import { prepareDamSite } from './damSite.ts';
 import type { DamSite, DamSiteInput } from './damSite.ts';
@@ -138,7 +138,15 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     crestLine: input.dam.crestLine,
   };
   const site = prepareDamSite(grid, input.dem, damInput);
-  const hydrograph = computeHydrograph(input.event, input.duration);
+  // A storm has no single source: it falls on the whole domain, which is also the catchment the
+  // lumped runoff hydrograph drains.
+  const catchmentArea = grid.cols * grid.rows * grid.dx * grid.dy;
+  const event = input.event.kind === 'cloudburst' ? { ...input.event, catchmentArea } : input.event;
+  const hydrograph = computeHydrograph(event, input.duration);
+  const storm =
+    input.event.kind === 'cloudburst'
+      ? { intensity: mmPerHour(input.event.rainIntensity), duration: input.event.rainDuration, infiltration: mmPerHour(input.event.infiltration) }
+      : undefined;
   const outputInterval = outputIntervalFor(input.duration, input.frames);
   const invertAboveBed = Math.max(input.event.damHeight - input.event.breachDepth, 0);
   const base = {
@@ -151,7 +159,8 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     sources: site.sources,
     sourceDirection: site.direction,
     hydrograph: { t: hydrograph.t, q: hydrograph.q },
-    breach: input.event.kind === 'controlled-release' ? undefined : { event: input.event, datumElevation: site.bed.elevation + invertAboveBed },
+    breach: input.event.kind === 'controlled-release' || input.event.kind === 'cloudburst' ? undefined : { event: input.event, datumElevation: site.bed.elevation + invertAboveBed },
+    storm,
     manning: input.manning,
     duration: input.duration,
     outputInterval,
@@ -212,6 +221,10 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
       display: { cols: grid.cols, rows: grid.rows, factor: f, mode: 'pool' },
     };
   }
+  // A storm is already falling on every cell of the grid solver's domain, so the only thing left
+  // to inject at the head of the reach is the river that was there before it started. The lumped
+  // runoff hydrograph is for the particle solver, which has no way to be rained on.
+  if (storm) swe = { ...swe, hydrograph: { t: [0, input.duration], q: [input.event.baseFlow, input.event.baseFlow] } };
   swe = { ...swe, gpu: input.gpu ?? true, unthrottled: input.unthrottled ?? false };
 
   return {

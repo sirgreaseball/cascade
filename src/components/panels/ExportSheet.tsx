@@ -19,6 +19,13 @@ import { formatDischarge, formatDuration } from '@/lib/format';
 import { Segmented, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
+const KIND_LABEL: Record<string, string> = {
+  'dam-break': 'Dam break',
+  'lake-outburst': 'Lake outburst',
+  'controlled-release': 'Controlled release',
+  cloudburst: 'Cloudburst',
+};
+
 const FORMATS = [
   { id: 'kml', title: 'KML', sub: 'Google Earth · depth, arrival and hazard folders, places, roads', ext: 'kml', mime: 'application/vnd.google-earth.kml+xml' },
   { id: 'shp', title: 'Shapefile', sub: 'QGIS · ArcGIS · five layers in WGS 84, zipped', ext: 'zip', mime: 'application/zip' },
@@ -56,7 +63,7 @@ export default function ExportSheet() {
     const statuses = assessAssets(exposure, r.exposure, r.times, last, r.summary);
     const impact = summarizeImpacts(exposure, statuses, r.exposure[last]);
     const peak = Math.max(...r.stats.map((s) => s.inflowRate));
-    const kind = event.kind === 'controlled-release' ? 'Controlled release' : event.kind === 'lake-outburst' ? 'Lake outburst' : 'Dam break';
+    const kind = KIND_LABEL[event.kind];
     return {
       scenarioId: config.id,
       scenarioName: config.name,
@@ -71,7 +78,10 @@ export default function ExportSheet() {
       statuses,
       impact,
       dam: { name: config.dam.name, axis: setup.site.axis },
-      eventSummary: `${kind}${event.kind !== 'controlled-release' ? `, breach ${Math.round(event.breachWidth)} m wide forming over ${formatDuration(event.formationTime)}` : ''}; peak outflow ${formatDischarge(peak)}`,
+      eventSummary:
+        event.kind === 'cloudburst'
+          ? `${kind}, ${Math.round(event.rainIntensity)} mm/h for ${formatDuration(event.rainDuration)} over the basin with ${Math.round(event.infiltration)} mm/h of ground losses; peak runoff ${formatDischarge(peak)}`
+          : `${kind}${event.kind !== 'controlled-release' ? `, breach ${Math.round(event.breachWidth)} m wide forming over ${formatDuration(event.formationTime)}` : ''}; peak outflow ${formatDischarge(peak)}`,
     };
   }, [open, eng, config, data, exposure, setup, event, runs, version]);
 
@@ -89,7 +99,7 @@ export default function ExportSheet() {
       cellSize: data.grid.dx,
       damHeight: config.dam.height,
       peakOutflow: r ? Math.max(...r.stats.map((s) => s.inflowRate)) : 0,
-      kind: event.kind === 'controlled-release' ? 'Controlled release' : event.kind === 'lake-outburst' ? 'Lake outburst' : 'Dam break',
+      kind: KIND_LABEL[event.kind],
       livesSavedByWarning: lossOfLife(exposure, ctx.statuses, 1800).central - lossOfLife(exposure, ctx.statuses, -1).central,
     };
   }, [ctx, config, data, event, exposure, eng, manning]);

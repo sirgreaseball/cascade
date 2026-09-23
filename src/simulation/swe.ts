@@ -113,6 +113,7 @@ export class ShallowWaterSolver {
   private readonly maxDt = 10;
   private readonly wet: number;
   private readonly cfg: EngineConfig;
+  private readonly storm: EngineConfig['storm'];
   private readonly boundary: InflowBoundary;
   /** Lowest-bed breach cell: where the breach reads its tailwater. */
   private readonly thalweg: number;
@@ -141,6 +142,7 @@ export class ShallowWaterSolver {
     this.n2 = cfg.manning * cfg.manning;
     this.n2Field = cfg.manningField ? Float32Array.from(cfg.manningField, (v) => v * v) : null;
     this.wet = cfg.wetThreshold;
+    this.storm = cfg.storm;
 
     let r0 = rows;
     let r1 = 0;
@@ -175,6 +177,13 @@ export class ShallowWaterSolver {
    */
   private refreshSpans(): void {
     const { rows, cols, wetLo, wetHi, spanLo, spanHi } = this;
+    // While it is raining there is water on every cell, so the whole domain has to be solved.
+    if (this.storm && this.t <= this.storm.duration) {
+      for (let r = 0; r < rows; r++) {
+        wetLo[r] = 0;
+        wetHi[r] = cols - 1;
+      }
+    }
     // Breach cells always take part: the next step adds water there.
     for (const s of this.cfg.sources) {
       const r = (s.index / cols) | 0;
@@ -287,6 +296,23 @@ export class ShallowWaterSolver {
         hv[s.index] += add * jet * ey;
       }
       this.inflowVolume += vol;
+    }
+
+    // The storm falls on every cell at once, and the ground takes water back off whatever is
+    // standing on it. This is what floods a valley with nothing in it to fail: rain on the grid,
+    // routed downhill by the same equations as a breach wave.
+    if (this.storm) {
+      const gain = (this.t < this.storm.duration ? this.storm.intensity : 0) * dt;
+      const drain = this.storm.infiltration * dt;
+      if (gain > 0 || drain > 0) {
+        const n = cols * rows;
+        for (let k = 0; k < n; k++) {
+          const hk = h[k] + gain;
+          if (hk <= 0) continue;
+          h[k] = hk > drain ? hk - drain : 0;
+        }
+        this.inflowVolume += gain * n * cellArea;
+      }
     }
 
     const { spanLo, spanHi, activeR0, activeR1 } = this;
