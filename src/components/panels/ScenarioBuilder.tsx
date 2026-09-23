@@ -392,19 +392,19 @@ export default function ScenarioBuilder() {
                         value={form.event}
                         onChange={(event: EventKind) => set({ event })}
                         options={[
-                          { value: 'dam-break', label: 'Dam break' },
-                          { value: 'lake-outburst', label: 'Lake outburst' },
-                          { value: 'controlled-release', label: 'Release' },
+                          { value: 'dam-break', label: 'Dam break', title: 'The dam fails and the reservoir drains through the breach.' },
+                          { value: 'lake-outburst', label: 'Lake outburst', title: 'A glacial or landslide-dammed lake bursts through its own barrier.' },
+                          { value: 'controlled-release', label: 'Release', title: 'Gates opened on purpose, with the dam intact.' },
                         ]}
                       />
                       <div className="grid grid-cols-3 gap-3">
-                        <Field label="Height (m)">
+                        <Field label="Height (m)" tip="Height of the dam from its base to the crest. Froehlich's breach formulas use it, and it sets how deep the water can stand behind the wall.">
                           <TextInput type="number" value={form.height} onChange={(e) => set({ height: Number(e.target.value) })} />
                         </Field>
-                        <Field label="Crest length (m)">
+                        <Field label="Crest length (m)" tip="Length of the dam along the top. It limits how wide a breach can grow.">
                           <TextInput type="number" value={form.crestLength} onChange={(e) => set({ crestLength: Number(e.target.value) })} />
                         </Field>
-                        <Field label="Storage (million m³)">
+                        <Field label="Storage (million m³)" tip="Water held at full reservoir level. This is the volume available to leave through the breach.">
                           <TextInput type="number" value={form.volumeMCM} onChange={(e) => set({ volumeMCM: Number(e.target.value) })} />
                         </Field>
                       </div>
@@ -413,16 +413,16 @@ export default function ScenarioBuilder() {
                     <section className="space-y-3">
                       <div className="text-[13px] font-semibold">2 · Study area</div>
                       <p className="-mt-1 text-[12px] text-muted">Cascade follows the river downstream on the terrain and draws the model domain around it.</p>
-                      <Slider label="Distance downstream" value={form.reachKm} min={8} max={90} step={1} onChange={(reachKm) => set({ reachKm })} format={(v) => `${v} km`} />
-                      <Slider label="Corridor width" value={form.widthKm} min={4} max={40} step={1} onChange={(widthKm) => set({ widthKm })} format={(v) => `${v} km`} />
+                      <Slider tip="How far down the river the model follows the valley. Longer reaches take in more towns but need more cells, so they run slower." label="Distance downstream" value={form.reachKm} min={8} max={90} step={1} onChange={(reachKm) => set({ reachKm })} format={(v) => `${v} km`} />
+                      <Slider tip="How wide a strip either side of the river the model covers. Widen it where the valley opens out, so the flood is not cut off at the edge." label="Corridor width" value={form.widthKm} min={4} max={40} step={1} onChange={(widthKm) => set({ widthKm })} format={(v) => `${v} km`} />
                       <Segmented
                         layoutId="builder-cell"
                         value={String(form.cellSize)}
                         onChange={(v) => set({ cellSize: Number(v) })}
                         options={[
-                          { value: '60', label: '60 m cells' },
-                          { value: '90', label: '90 m' },
-                          { value: '120', label: '120 m' },
+                          { value: '60', label: '60 m cells', title: 'Finest: resolves narrow gorges and embankments, and takes the longest to run.' },
+                          { value: '90', label: '90 m', title: 'A good balance for a valley reach of a few tens of kilometres.' },
+                          { value: '120', label: '120 m', title: 'Coarsest and quickest: for a long reach or a first look.' },
                         ]}
                       />
                       <p className="text-[11px] text-faint">About {formatNumber(Math.min(estimatedCells, 360_000))} cells{estimatedCells > 360_000 ? ' (capped — cells will be enlarged)' : ''}. Finer cells resolve narrow gorges better but run slower.</p>
@@ -430,7 +430,7 @@ export default function ScenarioBuilder() {
 
                     <section className="space-y-3">
                       <div className="text-[13px] font-semibold">3 · Data</div>
-                      <Field label="Terrain">
+                      <Field label="Terrain" tip="Where the elevation comes from. SRTM tiles are fetched and cached automatically; upload your own DEM for a surveyed or higher-resolution one.">
                         <Segmented
                           layoutId="builder-dem"
                           value={form.demSource}
@@ -449,7 +449,7 @@ export default function ScenarioBuilder() {
                           </Button>
                         </>
                       )}
-                      <Field label="Places and roads">
+                      <Field label="Places and roads" tip="What is at risk: settlements, hospitals, schools, bridges and roads. OpenStreetMap is queried for the study area and cached.">
                         <Segmented
                           layoutId="builder-exp"
                           value={form.exposureSource}

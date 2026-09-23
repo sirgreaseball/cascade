@@ -115,7 +115,7 @@ function EventTab() {
           layoutId="season"
           value={season}
           onChange={(s: Season) => setSeason(s)}
-          options={SEASONS.map((s) => ({ value: s.id, label: s.label }))}
+          options={SEASONS.map((s) => ({ value: s.id, label: s.label, title: seasonProfile(s.id).description }))}
         />
         <p className="-mt-1 text-[11px] leading-snug text-faint">{seasonProfile(season).description}</p>
       </Section>
@@ -126,15 +126,15 @@ function EventTab() {
           value={event.kind}
           onChange={(kind: EventKind) => setEvent({ kind })}
           options={[
-            { value: 'dam-break', label: 'Dam break' },
-            { value: 'lake-outburst', label: 'Outburst' },
-            { value: 'controlled-release', label: 'Release' },
+            { value: 'dam-break', label: 'Dam break', title: 'The dam fails and the reservoir drains through the breach.' },
+            { value: 'lake-outburst', label: 'Outburst', title: 'A moraine-dammed glacial lake bursts: the lake drains through a gap that cuts down fast, as at Chorabari in 2013.' },
+            { value: 'controlled-release', label: 'Release', title: 'Gates opened on purpose: a discharge that ramps up to its full rate with the dam intact.' },
           ]}
         />
         {release ? (
           <div className="space-y-4 pt-1">
-            <Slider label="Release discharge" value={event.releaseDischarge} min={100} max={100_000} log step={50} onChange={(v) => setEvent({ releaseDischarge: v })} format={formatDischarge} hint="Gated spillway release on top of base flow." />
-            <Slider label="Gates fully open after" value={event.releaseRamp} min={60} max={4 * 3600} log step={60} onChange={(v) => setEvent({ releaseRamp: v })} format={formatDuration} />
+            <Slider tip="Discharge passed by the gates during a controlled release." label="Release discharge" value={event.releaseDischarge} min={100} max={100_000} log step={50} onChange={(v) => setEvent({ releaseDischarge: v })} format={formatDischarge} hint="Gated spillway release on top of base flow." />
+            <Slider tip="How quickly the gates reach that discharge." label="Gates fully open after" value={event.releaseRamp} min={60} max={4 * 3600} log step={60} onChange={(v) => setEvent({ releaseRamp: v })} format={formatDuration} />
           </div>
         ) : (
           <div className="space-y-4 pt-1">
@@ -144,15 +144,15 @@ function EventTab() {
               value={event.failureMode}
               onChange={(failureMode: FailureMode) => setEvent({ failureMode })}
               options={[
-                { value: 'overtopping', label: 'Overtopping' },
+                { value: 'overtopping', label: 'Overtopping', title: 'Water rises over the crest and cuts down through it: a wider, shallower-sided opening.' },
                 { value: 'piping', label: 'Piping' },
               ]}
             />
-            <Slider label="Water stored" value={event.volume / 1e6} min={0.1} max={20_000} log step={0.1} onChange={(v) => setEvent({ volume: v * 1e6 })} format={(v) => formatVolume(v * 1e6)} />
-            <Slider label="Water depth at the dam" value={event.waterDepth} min={1} max={event.damHeight} step={0.5} onChange={(v) => setEvent({ waterDepth: v })} format={(v) => `${formatNumber(v, 1)} m`} />
-            <Slider label="Breach width" value={event.breachWidth} min={5} max={3000} log step={1} onChange={(v) => setEvent({ breachWidth: v })} format={(v) => `${formatNumber(v)} m`} />
-            <Slider label="Breach depth" value={event.breachDepth} min={1} max={event.damHeight} step={0.5} onChange={(v) => setEvent({ breachDepth: v })} format={(v) => `${formatNumber(v, 1)} m`} />
-            <Slider label="Breach forms over" value={event.formationTime} min={120} max={12 * 3600} log step={30} onChange={(v) => setEvent({ formationTime: v })} format={formatDuration} />
+            <Slider tip="Water held behind the dam when it fails. Only the part above the breach invert can leave, so a deeper breach releases more of it." label="Water stored" value={event.volume / 1e6} min={0.1} max={20_000} log step={0.1} onChange={(v) => setEvent({ volume: v * 1e6 })} format={(v) => formatVolume(v * 1e6)} />
+            <Slider tip="Depth at the wall when the breach begins. It sets the head driving the outflow: discharge rises roughly with the head to the power of one and a half." label="Water depth at the dam" value={event.waterDepth} min={1} max={event.damHeight} step={0.5} onChange={(v) => setEvent({ waterDepth: v })} format={(v) => `${formatNumber(v, 1)} m`} />
+            <Slider tip="Average width of the opening once it has fully formed. Froehlich (2008) predicts it from the stored water and the height of the dam." label="Breach width" value={event.breachWidth} min={5} max={3000} log step={1} onChange={(v) => setEvent({ breachWidth: v })} format={(v) => `${formatNumber(v)} m`} />
+            <Slider tip="How far down the opening cuts. Water below the final invert never leaves through the breach." label="Breach depth" value={event.breachDepth} min={1} max={event.damHeight} step={0.5} onChange={(v) => setEvent({ breachDepth: v })} format={(v) => `${formatNumber(v, 1)} m`} />
+            <Slider tip="Time from the first opening to the full breach. The shorter it is, the sharper the peak: embankments have failed in minutes, while Froehlich (2008) predicts hours for large ones." label="Breach forms over" value={event.formationTime} min={120} max={12 * 3600} log step={30} onChange={(v) => setEvent({ formationTime: v })} format={formatDuration} />
             <div className="flex items-start justify-between gap-3 rounded-xl bg-accent/[0.05] px-3 py-2.5">
               <p className="text-[11.5px] leading-snug text-ink-2">
                 Froehlich (2008) suggests a <span className="font-medium">{formatNumber(fr.width)} m</span> breach forming over <span className="font-medium">{formatDuration(fr.formationTime)}</span> for this reservoir.
@@ -163,7 +163,7 @@ function EventTab() {
             </div>
           </div>
         )}
-        <Slider label="River base flow" value={event.baseFlow} min={0} max={5000} step={10} onChange={(v) => setEvent({ baseFlow: v })} format={formatDischarge} />
+        <Slider tip="Flow already in the river before the failure, added underneath the breach outflow." label="River base flow" value={event.baseFlow} min={0} max={5000} step={10} onChange={(v) => setEvent({ baseFlow: v })} format={formatDischarge} />
         <button className="flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink" onClick={resetEvent}>
           <RotateCcw className="h-3.5 w-3.5" /> Reset to scenario defaults
         </button>
@@ -564,9 +564,9 @@ function ModelTab() {
           value={resolution}
           onChange={(r: Resolution) => setResolution(r)}
           options={[
-            { value: 'fast', label: 'Fast' },
-            { value: 'standard', label: 'Standard' },
-            { value: 'high', label: 'Detailed' },
+            { value: 'fast', label: 'Fast', title: 'Cells twice the size: about eight times quicker, for a first look rather than reported numbers.' },
+            { value: 'standard', label: 'Standard', title: "The scenario's own cell size. Use this for numbers you intend to report." },
+            { value: 'high', label: 'Detailed', title: 'Cells half the size, four times as many, run on the graphics card: resolves channels and embankments the coarser grid averages away.' },
           ]}
         />
         <p className="-mt-1 text-[11px] text-faint">
@@ -594,8 +594,9 @@ function ModelTab() {
             <Switch checked={fastCompute} onChange={setFastCompute} label="Compute as fast as possible" />
           </div>
         )}
-        <Slider label="Simulated time" value={duration} min={1800} max={12 * 3600} step={900} onChange={setDuration} format={formatDuration} />
+        <Slider tip="How far ahead the flood is modelled. Longer runs reach places further downstream but take proportionally longer to compute." label="Simulated time" value={duration} min={1800} max={12 * 3600} step={900} onChange={setDuration} format={formatDuration} />
         <Slider
+          tip="Manning's n: how much the ground slows the water. Higher values hold the flood back and spread it wider; lower values send it downstream faster."
           label="Manning roughness"
           value={manning}
           min={0.02}
@@ -812,7 +813,7 @@ function ObserveTab() {
           <Segmented size="sm" layoutId="pol" value={params.polarization} onChange={(polarization) => setParams({ ...params, polarization })} options={[{ value: 'VH', label: 'VH' }, { value: 'VV', label: 'VV' }]} />
           <Segmented size="sm" layoutId="pass" value={params.pass} onChange={(pass) => setParams({ ...params, pass })} options={[{ value: 'DESCENDING', label: 'Desc.' }, { value: 'ASCENDING', label: 'Asc.' }]} />
         </div>
-        <Slider label="Change threshold (after ÷ before)" value={params.threshold} min={1.05} max={1.8} step={0.01} onChange={(threshold) => setParams({ ...params, threshold })} format={(v) => v.toFixed(2)} hint="UN-SPIDER recommends 1.25. Lower finds more water but more false alarms." />
+        <Slider tip="How much brighter the radar return must be after the flood than before for a pixel to count as water (UN-SPIDER change-detection method)." label="Change threshold (after ÷ before)" value={params.threshold} min={1.05} max={1.8} step={0.01} onChange={(threshold) => setParams({ ...params, threshold })} format={(v) => v.toFixed(2)} hint="UN-SPIDER recommends 1.25. Lower finds more water but more false alarms." />
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant="primary"
@@ -931,9 +932,9 @@ export default function LeftPanel() {
                 onChange={setTab}
                 className="flex-1"
                 options={[
-                  { value: 'event', label: 'Event' },
-                  { value: 'model', label: 'Model' },
-                  { value: 'observe', label: 'Observe' },
+                  { value: 'event', label: 'Event', title: 'What fails, how big it is, and when — the dam, the breach and the time of year.' },
+                  { value: 'model', label: 'Model', title: 'Which solvers run, how fine the grid is, and how long the flood is modelled for.' },
+                  { value: 'observe', label: 'Observe', title: 'Satellite radar of a flood that really happened, to check the model against.' },
                 ]}
               />
               <button onClick={() => setOpen(false)} aria-label="Hide panel" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-white/[0.08] hover:text-ink">

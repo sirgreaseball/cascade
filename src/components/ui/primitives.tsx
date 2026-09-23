@@ -201,6 +201,7 @@ export function Slider({
   onChange,
   format,
   hint,
+  tip,
   log = false,
   disabled,
 }: {
@@ -212,6 +213,8 @@ export function Slider({
   onChange: (v: number) => void;
   format?: (v: number) => string;
   hint?: React.ReactNode;
+  /** Plain-language explanation shown when the pointer rests on the label. */
+  tip?: React.ReactNode;
   log?: boolean;
   disabled?: boolean;
 }) {
@@ -226,7 +229,7 @@ export function Slider({
   return (
     <label className={cn('block', disabled && 'opacity-50')}>
       <div className="mb-0.5 flex items-baseline justify-between gap-3">
-        <span className="text-[12.5px] text-ink-2">{label}</span>
+        <span className="text-[12.5px] text-ink-2">{tip ? <Hint title={label} body={tip}><span className="cursor-help decoration-white/20 decoration-dotted underline-offset-4 hover:underline">{label}</span></Hint> : label}</span>
         <span className="tnum text-[12.5px] font-medium text-ink">{format ? format(value) : value}</span>
       </div>
       <input
@@ -341,10 +344,18 @@ export function Tag({ children, className, tone = 'neutral' }: { children: React
   );
 }
 
-export function Field({ label, children, hint }: { label: React.ReactNode; children: React.ReactNode; hint?: React.ReactNode }) {
+export function Field({ label, children, hint, tip }: { label: React.ReactNode; children: React.ReactNode; hint?: React.ReactNode; tip?: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-[12px] text-ink-2">{label}</span>
+      <span className="text-[12px] text-ink-2">
+        {tip ? (
+          <Hint title={label} body={tip}>
+            <span className="cursor-help decoration-white/20 decoration-dotted underline-offset-4 hover:underline">{label}</span>
+          </Hint>
+        ) : (
+          label
+        )}
+      </span>
       {children}
       {hint && <span className="block text-[11px] text-faint">{hint}</span>}
     </label>
