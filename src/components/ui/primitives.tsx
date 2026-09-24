@@ -4,6 +4,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { sectionVariants } from '@/lib/motion';
 
 // ---- Hints ----------------------------------------------------------------------------------
 
@@ -83,9 +84,14 @@ export function Panel({ className, children, ...rest }: React.HTMLAttributes<HTM
   );
 }
 
+/**
+ * A titled block of controls. It declares how it arrives but never starts the animation itself:
+ * inside a panel that is opening it inherits that panel's state and lands a beat after the section
+ * above it, and anywhere else it stays where it is put.
+ */
 export function Section({ title, action, children, className }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <section className={cn('space-y-3', className)}>
+    <motion.section variants={sectionVariants} className={cn('space-y-3', className)}>
       {(title || action) && (
         <div className="flex items-center justify-between gap-3">
           {title && <h3 className="text-[13px] font-semibold text-ink">{title}</h3>}
@@ -93,7 +99,7 @@ export function Section({ title, action, children, className }: { title?: React.
         </div>
       )}
       {children}
-    </section>
+    </motion.section>
   );
 }
 

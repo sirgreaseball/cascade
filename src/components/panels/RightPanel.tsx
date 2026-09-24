@@ -15,6 +15,10 @@ import { HAZARD_COLORS, IDENTITY } from '@/components/map/colormaps';
 import { extentAgreement, depthDifference } from '@/lib/compare';
 import { formatArea, formatClock, formatCompact, formatDepth, formatDischarge, formatINR, formatNumber, formatVolume } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { handoverVariants, panelVariants } from '@/lib/motion';
+
+const RIGHT_PANEL = panelVariants('right');
+const RIGHT_HANDOVER = handoverVariants('right');
 import { displayName } from '@/lib/text';
 import { lossOfLife } from '@/lib/analytics';
 import type { AssetStatus } from '@/lib/analytics';
@@ -248,12 +252,12 @@ export default function RightPanel() {
       <AnimatePresence initial={false}>
         {open && (
           <motion.aside
-            initial={{ opacity: 0, x: 28, scale: 0.985 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 28, scale: 0.985, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
-            transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }}
+            variants={RIGHT_PANEL}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
             data-coach="right"
-            className="glass pointer-events-auto absolute bottom-4 right-4 top-[76px] z-20 flex w-[var(--right-w)] flex-col overflow-hidden rounded-panel shadow-panel"
+            className="glass pointer-events-auto absolute bottom-4 right-4 top-[76px] z-20 flex w-[var(--right-w)] origin-right flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center justify-between px-5 pb-2 pt-4">
               <div>
@@ -359,10 +363,13 @@ export default function RightPanel() {
           <motion.button
             key="impact-pill"
             onClick={() => setOpen(true)}
-            initial={{ opacity: 0, x: 16, scale: 0.94 }}
-            animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 460, damping: 34, delay: 0.12 } }}
-            exit={{ opacity: 0, x: 16, scale: 0.94, transition: { duration: 0.14 } }}
-            className="glass pointer-events-auto absolute right-4 top-[76px] z-20 flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
+            variants={RIGHT_HANDOVER}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            whileHover={{ x: -2 }}
+            whileTap={{ scale: 0.96 }}
+            className="glass pointer-events-auto absolute right-4 top-[76px] z-20 flex h-10 origin-right items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
           >
             <ChevronLeft className="h-4 w-4" /> Impact
           </motion.button>

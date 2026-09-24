@@ -34,6 +34,10 @@ import { depthDifference, extentAgreement } from '@/lib/compare';
 import { packageScenario } from '@/lib/scenario';
 import { download } from '@/lib/export/formats';
 import { cn } from '@/lib/utils';
+import { handoverVariants, panelVariants, tabVariants } from '@/lib/motion';
+
+const LEFT_PANEL = panelVariants('left');
+const LEFT_HANDOVER = handoverVariants('left');
 import { adapterLabel, buildReport, classifyGpu, frameSnapshot, getMapGpu, gpuMismatch, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
 import type { AdapterProbe } from '@/lib/perfMonitor';
 
@@ -973,28 +977,38 @@ function ObserveTab() {
   );
 }
 
+/** Tab order, so switching between them can move in the direction you travelled. */
+const TABS = ['event', 'model', 'observe'] as const;
+type UiTab = (typeof TABS)[number];
+
 export default function LeftPanel() {
   const open = useUiStore((s) => s.leftOpen);
   const setOpen = useUiStore((s) => s.setLeftOpen);
   const tab = useUiStore((s) => s.leftTab);
   const setTab = useUiStore((s) => s.setLeftTab);
+  // Which way the tabs were travelled, so the new one arrives from the side you moved towards.
+  const [dir, setDir] = useState(1);
+  const changeTab = (next: UiTab) => {
+    setDir(TABS.indexOf(next) >= TABS.indexOf(tab) ? 1 : -1);
+    setTab(next);
+  };
   return (
     <>
       <AnimatePresence initial={false}>
         {open && (
           <motion.aside
-            initial={{ opacity: 0, x: -28, scale: 0.985 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -28, scale: 0.985, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
-            transition={{ type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }}
+            variants={LEFT_PANEL}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
             data-coach="left"
-            className="glass pointer-events-auto absolute bottom-4 left-4 top-[76px] z-20 flex w-[var(--left-w)] flex-col overflow-hidden rounded-panel shadow-panel"
+            className="glass pointer-events-auto absolute bottom-4 left-4 top-[76px] z-20 flex w-[var(--left-w)] origin-left flex-col overflow-hidden rounded-panel shadow-panel"
           >
             <div className="flex items-center gap-2 px-4 pb-3 pt-4">
               <Segmented
                 layoutId="left-tabs"
                 value={tab}
-                onChange={setTab}
+                onChange={changeTab}
                 className="flex-1"
                 options={[
                   { value: 'event', label: 'Event', title: 'What fails, how big it is, and when — the dam, the breach and the time of year.' },
@@ -1007,8 +1021,9 @@ export default function LeftPanel() {
               </button>
             </div>
             <div className="scroll-soft flex-1 overflow-y-auto px-4 pb-6 pt-1">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
+              {/* No initial={false}: when the panel opens, its contents should arrive with it. */}
+              <AnimatePresence mode="wait">
+                <motion.div key={tab} variants={tabVariants(dir)} initial="hidden" animate="shown" exit="gone">
                   {tab === 'event' && <EventTab />}
                   {tab === 'model' && <ModelTab />}
                   {tab === 'observe' && <ObserveTab />}
@@ -1023,11 +1038,14 @@ export default function LeftPanel() {
           <motion.button
             key="controls-pill"
             onClick={() => setOpen(true)}
-            // Enters as the panel finishes leaving, from the edge it collapsed into.
-            initial={{ opacity: 0, x: -16, scale: 0.94 }}
-            animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 460, damping: 34, delay: 0.12 } }}
-            exit={{ opacity: 0, x: -16, scale: 0.94, transition: { duration: 0.14 } }}
-            className="glass pointer-events-auto absolute left-4 top-[76px] z-20 flex h-10 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
+            // Takes over from the panel, growing out of the edge it collapsed into.
+            variants={LEFT_HANDOVER}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            whileHover={{ x: 2 }}
+            whileTap={{ scale: 0.96 }}
+            className="glass pointer-events-auto absolute left-4 top-[76px] z-20 flex h-10 origin-left items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-medium shadow-float"
           >
             Controls <ChevronRight className={cn('h-4 w-4')} />
           </motion.button>
