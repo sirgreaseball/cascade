@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { useSimStore, isRunning } from '@/store/simulationStore';
@@ -12,7 +12,7 @@ import { Button, Dot, Segmented } from '@/components/ui/primitives';
 import { IDENTITY } from '@/components/map/colormaps';
 import { useLatestTime, usePrimaryEngine } from '@/components/useSimView';
 import { cn } from '@/lib/utils';
-import { chromeVariants } from '@/lib/motion';
+import { chromeVariants, POP_SPRING } from '@/lib/motion';
 
 const BOTTOM_CHROME = chromeVariants('bottom', 0.14);
 
@@ -124,14 +124,19 @@ export default function Timeline() {
     >
       <div className="glass pointer-events-auto flex h-[76px] items-center gap-4 rounded-[26px] pl-3 pr-4 shadow-panel">
         {/* Transport */}
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Run, then the transport it turns into: the big button shrinks away as the controls
+            grow out of the same spot, rather than one blinking into the other. */}
+        <motion.div layout transition={POP_SPRING} className="flex shrink-0 items-center gap-1.5">
+          <AnimatePresence mode="popLayout" initial={false}>
           {!hasResults && !running ? (
-            <Button data-coach="run" variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
-              <Play className="h-4 w-4 fill-current" />
-              Run simulation
-            </Button>
+            <motion.div key="run" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={POP_SPRING}>
+              <Button data-coach="run" variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
+                <Play className="h-4 w-4 fill-current" />
+                Run simulation
+              </Button>
+            </motion.div>
           ) : (
-            <>
+            <motion.div key="transport" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={POP_SPRING} className="flex items-center gap-1.5">
               <button
                 onClick={togglePlay}
                 aria-label={follow || playing ? 'Pause' : 'Play'}
@@ -154,9 +159,10 @@ export default function Timeline() {
                   {stale && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />}
                 </button>
               )}
-            </>
+            </motion.div>
           )}
-        </div>
+          </AnimatePresence>
+        </motion.div>
 
         {/* Clock */}
         <div className="w-[108px] shrink-0">
