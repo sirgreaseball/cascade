@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/brand/cascade-mark.svg" width="88" alt="Cascade" />
+<img src="docs/brand/cascade-mark.png" width="88" alt="Cascade" />
 
 # Cascade
 
