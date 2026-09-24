@@ -18,6 +18,7 @@ import type { BriefMeta } from '@/lib/export/brief';
 import { formatDischarge, formatDuration } from '@/lib/format';
 import { Segmented, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
+import { backdropVariants, sheetVariants } from '@/lib/motion';
 
 const KIND_LABEL: Record<string, string> = {
   'dam-break': 'Dam break',
@@ -150,12 +151,12 @@ export default function ExportSheet() {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 p-6 backdrop-blur-[2px]" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+        <motion.div variants={backdropVariants} initial="hidden" animate="shown" exit="gone" className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 p-6 backdrop-blur-[2px]" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+            variants={sheetVariants}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
             className="glass-strong w-[520px] rounded-[26px] p-7 shadow-panel"
           >
             <div className="flex items-start justify-between">

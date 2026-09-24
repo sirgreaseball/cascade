@@ -72,6 +72,23 @@ export function tabVariants(dir: number): Variants {
 }
 
 /**
+ * A sheet that opens over the map: it rises and settles rather than dissolving, and its contents
+ * arrive just behind it.
+ */
+export const sheetVariants: Variants = {
+  hidden: { opacity: 0, y: 18, scale: 0.97 },
+  shown: { opacity: 1, y: 0, scale: 1, transition: { ...PANEL_SPRING, staggerChildren: STAGGER, delayChildren: 0.06 } },
+  gone: { opacity: 0, y: 10, scale: 0.985, transition: EXIT },
+};
+
+/** The dimmed backdrop behind a sheet. */
+export const backdropVariants: Variants = {
+  hidden: { opacity: 0 },
+  shown: { opacity: 1, transition: { duration: 0.2, ease: EASE } },
+  gone: { opacity: 0, transition: EXIT },
+};
+
+/**
  * The furniture around the map — the bars, the legend — arriving as the loading screen lifts,
  * one after another rather than all at once. `from` is the edge each piece is anchored to.
  */

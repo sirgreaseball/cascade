@@ -21,6 +21,7 @@ import type { EventKind } from '@/simulation/hydrograph';
 import { Button, Field, Segmented, Slider, Spinner, TextInput } from '@/components/ui/primitives';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { backdropVariants, POP_SPRING, sheetVariants } from '@/lib/motion';
 
 interface Form {
   name: string;
@@ -292,17 +293,18 @@ export default function ScenarioBuilder() {
       <AnimatePresence>
         {open && !pickingDam && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            variants={backdropVariants}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
             className="absolute inset-0 z-40 flex items-center justify-center bg-black/20 p-6 backdrop-blur-[2px]"
             onMouseDown={(e) => e.target === e.currentTarget && !building && setOpen(false)}
           >
             <motion.div
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+              variants={sheetVariants}
+              initial="hidden"
+              animate="shown"
+              exit="gone"
               className="glass-strong flex max-h-full w-[600px] flex-col overflow-hidden rounded-[26px] shadow-panel"
             >
               <div className="flex items-start justify-between px-7 pb-3 pt-6">
@@ -511,7 +513,15 @@ export default function ScenarioBuilder() {
       </AnimatePresence>
       <AnimatePresence>
         {pickingDam && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="glass-strong absolute left-1/2 top-[76px] z-40 flex -translate-x-1/2 items-center gap-3 rounded-full py-2 pl-4 pr-2 shadow-float">
+          <motion.div
+            // Centring is an animated value, not a Tailwind class: Framer writes `transform`
+            // itself, and a `-translate-x-1/2` beside it is overwritten on the first frame.
+            initial={{ opacity: 0, x: '-50%', y: -10, scale: 0.96 }}
+            animate={{ opacity: 1, x: '-50%', y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: '-50%', y: -10, scale: 0.96 }}
+            transition={POP_SPRING}
+            className="glass-strong absolute left-1/2 top-[76px] z-40 flex items-center gap-3 rounded-full py-2 pl-4 pr-2 shadow-float"
+          >
             <Crosshair className="h-4 w-4 text-accent" />
             <span className="text-[13px]">Click the dam or blockage on the map</span>
             <Button size="sm" onClick={() => setPickingDam(false)}>
