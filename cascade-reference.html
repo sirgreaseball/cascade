@@ -82,39 +82,45 @@
 </head>
 <body>
 <div class="wrap">
-
 <header>
   <div class="tag">SIH26161 · NTRO · Disaster Management</div>
   <h1>Cascade — how it works</h1>
-  <p class="sub">Dam-break inundation modelling for Indian rivers. A complete technical reference: architecture, physics, data, validation and limitations.</p>
+  <p class="sub">Dam-break and flash-flood modelling for Indian rivers. A complete technical reference: architecture, physics, data, interface, validation and limitations. Every number here was measured, not asserted.</p>
 </header>
 
 <div class="toc">
   <ol>
     <li><a href="#what">What it is</a></li>
     <li><a href="#stack">Tech stack</a></li>
-    <li><a href="#arch">Architecture</a></li>
+    <li><a href="#arch">Architecture &amp; file map</a></li>
     <li><a href="#physics">The physics</a></li>
     <li><a href="#breach">The breach model</a></li>
+    <li><a href="#cloudburst">Cloudburst — rain on the grid</a></li>
     <li><a href="#sph">The second solver (SPH)</a></li>
-    <li><a href="#gpu">The GPU engine</a></li>
+    <li><a href="#gpu">The GPU engine, and the race</a></li>
     <li><a href="#resolution">Resolution settings</a></li>
     <li><a href="#validation">Validation</a></li>
-    <li><a href="#bug">The bug we found</a></li>
+    <li><a href="#bugs">Bugs we found</a></li>
     <li><a href="#ensemble">Uncertainty (ensemble)</a></li>
     <li><a href="#maps">Maps and rendering</a></li>
+    <li><a href="#ui">The interface explains itself</a></li>
+    <li><a href="#motion">The motion system</a></li>
+    <li><a href="#compare">Comparing runs and models</a></li>
     <li><a href="#data">Data sources</a></li>
     <li><a href="#impact">Population and impact</a></li>
-    <li><a href="#exports">Exports</a></li>
+    <li><a href="#exports">Exports (incl. the brief)</a></li>
     <li><a href="#perf">Performance</a></li>
+    <li><a href="#tehri">The Tehri reach question</a></li>
+    <li><a href="#brand">Branding &amp; repo hygiene</a></li>
     <li><a href="#limits">Known limitations</a></li>
     <li><a href="#qa">Q&amp;A cheat sheet</a></li>
   </ol>
 </div>
 
 <h2 id="what">1. What it is</h2>
-<p class="lead">Cascade simulates what happens downstream when a dam breaches, a landslide lake bursts, or a spillway opens: how much water leaves, where it goes, when it arrives, how deep and fast it gets, who and what is in the way — and it checks itself against satellite observation and analytical benchmarks.</p>
+<p class="lead">Cascade simulates what happens downstream when a dam breaches, a landslide or glacial lake bursts, a spillway opens, or a cloudburst lands on a whole basin: how much water leaves, where it goes, when it arrives, how deep and fast it gets, who and what is in the way — and it checks itself against satellite observation and analytical benchmarks.</p>
 <p>Everything runs <strong>client-side in the browser</strong>. No backend, no server cost, no API keys. That is a deliberate design decision: it means the tool runs on a disconnected laptop in a district office during an emergency.</p>
+<p>Four event types are modelled: <strong>dam break</strong>, <strong>lake outburst</strong> (moraine or landslide dam), <strong>controlled release</strong> (gates opened on purpose), and <strong>cloudburst</strong> (rain on every cell, nothing fails).</p>
 
 <h2 id="stack">2. Tech stack</h2>
 <table>
@@ -123,19 +129,23 @@
   <tr><td>UI</td><td>React 19.2.8, TypeScript 5</td></tr>
   <tr><td>State</td><td>Zustand 5.0.15 — four stores: scenario, simulation, UI, ensemble</td></tr>
   <tr><td>Styling</td><td>Tailwind CSS 4 (Lightning CSS), Inter, dark “liquid glass” theme</td></tr>
-  <tr><td>Animation</td><td>Framer Motion 13.2</td></tr>
+  <tr><td>Animation</td><td>Framer Motion 13.2, driven by one shared vocabulary in <code>src/lib/motion.ts</code></td></tr>
   <tr><td>Map / rendering</td><td>deck.gl 9.4 (core, layers, geo-layers, mesh-layers, extensions, react) + MapLibre GL 6.9 via react-map-gl 8.1.3</td></tr>
-  <tr><td>Compute</td><td><span class="k">WebGPU</span> (WGSL compute shaders), with a Web Worker CPU fallback</td></tr>
+  <tr><td>Compute</td><td><span class="k">WebGPU</span> (WGSL compute shaders) <em>and</em> a Web Worker CPU solver — raced at the start of every run, faster one wins</td></tr>
+  <tr><td>Dev tooling</td><td>ESLint 9 (flat config, react-hooks rules), <code>npm run verify</code> headless physics suite, Playwright-driven browser checks</td></tr>
 </table>
+<p>Eighteen runtime dependencies in total. Nothing was added without being reported first; Playwright, used for the browser measurements in this document, lives outside the project and is <strong>not</strong> a dependency.</p>
 
-<h2 id="arch">3. Architecture</h2>
+<h2 id="arch">3. Architecture &amp; file map</h2>
 <pre><code>Scenario (JSON + elevation.bin + GeoJSON)
       ↓
-setupSimulation()          ← single source of truth for solver configuration
+setupSimulation()               ← single source of truth for solver configuration
       ↓
-EngineClient  →  Web Worker   (or main thread if workers are blocked)
+EngineClient  →  Web Worker     (or main thread if workers are blocked)
       ↓
-createRuntime()  →  GPU solver (WebGPU)   or   CPU solver
+createRuntime()                 ← races GPU vs CPU, keeps the winner
+      ↓  ↓
+GPU runtime (WGSL)   EngineRuntime (CPU: ShallowWaterSolver | SPHSolver)
       ↓
 frames + envelopes  →  results store  →  React panels + deck.gl layers</code></pre>
 
@@ -143,16 +153,37 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
   <p><strong>Two architectural rules we enforce strictly</strong></p>
   <ol>
     <li><strong>No Transferable buffers across the worker boundary.</strong> Everything crosses by structured cloning. Transferring detaches the buffer from the sender; in an earlier version that made the water render invisible because React and deck.gl still held a detached array.</li>
-    <li><strong>The worker and the main-thread fallback drive the solvers through one identical call path</strong> (<code>createRuntime</code>), so arguments can never silently drift apart. New solver parameters go into <code>EngineConfig</code>, never into a second hand-maintained argument list.</li>
+    <li><strong>The worker and the main-thread fallback drive the solvers through one identical call path</strong> (<code>createRuntime</code>), so arguments can never silently drift apart. New solver parameters go into <code>EngineConfig</code>, never into a second hand-maintained argument list. The cloudburst was added exactly this way: one optional <code>storm</code> field on <code>EngineConfig</code>, read by both the CPU and the GPU solver.</li>
   </ol>
 </div>
+
+<h3>Where everything lives</h3>
+<table>
+  <tr><th>Path</th><th>What it does</th></tr>
+  <tr><td><code>src/simulation/setup.ts</code></td><td>Turns scenario grid + DEM + dam + event into <code>EngineConfig</code>s. Coarsens (Fast) or refines (Detailed) the grid, builds the storm config, picks the output interval.</td></tr>
+  <tr><td><code>src/simulation/runtime.ts</code></td><td><code>createRuntime()</code> — the one factory. Races the GPU against the processor, drives whichever wins, resamples results onto the display grid, samples exposure, emits frames.</td></tr>
+  <tr><td><code>src/simulation/swe.ts</code></td><td><code>ShallowWaterSolver</code> — CPU finite-volume solver with per-row wet spans and rain-on-grid.</td></tr>
+  <tr><td><code>src/simulation/sweGpu.ts</code></td><td><code>GpuShallowWaterSolver</code> — the WGSL compute pipeline, tiled activation, ping-pong buffers, reservoir coupling.</td></tr>
+  <tr><td><code>src/simulation/sph.ts</code></td><td><code>SPHSolver</code> — SPH-SWE particles.</td></tr>
+  <tr><td><code>src/simulation/hydrograph.ts</code></td><td>Froehlich breach geometry, level-pool reservoir, release ramp, and the cloudburst runoff hydrograph. Owns <code>EventParams</code>.</td></tr>
+  <tr><td><code>src/simulation/damSite.ts</code></td><td>Snaps the dam to the valley, burns the wall into the DEM, finds the breach cells and the downstream direction.</td></tr>
+  <tr><td><code>src/simulation/exposure.ts</code>, <code>src/lib/analytics.ts</code></td><td>Samples places and roads against depth each frame; hazard classes, damage, loss of life.</td></tr>
+  <tr><td><code>src/simulation/floodWorker.ts</code>, <code>adapters.ts</code>, <code>controller.ts</code></td><td>Worker loop, main-thread fallback, and the run controller (start, pause, stop, pacing).</td></tr>
+  <tr><td><code>src/components/map/MapView.tsx</code></td><td>All deck.gl layers: terrain, flood skin, particles, places, roads, evacuation, dam marker and its pulse.</td></tr>
+  <tr><td><code>src/components/map/hiResTerrain.ts</code></td><td><code>HiResTerrainLayer</code> — height and texture stitching, degraded-tile repair, tile cache.</td></tr>
+  <tr><td><code>src/components/map/floodGpu.ts</code></td><td><code>FloodField</code> textures and the <code>FloodExtension</code> shader injection that colours the water.</td></tr>
+  <tr><td><code>src/components/panels/*</code></td><td>LeftPanel (Event / Model / Observe), RightPanel (Impact), Timeline, Legend, TopBar, ScenarioBuilder, ExportSheet, FirstRun.</td></tr>
+  <tr><td><code>src/lib/motion.ts</code></td><td>The shared motion vocabulary — springs, exits, panel/section/tab/sheet variants.</td></tr>
+  <tr><td><code>src/lib/export/*</code></td><td>KML, Shapefile, GeoJSON, ASCII rasters, CSV, CAP alert, and <code>brief.ts</code> (the printable one-pager).</td></tr>
+  <tr><td><code>scripts/verify-engines.ts</code></td><td>Headless physics suite — analytical benchmarks plus full scenario runs.</td></tr>
+</table>
 
 <h2 id="physics">4. The physics — how water flow is computed</h2>
 <h3>The equations</h3>
 <p>The <strong>2D shallow-water equations</strong> (depth-averaged Navier–Stokes) — the same physics Delft3D-FLOW uses in 2D mode:</p>
-<pre><code>∂h/∂t + ∇·(h·u) = 0                                      (mass)
+<pre><code>∂h/∂t + ∇·(h·u) = R − I                                  (mass, with rain R and losses I)
 ∂(h·u)/∂t + ∇·(h·u⊗u) + g·h·∇(h + z) = −g·n²·|u|·u / h^⅓   (momentum)</code></pre>
-<p><code>h</code> = water depth, <code>u</code> = depth-averaged velocity, <code>z</code> = bed elevation, <code>n</code> = Manning roughness, <code>g</code> = 9.81 m/s².</p>
+<p><code>h</code> = water depth, <code>u</code> = depth-averaged velocity, <code>z</code> = bed elevation, <code>n</code> = Manning roughness, <code>g</code> = 9.81 m/s², <code>R</code> = rainfall rate, <code>I</code> = infiltration. For a dam break <code>R</code> and <code>I</code> are zero and all the water enters at the breach; for a cloudburst they are the whole story.</p>
 
 <h3>The numerical method</h3>
 <ul>
@@ -165,7 +196,7 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
 </ul>
 
 <h3>The speed optimisation</h3>
-<p>The solver tracks <strong>per-row wet spans</strong> with a two-cell halo, iterating only cells that hold water or could receive it next step, instead of sweeping the whole grid — roughly a 1.8× speedup.</p>
+<p>The solver tracks <strong>per-row wet spans</strong> with a two-cell halo, iterating only cells that hold water or could receive it next step, instead of sweeping the whole grid — roughly a 1.8× speedup. A cloudburst deliberately defeats this: while it is raining every cell holds water, so the spans are forced to the full grid and the solver does the whole domain. That is not a bug, it is what rain on a basin means.</p>
 
 <h2 id="breach">5. The breach model — where the water comes from</h2>
 <p>A dam break is not “remove the dam”. We model:</p>
@@ -176,55 +207,107 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
 </ul>
 <p>This is why the interface reports a <em>modelled, tailwater-coupled</em> peak first, and labels the free-outflow figure as a bound rather than a prediction.</p>
 
-<h2 id="sph">6. The second solver — SPH</h2>
+<h3>River blockages measure their own lake</h3>
+<p>A landslide or debris dam is not a surveyed reservoir — nobody knows its volume. <code>src/lib/blockageLake.ts</code> therefore does not ask for one: it draws the barrier as a line of blocked cells across the flow, fills the valley upstream to the barrier crest by a level-pool flood fill on the DEM, and reports the impounded volume, surface area, deepest water and whether the lake reaches the edge of the study area (in which case the volume is a lower bound). The scenario builder shows the measured figure — for example “blockage lake measured from the terrain: 12.4 Mm³ over 0.83 km²”.</p>
+
+<h2 id="cloudburst">6. Cloudburst — rain on the grid</h2>
+<p class="lead">The problem statement asks for flash floods as well as dam breaks. A flash flood has no reservoir and no breach: rain falls on the whole basin and runs downhill. Cascade models it as a source term on every cell rather than an inflow at a point.</p>
+
+<h3>What the user sets</h3>
+<table>
+  <tr><th>Control</th><th>Meaning</th><th>Default</th></tr>
+  <tr><td>Rainfall</td><td>Rate over the whole basin while the storm lasts</td><td class="num">100 mm/h</td></tr>
+  <tr><td>Storm lasts</td><td>Duration from t = 0</td><td class="num">1 h</td></tr>
+  <tr><td>Ground takes</td><td>Infiltration plus interception, removed from standing water at all times</td><td class="num">8 mm/h</td></tr>
+</table>
+<p>India’s meteorological definition of a cloudburst is 100 mm in an hour, which is the default. Kedarnath in June 2013 took roughly 325 mm in a day. Saturated Himalayan slopes in the monsoon shed almost everything, which is why the losses default to single figures.</p>
+
+<h3>How it is solved</h3>
+<ul>
+  <li><code>EngineConfig.storm = { intensity, duration, infiltration }</code>, all in <strong>metres per second</strong>, built by <code>setupSimulation</code> from the mm/h the user sets.</li>
+  <li><strong>CPU solver</strong>: before the flux sweep each step, <code>h += (rain − infiltration)·Δt</code> over the whole grid, clamped at zero, with gross rain counted into the inflow volume so the water balance still closes. While it is raining the wet spans are forced to the full domain.</li>
+  <li><strong>GPU solver</strong>: the same term inside the <code>update</code> kernel, gated on <code>P.t0 + state[0] &lt; P.stormEnd</code>, with the rain volume accumulated in <code>prepare</code>. Every tile is woken at start-up, since rain falls everywhere.</li>
+  <li><strong>SPH solver</strong> cannot be rained on — it has no cells — so it receives the same storm as a <strong>lumped runoff hydrograph</strong>: net rain over the contributing catchment passed through a single linear reservoir with a 30-minute lag, entering at the head of the reach. The grid answer is the physically better one; SPH is the independent check.</li>
+  <li>Because the rain is already falling on the grid solver’s domain, its point inflow is reduced to base flow only — otherwise the storm would be counted twice.</li>
+</ul>
+
+<h3>What it produces</h3>
+<p>Measured headless on Rishi Ganga (100 mm/h for 1 h, 8 mm/h losses, 2 h simulated): the wet area climbs to <span class="num">58 km²</span> during the storm, then <em>drains back</em> to <span class="num">17 km²</span> as the sheet infiltrates and the runoff concentrates into the channels — which is exactly the signature of a flash flood rather than a uniform pond. In the browser, a Tehri-basin cloudburst reaches <span class="num">289 settlements and 51.7K people</span>, first water at T+10:36, 54 bridges under water.</p>
+
+<h2 id="sph">7. The second solver — SPH</h2>
 <p><strong>SPH-SWE</strong>: smoothed-particle hydrodynamics in shallow-water form with variable smoothing length, after <strong>Vacondio et al. (2012)</strong>. The flood is carried by 3,000 / 6,000 / 12,000 moving parcels of water instead of fixed cells, integrated with symplectic Euler and the same implicit Manning friction.</p>
 <p><strong>Why two solvers:</strong> they fail in different ways. SPH has no fixed grid, so its wet/dry front is not smeared across a cell. Where the two agree, the result does not depend on the choice of method; where they differ, the gap <em>is</em> a measure of model uncertainty. The Difference layer maps that gap.</p>
+<p><strong>Read the difference honestly.</strong> SPH consistently spreads wider than the grid solver — on Rishi Ganga it floods 4.6 km² against the grid’s 2.1 km², an extent ratio near 2×. An earlier arrival in SPH is therefore not evidence that the grid solver is late; it is the known bias of a particle method with far fewer degrees of freedom. The right reading is “the two methods bracket the answer”, and the interface reports the critical success index between them rather than picking a winner.</p>
 
-<h2 id="gpu">7. The GPU engine</h2>
-<p>The grid solver runs on the graphics card through <strong>WebGPU</strong>, as three WGSL compute kernels:</p>
+
+<h2 id="gpu">8. The GPU engine, and the race</h2>
+<p>The grid solver can run on the graphics card through <strong>WebGPU</strong>, as four WGSL compute kernels over a 16 × 16 tiled domain:</p>
 <table>
   <tr><th>Kernel</th><th>Job</th></tr>
-  <tr><td><code>prepare</code></td><td>Choose the time step; apply breach inflow</td></tr>
-  <tr><td><code>update</code></td><td>Four face fluxes per cell, update depth and momentum, apply friction, update envelopes, reduce the next CFL rate across the workgroup</td></tr>
-  <tr><td><code>finalize</code></td><td>Combine workgroup partials into the global rate, accumulate outflow, advance the clock</td></tr>
+  <tr><td><code>prepare</code></td><td>Choose the time step from the live CFL rate, inject breach inflow, accumulate rain volume (one thread)</td></tr>
+  <tr><td><code>update</code></td><td>Four face fluxes per cell, update depth and momentum, add rain and subtract infiltration, apply friction, update the peak-depth / arrival / velocity envelopes (one thread per cell, tiles that are asleep return immediately)</td></tr>
+  <tr><td><code>reduce</code></td><td>Per tile: the largest wave speed, the outflow through the edge, and whether the tile holds water</td></tr>
+  <tr><td><code>finalize</code></td><td>Combine tile partials into the global CFL rate, accumulate outflow, advance the clock, and wake the neighbours of every wet tile</td></tr>
 </table>
-<p>State lives in ping-pong <code>vec4</code> buffers (depth, x-discharge, y-discharge, bed elevation) at 256 threads per workgroup. The reservoir stays on the CPU and couples in batches of ≤30 simulated seconds. Submissions are sized to <strong>about 8 ms of GPU work</strong> so the map keeps drawing between them — that alone took playback from 54 fps to 107 fps.</p>
-<p class="lead">Result: <span class="k">Bhakra in ~58 seconds instead of ~5 minutes.</span></p>
+<p>State lives in ping-pong <code>vec4</code> buffers (depth, x-discharge, y-discharge, bed elevation). The reservoir stays on the CPU and couples in batches of ≤30 simulated seconds: the host writes the inflow at the start and end of a batch, the GPU interpolates it in time and reports the volume it added, which then leaves the reservoir. Submissions are sized to about 8 ms of GPU work so the map keeps drawing between them.</p>
 
-<h2 id="resolution">8. Resolution settings</h2>
+<div class="card accent">
+  <p><strong>The race — and why the processor usually wins.</strong></p>
+  <p>A browser hands WebGPU whichever adapter it likes, and on a laptop that is almost always the <em>integrated</em> chip — the same one drawing the map. This solver’s per-step cost is mostly fixed (four dispatches, two of them single-threaded), so on integrated graphics it is dominated by overhead rather than arithmetic.</p>
+  <p>So Cascade no longer assumes. At the start of a run both solvers are given the same opening <strong>30 simulated seconds</strong> and timed; the graphics card is kept only if it is within <span class="k">2×</span> of the processor, with that slack because the early flood is at its smallest and the GPU scales better as the water spreads. The verdict is cached per grid size per session and reported in <strong>Model → This device</strong>.</p>
+  <p>On the development laptop the verdict reads: <em>“the graphics card the browser gave it (gen-12lp) solved the first half-minute <span class="k">86× slower</span> than the processor.”</em> Two hours of Tehri, measured end to end in the browser: <span class="num">171–180 s</span> on that integrated GPU versus <span class="num">6 s</span> in the Web Worker. Compute rate: 0.7 against 10–20 simulated minutes per second of wall clock.</p>
+  <p>The switch in the Model tab is therefore labelled <em>“Let the grid solver try the graphics card”</em> — it grants permission, it does not force the issue. On a machine with a real discrete GPU the race is won by the card and it is used.</p>
+</div>
+
+<h2 id="resolution">9. Resolution settings</h2>
 <table>
-  <tr><th>Setting</th><th>Grid</th><th>Cost (Tehri, 6 h simulated)</th></tr>
-  <tr><td>Fast</td><td>cells 2× larger (200 m)</td><td class="num">seconds</td></tr>
-  <tr><td>Standard</td><td>scenario grid (100 m)</td><td class="num">109 s on GPU</td></tr>
-  <tr><td>Detailed</td><td>cells 2× smaller (50 m — 846 × 884), GPU only</td><td class="num">163 s</td></tr>
+  <tr><th>Setting</th><th>Grid</th><th>Notes</th></tr>
+  <tr><td>Fast</td><td>cells 2× larger (200 m)</td><td>About 8× quicker; for a first look, not for reported numbers</td></tr>
+  <tr><td>Standard</td><td>scenario grid (100 m)</td><td>The default, and what every published figure should use</td></tr>
+  <tr><td>Detailed</td><td>cells 2× smaller (50 m — 846 × 884)</td><td>Needs WebGPU; falls back to the scenario grid where it is unavailable</td></tr>
 </table>
 <p>Detailed pools results back onto the scenario grid (deepest value per block, earliest real arrival), so every panel, layer and export is unchanged. The finer grid keeps the flood in the gorge instead of smearing it across 100 m cells: 20 settlements reached instead of 40, and the front reaches Naramghat at 23:31 instead of 27:21.</p>
 
-<h2 id="validation">9. Validation — what proves the numbers</h2>
-<p>Six benchmarks run <strong>live in the browser</strong>, computed on the spot (Model tab → Run analytical benchmarks):</p>
+<h2 id="validation">10. Validation — what proves the numbers</h2>
+<p>Six benchmarks run <strong>live in the browser</strong>, computed on the spot (Model tab → Run analytical benchmarks), and again headlessly with <code>npm run verify</code>:</p>
 <table>
   <tr><th>Test</th><th>What it proves</th><th>Result</th></tr>
   <tr><td>Ritter (1892)</td><td>Exact solution for a dam break on a dry frictionless bed</td><td class="num">depth RMSE 1.2 % of h₀; front within 8.9 %</td></tr>
   <tr><td>Grid convergence</td><td>Errors must shrink as cells shrink (20 → 10 → 5 m)</td><td class="num">RMSE 1.7 → 1.2 → 0.8 %</td></tr>
   <tr><td>Stoker (1957)</td><td>Dam break onto water already in the channel forms a bore — the realistic case</td><td class="num">bore 5.07 m vs exact 5.08 m; position 0.6 % off</td></tr>
   <tr><td>EA benchmark test 3</td><td>Momentum conservation over a 0.25 m obstruction</td><td class="num">11.4 cm carried over; ponds level to 3.6 mm</td></tr>
-  <tr><td>Dry-bed inflow</td><td>Mass conservation when a dry domain first takes water</td><td class="num">error 1e-15</td></tr>
+  <tr><td>Dry-bed inflow</td><td>Mass conservation when a dry domain first takes water</td><td class="num">error 1.4e-15</td></tr>
   <tr><td>Lake at rest</td><td>Still water on rough ground must stay perfectly still (well-balanced)</td><td class="num">zero movement, zero volume change</td></tr>
 </table>
-<p>Plus <strong>live mass balance</strong> on every run (Tehri: 4.9e-13 %), <strong>CSI / hit rate / extent ratio / depth RMSE</strong> against an imported HEC-RAS or Delft3D raster, and <strong>Sentinel-1 observed extent</strong> scoring through a generated Google Earth Engine script (UN-SPIDER change-detection method).</p>
+<p>Plus <strong>live mass balance</strong> on every run (Tehri standard, 6 h: in 3,319.5 Mm³, out 838.7, stored 2,480.8, error <span class="num">1.85e-12 %</span>), <strong>CSI / hit rate / extent ratio / depth RMSE</strong> against an imported HEC-RAS or Delft3D raster, and <strong>Sentinel-1 observed extent</strong> scoring through a generated Google Earth Engine script (UN-SPIDER change-detection method).</p>
 
 <h3>On Malpasset</h3>
 <p>Malpasset (France, 1959) is the classic real-world validation case, but its benchmark topography is a digitised <strong>1931</strong> survey map — used precisely because the Reyran valley was reshaped beyond recognition by the flood and later development. Modern SRTM terrain is the wrong landscape, so a Malpasset run on it would be meaningless however convincing it looked, and the CADAM dataset with the survey-point coordinates is not openly redistributable. We use the reproducible Environment Agency case instead, and say so.</p>
 
-<h2 id="bug">10. The bug we found — and what it demonstrates</h2>
+<h2 id="bugs">11. Bugs we found — and what they demonstrate</h2>
+
 <div class="card">
-  <p>Building the Environment Agency benchmark exposed a <strong>real mass-conservation failure in our own solver</strong>: a sealed basin finished with <span class="k">10,584 m³ after only 771 m³ was released</span> (+1362 %).</p>
+  <p class="q">Mass appearing from nowhere — a real defect in our own solver</p>
+  <p>Building the Environment Agency benchmark exposed a <strong>mass-conservation failure</strong>: a sealed basin finished with <span class="k">10,584 m³ after only 771 m³ was released</span> (+1362 %).</p>
   <p><strong>Cause.</strong> The time step is chosen from the fastest water present — but at the start the valley is dry, so there is nothing to measure and it fell back to its 10 s ceiling. A safety check existed for incoming water, but it sampled the inflow <em>at the instant the step began</em>, and the hydrograph started at zero, so it concluded nothing was coming. The step then injected the <em>average</em> over those 10 seconds — 333 m³ into a single 25 m² cell, a 13 m column appearing at once. Draining it demanded more water than the cell held, depth went negative, and the safety clamp that zeroes negatives quietly converted that deficit into new water.</p>
-  <p><strong>Fix.</strong> Sample the inflow across the whole step (start, middle, end) and re-check as the step shrinks — which is what the WebGPU kernel already did. Error is now ~1e-15; Tehri is unchanged at 4.9e-13 % with identical arrival times; a permanent regression test locks it.</p>
-  <p><strong>Why it matters:</strong> the tests were not decoration. They caught a genuine defect in our own code, we fixed it, and the suite runs live in the app for anyone to re-run.</p>
+  <p><strong>Fix.</strong> Sample the inflow across the whole step (start, middle, end) and re-check as the step shrinks — which is what the WebGPU kernel already did. Error is now ~1e-15, and a permanent regression test locks it.</p>
 </div>
 
-<h2 id="ensemble">11. Uncertainty — the ensemble</h2>
+<div class="card">
+  <p class="q">The GPU solver was silently dead for weeks — <code>active</code> is a reserved word in WGSL</p>
+  <p>A tiled-activation optimisation named its per-tile buffer <code>active</code>. That is a <strong>reserved keyword</strong> in the WebGPU Shading Language, so the entire shader module failed to compile. Nothing crashed: the runtime caught the error and fell back to the CPU, and the interface reported “Processor”, so every run since that change had been quietly using the fallback.</p>
+  <p><strong>How we caught it.</strong> Not by reading the code — by extracting the WGSL from the bundle, compiling it in a real browser through <code>device.createShaderModule()</code> and reading <code>getCompilationInfo()</code>, which answered in one line: <em>“error line 29: ‘active’ is a reserved keyword.”</em> Renaming it to <code>awake</code> compiled clean and the Model tab immediately read “Graphics card (WebGPU)”.</p>
+  <p><strong>Why it matters twice over.</strong> Fixing it turned the GPU path back on — and that is what exposed the <em>second</em> finding: on integrated graphics the GPU path is dramatically slower than the worker. A bug that looked like a pure win led directly to the race described above, which is now what protects the frame rate.</p>
+</div>
+
+<div class="card">
+  <p class="q">Framer Motion overwrites <code>transform</code> — twice bitten</p>
+  <p>Two interface bugs had the same root cause: an element set a CSS <code>transform</code> (Tailwind’s <code>-translate-x-1/2</code>, or an inline <code>translate(-50%, -100%)</code>) <em>and</em> animated with Framer Motion, which writes <code>transform</code> itself and threw the positioning away on the first frame. The tour card fell off the bottom of the screen; the dam-picking pill sat half a width off-centre.</p>
+  <p>A third variant of the same class: the tooltip wrapper used <code>display: contents</code>, which has <strong>no box at all</strong>, so <code>getBoundingClientRect()</code> returned zeros and every tooltip positioned itself in the top-left corner of the page. It now measures the control inside the wrapper, and falls back to the pointer for labels that are bare text.</p>
+  <p><strong>Rule for the team:</strong> never set a CSS transform on an animated element. Put positioning on a static wrapper, or make it an animated value (<code>x: '-50%'</code>) so Motion owns the whole transform.</p>
+</div>
+
+<h2 id="ensemble">12. Uncertainty — the ensemble</h2>
 <p>Twelve runs of the grid solver over a <strong>Latin hypercube</strong>, varying the three inputs nobody knows before a failure:</p>
 <ul>
   <li>breach width ×0.6–1.6</li>
@@ -232,44 +315,89 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
   <li>Manning’s n ×0.75–1.35</li>
 </ul>
 <p>Ranges reflect the scatter in published breach predictors (Wahl, 2004). Outputs: a <strong>chance-of-flooding map layer</strong>, a per-place “flooded in X % of runs”, and 10th–90th percentile bands on every headline number.</p>
-<p>Tehri: <span class="num">24.9K people (24.6–25.1K), 76 km², 899 lives, water at Naramghat in 27 min (21–33)</span>.</p>
 
-<h2 id="maps">12. Maps and rendering</h2>
+<h2 id="maps">13. Maps and rendering</h2>
 <ul>
   <li><strong>Terrain:</strong> a custom <code>HiResTerrainLayer</code> subclassing deck.gl’s TerrainLayer. Heights come from AWS Terrain Tiles (Terrarium PNG encoding, SRTM-derived, native max zoom 15) bilinearly cut to zoom 17; textures are stitched 2 × 2 from one zoom deeper to reach ~0.5 m per pixel. Smooth normals per mesh (skirts excluded), 16× anisotropic filtering.</li>
-  <li><strong>Imagery:</strong> Esri World Imagery to zoom 18, or Esri Dark Gray Canvas plus labels for the map view.</li>
+  <li><strong>Tile caching.</strong> deck.gl sizes its tile cache from the current viewport, so zooming out and back in discarded what had just been on screen and downloaded it again — which is when a coarse parent tile is left showing as a blurred rectangle among sharp neighbours. The cache is now pinned at <strong>240 tiles</strong> regardless of viewport, and a tile that does come back coarse is repaired after <strong>1.2 s</strong> (was 4 s) with up to four attempts. Measured over four hard zoom cycles afterwards: 149 tiles loaded, 0 retried, <strong>0 low quality</strong>, 120 fps.</li>
+  <li><strong>Aborted requests are normal.</strong> Instrumenting three zoom cycles recorded 1,241 imagery responses, <em>all HTTP 200</em>, alongside ~670 <code>net::ERR_ABORTED</code> — those are deck.gl cancelling in-flight tiles as the camera moves, not failures.</li>
+  <li><strong>Imagery:</strong> Esri World Imagery to zoom 18, or Esri Dark Gray Canvas plus labels for the map view. Quadrants that cannot be fetched fall back through five coarser zooms before a plain ground colour is used.</li>
   <li><strong>Aerial perspective:</strong> a custom <code>HazeExtension</code> injects distance-based haze into every layer’s fragment shader, matched to the sky colour.</li>
-  <li><strong>The water:</strong> the depth raster is painted into an <code>ImageData</code> through a precomputed lookup table (one texture per frame, not one object per cell), drawn on a mesh “skin” lifted above the terrain, with a <code>WaterExtension</code> shader adding three wave trains, a Fresnel sky reflection and a sun glint. Shorelines fade in over the first metre instead of stopping on hard cells.</li>
+  <li><strong>The water:</strong> the depth raster is painted into an <code>ImageData</code> through a precomputed lookup table (one texture per frame, not one object per cell), drawn on a mesh “skin” lifted 8 m above the terrain and clipped to ground below the crest, with a <code>WaterExtension</code> shader adding three wave trains, a Fresnel sky reflection and a sun glint. Shorelines fade in over the first metre instead of stopping on hard cells.</li>
+  <li><strong>Layer changes cross-fade</strong> over 250 ms rather than swapping between frames, and a new scenario fades its layers up the same way.</li>
+  <li><strong>The breach announces itself.</strong> When a run starts the camera eases to the dam over 2.2 s and three rings travel out from the breach marker (1.5 s each, 0.36 apart, fading as they widen) — the eye goes to where the water begins before the first frame of flood exists.</li>
   <li><strong>Performance techniques:</strong> the basemap renders at half resolution under 3D terrain; the flood repaints at a fixed ~15 Hz rather than every frame; picking is restricted to the places layer.</li>
 </ul>
 
-<h2 id="data">13. Data sources — what we fetch and how</h2>
+<h2 id="ui">14. The interface explains itself</h2>
+<p class="lead">A jury should not need the person who built it standing next to them. Every control and every figure carries its own explanation.</p>
+<ul>
+  <li><strong>Hover explanations everywhere.</strong> A <code>Hint</code> component shows a titled explanation after the pointer rests for <strong>450 ms</strong>, rendered in a portal so scrolling panels cannot clip it, positioned under the control it describes. Every slider, every segmented option, every scenario-builder field and every headline figure has one — what the setting means, what it changes, and where the number comes from.</li>
+  <li><strong>A guided first run.</strong> Four coach marks on a first visit (<code>FirstRun.tsx</code>): describe the failure → run both solvers → follow the water → read what it costs. Each spotlights a real control by a <code>data-coach</code> name, follows it every frame as panels slide, skips any step whose control this window does not show, and is dismissed with Skip or Escape. Seen state lives in <code>localStorage</code> under <code>cascade.tour.v1</code>.</li>
+  <li><strong>Figures count rather than jump.</strong> A <code>Count</code> component eases every headline number to its new value over 420 ms. Numbers that snap read as glitches; numbers that travel read as water arriving somewhere.</li>
+  <li><strong>Every figure says where it came from.</strong> People exposed, loss of life, flooded area, outflow, critical facilities, bridges, roads cut and indicative loss each explain their method on hover — Graham (1999) rates, AIDR depth × velocity, the JRC curves, the 0.3 m road-cut threshold, OSM-derived populations.</li>
+  <li><strong>The app admits when a run was too short.</strong> If the newest arrival time falls within the last two output intervals, the Impact panel says the flood was still reaching new ground when the run ended and points at the Simulated time control. That single line is the difference between a result and a wrong answer.</li>
+</ul>
+
+<h2 id="motion">15. The motion system</h2>
+<p>All animation comes from one vocabulary in <code>src/lib/motion.ts</code>, so the interface reads as one object rather than a pile of components that each invented a fade. Only <strong>transform and opacity</strong> are animated — blur and shadow animation on a panel this size costs real frames on an integrated GPU.</p>
+<table>
+  <tr><th>Token</th><th>Value</th><th>Used for</th></tr>
+  <tr><td><code>PANEL_SPRING</code></td><td>stiffness 380, damping 31, mass 0.85</td><td>Panels and sheets — firm, with a touch of overshoot</td></tr>
+  <tr><td><code>POP_SPRING</code></td><td>stiffness 520, damping 36</td><td>Pills, buttons, the run → transport handover</td></tr>
+  <tr><td><code>CONTENT_SPRING</code></td><td>stiffness 460, damping 38</td><td>Sections arriving inside an opening panel</td></tr>
+  <tr><td><code>EXIT</code></td><td>160 ms, accelerating</td><td>Everything leaving — nothing lingers</td></tr>
+  <tr><td>stagger</td><td>35 ms</td><td>Gap between sections as they land</td></tr>
+</table>
+<ul>
+  <li><strong>Panels unfold from the edge they live on</strong> (<code>origin-left</code> / <code>origin-right</code>) instead of floating in from nowhere, and their <strong>sections arrive in reading order</strong>. <code>Section</code> declares how it arrives but never starts itself, so it staggers inside an opening panel and sits still anywhere else.</li>
+  <li><strong>Tabs move in the direction you travelled</strong> — Event → Model enters from the right, Model → Event from the left.</li>
+  <li><strong>Panel and pill hand over</strong>: the pill grows out of the edge the panel collapsed into, 100 ms later, with a hover nudge and a tap press.</li>
+  <li><strong>The top bar and timeline ride in as the loading screen lifts</strong>, staggered 40 ms and 140 ms, and the legend rises with the timeline it belongs to.</li>
+  <li><strong>Sheets rise and settle</strong> on the house spring with their contents just behind.</li>
+  <li><strong>Run becomes the transport</strong>: the big button shrinks away as the play/stop controls grow out of the same spot.</li>
+  <li><code>MotionConfig reducedMotion="user"</code> is set globally, so a machine configured to reduce motion gets none of it.</li>
+</ul>
+<p>Measured during panel animation: <span class="num">114–120 fps</span>.</p>
+
+<h2 id="compare">16. Comparing runs and models</h2>
+<ul>
+  <li><strong>Grid against SPH</strong> — the <em>Both</em> view draws them together, the <strong>Difference</strong> layer maps where they disagree, and the Impact panel scores extent agreement (critical success index), mean depth difference and extent ratio.</li>
+  <li><strong>This run against your last one.</strong> “Keep this run to compare” snapshots the current peak-depth envelope as the baseline, with the settings that produced it recorded beside it. Change a slider, run again, and the Difference layer shows what changed, cell by cell, with CSI, hit rate, extent ratio and depth RMSE.</li>
+  <li><strong>Against another model entirely.</strong> Import a maximum-depth raster from Delft3D, HEC-RAS or anything else (GeoTIFF or ESRI ASCII, WGS 84 or UTM) and it is scored the same way.</li>
+  <li><strong>Against reality.</strong> Import a Sentinel-1 observed extent and get CSI, detection rate and false-alarm ratio against the model.</li>
+</ul>
+
+
+<h2 id="data">17. Data sources — what we fetch and how</h2>
 <table>
   <tr><th>Data</th><th>Source</th><th>How</th></tr>
   <tr><td>Terrain (DEM)</td><td>AWS Terrain Tiles (SRTM, NASA/USGS)</td><td>Terrarium PNG tiles, decoded and box-filtered to the scenario cell size</td></tr>
-  <tr><td>Satellite imagery</td><td>Esri World Imagery (Maxar, Earthstar)</td><td>XYZ tiles</td></tr>
+  <tr><td>Satellite imagery</td><td>Esri World Imagery (Maxar, Earthstar)</td><td>XYZ tiles, stitched 2 × 2 from one zoom deeper</td></tr>
   <tr><td>Base map</td><td>Esri Dark Gray Canvas + labels</td><td>XYZ tiles</td></tr>
-  <tr><td>Settlements, hospitals, schools, police and fire</td><td>OpenStreetMap via Overpass API (4 mirrors, with backoff)</td><td><code>node["place"]</code>, <code>nwr["amenity"]</code></td></tr>
+  <tr><td>Settlements, hospitals, schools, police and fire</td><td>OpenStreetMap via Overpass API</td><td><code>node["place"]</code>, <code>nwr["amenity"]</code> — <strong>all four mirrors asked at once</strong> (<code>Promise.any</code>), first answer wins, result cached in IndexedDB so the same area is never fetched twice</td></tr>
   <tr><td>Roads and bridges</td><td>OpenStreetMap</td><td><code>way["highway"~motorway|trunk|primary|secondary|tertiary]</code>; bridges from <code>bridge=yes</code></td></tr>
-  <tr><td>Dam crest lines</td><td>OpenStreetMap <code>waterway=dam</code></td><td>Fetched and reduced to a centreline; 16 major dams pre-baked into a catalogue</td></tr>
+  <tr><td>Dam crest lines</td><td>OpenStreetMap <code>waterway=dam</code></td><td>Fetched and reduced to a centreline</td></tr>
+  <tr><td>Dam catalogue</td><td><code>public/data/dams-national.json</code></td><td><strong>144 dams across 30 states</strong>, searchable by name, state or district with tolerant matching</td></tr>
   <tr><td>Observed flood extent</td><td>Sentinel-1 via Google Earth Engine</td><td>The app generates the script; you run it and import the result</td></tr>
 </table>
-<p>Bundled scenarios (Tehri, Bhakra, Rishi Ganga) ship with this data pre-baked, so they work fully offline.</p>
+<p>Bundled scenarios (Tehri, Bhakra, Machchhu 1979, Rishi Ganga) ship with this data pre-baked, so they work fully offline.</p>
 
-<h2 id="impact">14. Population and impact — the chain</h2>
+<h2 id="impact">18. Population and impact — the chain</h2>
 <ol>
   <li><strong>Population per place</strong> comes from the OpenStreetMap <code>population</code> tag where it exists. Where it does not, typical values by place type are used — city 100,000, town 15,000, suburb 5,000, village 1,000, hamlet 150 — and the interface <strong>marks those as estimated</strong>.</li>
   <li><strong>A settlement is not a point.</strong> Each has a footprint radius by type: city 1,500 m, town 700 m, suburb 450 m, village 250 m, hamlet 120 m.</li>
   <li><strong>People exposed = population × the flooded share of that footprint</strong>, sampled every frame — so a half-covered village counts half its people, and the figure grows as the flood spreads.</li>
   <li><strong>Hazard class</strong> from AIDR Guideline 7-3 (2017), classes H1–H6, combining depth, velocity and depth × velocity. H1 is ≤ 0.3 m with DV ≤ 0.3 (“generally safe”); H6 is above 4 m or DV &gt; 4 (“unsafe for all; all building types vulnerable to failure”).</li>
-  <li><strong>Loss of life</strong> from Graham (1999) fatality rates, chosen by flood severity and warning time. High severity requires DV ≥ 12 (the RESCDAM building-collapse threshold) <em>and</em> arrival under 15 minutes. The panel shows what warning at breach, 30 minutes early and 1 hour early would change.</li>
+  <li><strong>Loss of life</strong> from Graham (1999) fatality rates, chosen by flood severity and warning time. High severity requires DV ≥ 12 (the RESCDAM building-collapse threshold) <em>and</em> arrival under 15 minutes. The panel shows what warning at breach, 30 minutes early and 1 hour early would change — and the brief states how many lives the half-hour buys.</li>
   <li><strong>Economic loss</strong> from the JRC global depth–damage curve for Asian residential buildings (Huizinga, de Moel &amp; Szewczyk, 2017) — 0.5 m = 33 % of value, 1 m = 49 %, 2 m = 72 %, 6 m = total — against indicative replacement values (₹10 lakh per household at 4.8 people, hospital ₹25 crore, school ₹2 crore, bridge ₹20 crore). Roads count as cut at ≥ 0.3 m depth.</li>
 </ol>
 
-<h2 id="exports">15. Exports — what each file is and how to open it</h2>
+<h2 id="exports">19. Exports — what each file is and how to open it</h2>
 <p>The <strong>Grid solver / SPH solver</strong> toggle at the top of the export sheet selects which engine’s results to export.</p>
 <table>
   <tr><th>Format</th><th>What it contains</th><th>How to open it</th></tr>
+  <tr><td><strong>One-page brief</strong> (.html → PDF)</td><td>A print-ready A4 page: six headline figures, an extent map drawn to scale with depth legend and scale bar, the first places reached with arrival, depth, hazard and people, what a 30-minute warning saves, and a footer stating every assumption — breach size and formation, reservoir, grid, Manning’s n, and the method citations</td><td>Opens in a new tab with a <strong>Print / save as PDF</strong> button</td></tr>
   <tr><td>KML</td><td>Depth bands, arrival isochrones and hazard classes as folders, plus places and cut roads</td><td><strong>Google Earth</strong> (desktop or web) — double-click, or drag into earth.google.com</td></tr>
   <tr><td>Shapefile (.zip)</td><td>Five layers in WGS 84: depth polygons, arrival, hazard, places at risk, cut roads</td><td><strong>QGIS</strong> (free) or ArcGIS — unzip, drag the <code>.shp</code> in</td></tr>
   <tr><td>GeoJSON</td><td>Every vector layer in one file</td><td>QGIS, or paste into <strong>geojson.io</strong>; also readable as plain text</td></tr>
@@ -278,37 +406,73 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
   <tr><td>CAP alert (.xml)</td><td>Common Alerting Protocol 1.2 (SACHET), English and Hindi blocks, marked as an exercise</td><td>Any CAP-aware alerting system (NDMA / SACHET); opens as text in any editor</td></tr>
 </table>
 <div class="card">
-  <p><strong>For a demo:</strong> show the KML in Google Earth (most convincing to a non-GIS audience), have the CSV open in Sheets as the evacuation list, and mention the Shapefile and raster exports as the “hand this to the district GIS cell” answer.</p>
+  <p><strong>For a demo:</strong> open the <strong>one-page brief</strong> first — it is the thing a district officer would actually hold — then show the KML in Google Earth (most convincing to a non-GIS audience), have the CSV open in Sheets as the evacuation list, and mention the Shapefile and raster exports as the “hand this to the district GIS cell” answer.</p>
 </div>
 
-<h2 id="perf">16. Performance</h2>
+<h2 id="perf">20. Performance</h2>
+<p>All figures measured on the development laptop (Intel UHD integrated graphics, headless Edge with WebGPU enabled), not asserted.</p>
 <table>
-  <tr><th>Measure</th><th>Result (Intel UHD integrated graphics)</th></tr>
-  <tr><td>Map idle</td><td class="num">120 fps</td></tr>
-  <tr><td>Panning</td><td class="num">74–80 fps</td></tr>
-  <tr><td>During flood playback</td><td class="num">107 fps</td></tr>
-  <tr><td>Bhakra, Fast, GPU</td><td class="num">~58 s (vs ~5 min on the processor)</td></tr>
-  <tr><td>Tehri, Standard, 6 h simulated</td><td class="num">109 s</td></tr>
-  <tr><td>Tehri, Detailed (50 m), 6 h simulated</td><td class="num">163 s</td></tr>
+  <tr><th>Measure</th><th>Result</th></tr>
+  <tr><td>Map idle, 3D satellite</td><td class="num">117–120 fps</td></tr>
+  <tr><td>Solver computing, flood not animating</td><td class="num">115–120 fps</td></tr>
+  <tr><td>Animating the flood live</td><td class="num">34–45 fps</td></tr>
+  <tr><td>During panel open / close animation</td><td class="num">114–120 fps</td></tr>
+  <tr><td>After four hard zoom cycles</td><td class="num">120 fps, heap 99 → 138 MB</td></tr>
+  <tr><td>Tehri, 2 h simulated, Web Worker</td><td class="num">6 s</td></tr>
+  <tr><td>Tehri, 2 h simulated, integrated GPU</td><td class="num">171–180 s (why the race exists)</td></tr>
+  <tr><td>Tehri, 6 h simulated, standard grid, headless Node</td><td class="num">40 s</td></tr>
+  <tr><td>Compute rate, worker, 187k cells</td><td class="num">10–20 simulated minutes per second</td></tr>
 </table>
-<p>The standing requirement is 60 fps minimum including 3D, on ordinary integrated-GPU laptops, measured on real hardware rather than asserted.</p>
+<p>The standing requirement is <strong>60 fps minimum including 3D</strong> on ordinary integrated-GPU laptops. Idle, panning, computing and animating the interface all clear it. The one case that does not is animating the flood live at full speed, which is a texture-upload cost in the rendering path and not solver contention — pausing playback while the solver runs returns the map to 120 fps immediately.</p>
 
-<h2 id="limits">17. Known limitations — state these before a judge finds them</h2>
+<h2 id="tehri">21. The Tehri reach question — worked example of an honest answer</h2>
+<p>The grid solver appeared not to reach Rishikesh while SPH did, which looked like a bug. It was not. Measured on the standard 100 m grid, 6 h simulated:</p>
+<table>
+  <tr><th>Place</th><th>Arrival</th><th>Peak depth</th></tr>
+  <tr><td>Devprayag</td><td class="num">1 h 35 min</td><td class="num">138 m</td></tr>
+  <tr><td>Byasi (~20 km above Rishikesh)</td><td class="num">4 h 26 min</td><td class="num">78 m</td></tr>
+  <tr><td>Rishikesh</td><td class="num">not reached in 6 h</td><td>front ~3.5 km short</td></tr>
+</table>
+<p>The wave was travelling normally and simply had not arrived by the end of the run; SPH “arrived” earlier because it spreads about twice as wide, not because it is more accurate. Two changes followed: Tehri’s default run length is now <strong>9 hours</strong>, and any run that ends with water still reaching new ground says so above the figures. Water also leaves the study area at the east edge (40 m deep on the boundary, backing up the Alaknanda) and the south — 838 Mm³ of the 3,319 Mm³ released — which the mass balance accounts for explicitly.</p>
+
+<h2 id="brand">22. Branding &amp; repo hygiene</h2>
+<ul>
+  <li><strong>The mark</strong> — a rounded square, light ground, three dark wave strokes at descending opacity. Sources: <code>docs/brand/cascade-mark.svg</code> and <code>.png</code>.</li>
+  <li><strong>Browser tab</strong>: <code>src/app/icon.svg</code>. <strong>Phone and desktop bookmarks</strong>: <code>src/app/apple-icon.png</code> (180 × 180 — Next.js only accepts PNG here). <strong>Link previews</strong>: <code>src/app/opengraph-image.png</code> (1200 × 630, mark + name + tagline on the app’s own canvas colour).</li>
+  <li><strong>README</strong> — hero screenshot captured from the running app, badges, the methods table with citations, run and verify instructions, the SIH26161 deliverable mapping in a collapsible block, and an explicit “what this is not”.</li>
+  <li><strong>One author.</strong> Every commit is authored <code>sirgreaseball &lt;dhruuvvsonar@gmail.com&gt;</code>. A <code>.mailmap</code> maps any stray address to that identity, so <code>git shortlog</code> and GitHub’s contributor graph both resolve to a single person.</li>
+</ul>
+
+<h2 id="limits">23. Known limitations — state these before a judge finds them</h2>
 <ul>
   <li><strong>DEM resolution.</strong> SRTM at 30 m, resampled to 100 m cells, captured February 2000. Features narrower than a cell — river channels, embankments, levees, bridges, culverts — are not resolved.</li>
   <li><strong>No river bathymetry.</strong> No satellite DEM sees the channel bed below the water surface, so that storage volume is missing and the valley fills somewhat faster than reality.</li>
   <li><strong>SRTM is a surface model.</strong> It reflects off treetops and rooftops, so in forested valleys the “ground” can read 10–20 m too high.</li>
-  <li><strong>Roughness is currently a single value</strong> for the whole domain, adjustable in the Model tab.</li>
+  <li><strong>Roughness is a single value</strong> for the whole domain unless a land-cover field is supplied, adjustable in the Model tab.</li>
+  <li><strong>The cloudburst is uniform in space.</strong> Real storms have cells and move; Cascade rains at one rate over the whole basin. Infiltration is a single constant rate, not a Horton curve or an SCS curve number, and there is no subsurface flow.</li>
+  <li><strong>SPH cannot be rained on.</strong> For a cloudburst it receives the storm as lumped runoff entering the head of the reach, so the two solvers are answering slightly different questions and their agreement means less for that event type.</li>
+  <li><strong>A cloudburst wets the whole domain</strong>, which defeats the wet-span optimisation, so those runs are inherently heavier than a breach.</li>
+  <li><strong>The GPU path is only used when it wins the race</strong>, which on most laptops it will not. That is a property of integrated graphics and of a solver whose per-step cost is dominated by fixed overhead, not a claim that GPUs are slow.</li>
   <li><strong>Population is OpenStreetMap-derived</strong>, with typical values where tags are missing — those are flagged as estimated in the interface.</li>
   <li><strong>Loss of life and economic loss are indicative</strong>, from published rate tables, not a loss adjuster’s assessment.</li>
   <li><strong>Dam and reservoir figures are approximate public values</strong>; they should be verified with the dam owner before any operational use.</li>
 </ul>
 
-<h2 id="qa">18. Q&amp;A cheat sheet</h2>
+<h2 id="qa">24. Q&amp;A cheat sheet</h2>
 
 <div class="card">
   <p class="q">“Did you benchmark this?”</p>
   <p>Six analytical and published benchmarks run live in the app — Ritter, grid convergence, Stoker, Environment Agency test 3, dry-bed mass and lake-at-rest — plus mass balance on every run. They caught a genuine mass-conservation bug in our own solver, which we fixed and locked with a regression test.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Can it do flash floods, or only dam breaks?”</p>
+  <p>Both. The Cloudburst event rains on every cell of the domain at a rate and duration you set, removes what the ground takes, and routes the rest downhill with the same equations. Nothing has to fail for a flood to happen — which is how most Indian flash-flood deaths actually occur.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Why is it running on the processor and not the graphics card?”</p>
+  <p>Because we measured, and on this machine the processor is faster. Both solvers are raced over the first 30 simulated seconds at the start of every run; the browser gave WebGPU the integrated Intel chip, which came back 86× slower, so the worker runs it. On a machine with a discrete GPU the card wins and is used. The Model tab states the verdict in words.</p>
 </div>
 
 <div class="card">
@@ -323,7 +487,12 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
 
 <div class="card">
   <p class="q">“Why two solvers — isn’t SPH a gimmick?”</p>
-  <p>They fail differently. SPH carries the flood on moving particles with no fixed grid, so its wet/dry front is not smeared across a cell. Agreement means the answer does not depend on method choice; disagreement is a measurable uncertainty, which the Difference layer maps.</p>
+  <p>They fail differently. SPH carries the flood on moving particles with no fixed grid, so its wet/dry front is not smeared across a cell. Agreement means the answer does not depend on method choice; disagreement is a measurable uncertainty, which the Difference layer maps. We also state SPH’s known bias: it spreads about twice as wide, so an earlier arrival there is not proof the grid solver is late.</p>
+</div>
+
+<div class="card">
+  <p class="q">“The flood stops before the town downstream.”</p>
+  <p>Check the run length first — the Impact panel says explicitly when a run ended with water still reaching new ground, and the fix is the Simulated time slider. On Tehri the wave reaches Devprayag at 1 h 35 and Byasi at 4 h 26; six hours simply was not long enough to reach Rishikesh, so the default is now nine.</p>
 </div>
 
 <div class="card">
@@ -333,12 +502,17 @@ frames + envelopes  →  results store  →  React panels + deck.gl layers</code
 
 <div class="card">
   <p class="q">“Does it work for any river?”</p>
-  <p>Yes. The scenario builder takes any dam or blockage in India by coordinates, fetches terrain and exposure from open data automatically, finds the river direction from the DEM, and aligns the dam to its real crest from OpenStreetMap.</p>
+  <p>Yes. The scenario builder takes any dam or blockage in India by coordinates or from a catalogue of 144 dams across 30 states, fetches terrain and exposure from open data automatically, finds the river direction from the DEM, aligns the dam to its real crest from OpenStreetMap, and for a river blockage measures the impounded lake from the terrain rather than asking for a volume nobody knows.</p>
 </div>
 
 <div class="card">
   <p class="q">“How do you know how many people are affected?”</p>
   <p>Population from OpenStreetMap tags, with typical values by place type where tags are missing (flagged as estimated). Each settlement is assessed over a footprint sized by type, so exposure is population × the flooded share of that footprint, not a yes/no on a point.</p>
+</div>
+
+<div class="card">
+  <p class="q">“Can I compare it against our own model?”</p>
+  <p>Yes — import a maximum-depth raster from Delft3D, HEC-RAS or anything else (GeoTIFF or ESRI ASCII, WGS 84 or UTM) and it is scored cell by cell: critical success index, hit rate, extent ratio and depth RMSE. The same machinery compares one Cascade run against another after you change a setting.</p>
 </div>
 
 </div>
