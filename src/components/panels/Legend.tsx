@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { EXIT, PANEL_SPRING } from '@/lib/motion';
 import { useSimStore } from '@/store/simulationStore';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
@@ -99,10 +100,12 @@ export default function Legend() {
     <AnimatePresence>
       {(hasResults || (layer === 'probability' && ensemble)) && body && (
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          className="glass pointer-events-auto absolute bottom-[104px] z-10 w-[232px] rounded-2xl px-3.5 py-3 shadow-float transition-[left] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          // It belongs to the timeline below it, so it arrives the same way: up from the bottom edge.
+          initial={{ opacity: 0, y: 14, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.98, transition: EXIT }}
+          transition={PANEL_SPRING}
+          className="glass pointer-events-auto absolute bottom-[104px] z-10 w-[232px] origin-bottom rounded-2xl px-3.5 py-3 shadow-float transition-[left] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16 }}
         >
           <div className="mb-2 text-[11.5px] font-semibold text-ink">{TITLES[layer]}</div>
