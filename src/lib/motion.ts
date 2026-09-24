@@ -71,6 +71,17 @@ export function tabVariants(dir: number): Variants {
   };
 }
 
+/**
+ * The furniture around the map — the bars, the legend — arriving as the loading screen lifts,
+ * one after another rather than all at once. `from` is the edge each piece is anchored to.
+ */
+export function chromeVariants(from: 'top' | 'bottom', delay: number): Variants {
+  return {
+    hidden: { opacity: 0, y: from === 'top' ? -14 : 18 },
+    shown: { opacity: 1, y: 0, transition: { ...PANEL_SPRING, delay } },
+  };
+}
+
 /** A pill or button that takes over from a panel: it grows out of the same edge a moment later. */
 export function handoverVariants(side: 'left' | 'right'): Variants {
   const off = side === 'left' ? -14 : 14;

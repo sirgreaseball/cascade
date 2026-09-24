@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { useSimStore, isRunning } from '@/store/simulationStore';
@@ -11,6 +12,9 @@ import { Button, Dot, Segmented } from '@/components/ui/primitives';
 import { IDENTITY } from '@/components/map/colormaps';
 import { useLatestTime, usePrimaryEngine } from '@/components/useSimView';
 import { cn } from '@/lib/utils';
+import { chromeVariants } from '@/lib/motion';
+
+const BOTTOM_CHROME = chromeVariants('bottom', 0.14);
 
 const W = 1000;
 const H = 44;
@@ -37,6 +41,7 @@ export default function Timeline() {
   const engines = useSimStore((s) => s.engines);
   const stale = useSimStore((s) => s.stale);
   const version = useSimStore((s) => s.resultsVersion);
+  const mapReady = useUiStore((s) => s.mapReady);
   const leftOpen = useUiStore((s) => s.leftOpen);
   const rightOpen = useUiStore((s) => s.rightOpen);
   const latest = useLatestTime();
@@ -109,7 +114,10 @@ export default function Timeline() {
   };
 
   return (
-    <div
+    <motion.div
+      variants={BOTTOM_CHROME}
+      initial="hidden"
+      animate={mapReady ? 'shown' : 'hidden'}
       data-coach="timeline"
       className="pointer-events-none absolute bottom-[3px] z-20 transition-[left,right] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{ left: leftOpen ? 'calc(var(--left-w) + 32px)' : 16, right: rightOpen ? 'calc(var(--right-w) + 32px)' : 16 }}
@@ -268,6 +276,6 @@ export default function Timeline() {
       >
         {basemap === 'satellite' ? 'Imagery © Esri, Maxar, Earthstar Geographics' : 'Map © Esri, HERE, Garmin'} · Terrain: AWS Terrain Tiles (SRTM) · Places © OpenStreetMap contributors
       </div>
-    </div>
+    </motion.div>
   );
 }

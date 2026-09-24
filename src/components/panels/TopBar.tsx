@@ -14,6 +14,9 @@ import { useUiStore } from '@/store/uiStore';
 import { Button, Hint, Segmented } from '@/components/ui/primitives';
 import { SPLASH_URL } from '@/lib/links';
 import { cn } from '@/lib/utils';
+import { chromeVariants } from '@/lib/motion';
+
+const TOP_CHROME = chromeVariants('top', 0.04);
 
 export function Logo({ className }: { className?: string }) {
   return (
@@ -349,6 +352,7 @@ export default function TopBar() {
   const hasEnsemble = useEnsembleStore((s) => !!s.result);
   const setExportOpen = useUiStore((s) => s.setExportOpen);
   const engines = useSimStore((s) => s.engines);
+  const mapReady = useUiStore((s) => s.mapReady);
   const bothRan = runs.swe.frames > 0 && runs.sph.frames > 0;
   const anyResults = runs.swe.frames > 0 || runs.sph.frames > 0;
   const diffAvailable = bothRan || (hasExternal && runs.swe.frames > 0);
@@ -361,7 +365,12 @@ export default function TopBar() {
   }, [view.layer, view.engine, diffAvailable, hasEnsemble, bothRan, anyResults, engines.swe, setView]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex items-start justify-between gap-3">
+    <motion.div
+      variants={TOP_CHROME}
+      initial="hidden"
+      animate={mapReady ? 'shown' : 'hidden'}
+      className="pointer-events-none absolute inset-x-4 top-4 z-30 flex items-start justify-between gap-3"
+    >
       <div className="glass-pill pointer-events-auto flex h-12 items-center gap-1 rounded-full pl-2 pr-1 shadow-float">
         <Hint title="Cascade" body="Back to the Cascade front page.">
           <a
@@ -444,6 +453,6 @@ export default function TopBar() {
           Export
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
