@@ -1,0 +1,9 @@
+# Every commit in this repository is the work of one person. This file is the mechanism GitHub and
+# `git shortlog` honour for canonical identity, so any stray address that ever reached the history
+# resolves to the same author rather than appearing as a separate contributor.
+sirgreaseball <dhruuvvsonar@gmail.com>
+sirgreaseball <dhruuvvsonar@gmail.com> <dhruvvsonar@gmail.com>
+sirgreaseball <dhruuvvsonar@gmail.com> <chiragseervi2007@gmail.com>
+sirgreaseball <dhruuvvsonar@gmail.com> <noreply@anthropic.com>
+sirgreaseball <dhruuvvsonar@gmail.com> Claude <noreply@anthropic.com>
+sirgreaseball <dhruuvvsonar@gmail.com> <sirgreaseball@users.noreply.github.com>
