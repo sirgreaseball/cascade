@@ -131,11 +131,13 @@ function EventTab() {
   // The chart marker moves in one-minute steps, so the panel is not re-rendered every frame.
   const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
+  // An imported record is prescribed, not routed: it has no free-outflow bound to compare against.
+  const imported = useSimStore((s) => s.dataset?.hydrograph !== undefined);
 
   const series = useMemo(() => {
     void version;
     const out: ChartSeries[] = [];
-    if (setup) out.push({ id: 'free', label: 'Free outflow', color: '#a1a1a6', points: setup.hydrograph.t.map((t, i) => [t, setup.hydrograph.q[i]]) });
+    if (setup) out.push({ id: 'free', label: imported ? 'Imported' : 'Free outflow', color: '#a1a1a6', points: setup.hydrograph.t.map((t, i) => [t, setup.hydrograph.q[i]]) });
     for (const e of ['swe', 'sph'] as const) {
       const r = results.get(e);
       if (r && r.stats.length > 1) {
@@ -149,7 +151,7 @@ function EventTab() {
       }
     }
     return out;
-  }, [setup, version]);
+  }, [setup, version, imported]);
 
   if (!config || !event) return null;
   const release = event.kind === 'controlled-release';
@@ -285,7 +287,7 @@ function EventTab() {
 
       <Divider />
 
-      <Section title={storm ? 'Runoff into the reach' : release ? 'Release hydrograph' : 'Breach outflow'}>
+      <Section title={imported ? 'Imported hydrograph' : storm ? 'Runoff into the reach' : release ? 'Release hydrograph' : 'Breach outflow'}>
         {setupError && <p className="text-[12px] text-critical">{setupError}</p>}
         {series.length > 0 && (
           <LineChart series={series} xMax={duration} yFormat={(v) => formatCompact(v)} xFormat={hours} marker={hasResults ? playhead : null} />
@@ -298,7 +300,7 @@ function EventTab() {
               <div className="text-[10.5px] text-faint">{modelledPeak ? `at ${formatDuration(modelledPeak.t)}, with tailwater` : 'after a run'}</div>
             </div>
             <div>
-              <div className="text-[11px] text-muted">{release || storm ? 'Peak' : 'Free-outflow bound'}</div>
+              <div className="text-[11px] text-muted">{imported || release || storm ? 'Peak' : 'Free-outflow bound'}</div>
               <div className="text-[14px] font-semibold">{formatDischarge(h.peak)}</div>
               <div className="text-[10.5px] text-faint">at {formatDuration(h.timeToPeak)}</div>
             </div>
@@ -308,7 +310,7 @@ function EventTab() {
             </div>
           </div>
         )}
-        {!release && h?.froehlichPeak && (
+        {!release && !imported && h?.froehlichPeak && (
           <p className="text-[11px] leading-snug text-faint">
             The free-outflow bound drains the reservoir as if nothing stood below the dam; the modelled peak is what the grid solver lets through against the water already downstream. Empirical estimates for comparison: Froehlich (1995) {formatDischarge(h.froehlichPeak)}, MacDonald & Langridge-Monopolis (1984) {formatDischarge(mlmPeak(event.volume, head))}.
           </p>
