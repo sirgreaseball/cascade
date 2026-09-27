@@ -55,6 +55,12 @@ export interface SetupInput {
     crestLine?: [number, number][] | null;
   };
   event: EventParams;
+  /**
+   * A prescribed inflow record — an imported gauge or design hydrograph — used in place of routing
+   * the reservoir through the breach. Supplying one turns the breach routing off, the way a
+   * controlled release does: the record *is* the answer, not something to be recomputed from it.
+   */
+  hydrograph?: { t: number[]; q: number[]; peak: number; timeToPeak: number; volume: number };
   manning: number;
   duration: number;
   resolution: Resolution;
@@ -142,7 +148,10 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
   // lumped runoff hydrograph drains.
   const catchmentArea = grid.cols * grid.rows * grid.dx * grid.dy;
   const event = input.event.kind === 'cloudburst' ? { ...input.event, catchmentArea } : input.event;
-  const hydrograph = computeHydrograph(event, input.duration);
+  const prescribed = input.hydrograph && input.hydrograph.t.length >= 2 ? input.hydrograph : null;
+  const hydrograph: Hydrograph = prescribed
+    ? { t: prescribed.t, q: prescribed.q, level: [], peak: prescribed.peak, timeToPeak: prescribed.timeToPeak, volumeReleased: prescribed.volume, froehlichPeak: null }
+    : computeHydrograph(event, input.duration);
   const storm =
     input.event.kind === 'cloudburst'
       ? { intensity: mmPerHour(input.event.rainIntensity), duration: input.event.rainDuration, infiltration: mmPerHour(input.event.infiltration) }
@@ -159,7 +168,10 @@ export function setupSimulation(input: SetupInput): SimulationSetup {
     sources: site.sources,
     sourceDirection: site.direction,
     hydrograph: { t: hydrograph.t, q: hydrograph.q },
-    breach: input.event.kind === 'controlled-release' || input.event.kind === 'cloudburst' ? undefined : { event: input.event, datumElevation: site.bed.elevation + invertAboveBed },
+    breach:
+      prescribed || input.event.kind === 'controlled-release' || input.event.kind === 'cloudburst'
+        ? undefined
+        : { event: input.event, datumElevation: site.bed.elevation + invertAboveBed },
     storm,
     manning: input.manning,
     duration: input.duration,

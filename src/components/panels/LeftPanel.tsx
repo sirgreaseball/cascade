@@ -29,7 +29,7 @@ import { IDENTITY } from '@/components/map/colormaps';
 import { formatCompact, formatDischarge, formatDuration, formatNumber, formatVolume } from '@/lib/format';
 import { buildGeeScript, defaultGeeDates, GEE_CODE_EDITOR } from '@/lib/gee';
 import type { GeeParams } from '@/lib/gee';
-import { importExternalResult, importObservedExtent } from '@/lib/importers';
+import { importDataset, importExternalResult, importObservedExtent } from '@/lib/importers';
 import { depthDifference, extentAgreement } from '@/lib/compare';
 import { packageScenario } from '@/lib/scenario';
 import { download } from '@/lib/export/formats';
@@ -45,6 +45,77 @@ const hours = (s: number) => `${(s / 3600).toFixed(s % 3600 === 0 ? 0 : 1)}h`;
 
 /** MacDonald & Langridge-Monopolis (1984) peak-outflow regression, Qp = 1.154 (Vw·Hw)^0.412. */
 const mlmPeak = (volume: number, head: number) => 1.154 * (volume * Math.max(head, 0)) ** 0.412;
+
+function DatasetImport() {
+  const dataset = useSimStore((s) => s.dataset);
+  const setDataset = useSimStore((s) => s.setDataset);
+  const data = useScenarioStore((s) => s.data);
+  const addSettlements = useScenarioStore((s) => s.addSettlements);
+  const toast = useUiStore((s) => s.toast);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Section title="Your own data" action={<Tag>Spreadsheet</Tag>}>
+      <p className="text-[11.5px] leading-snug text-faint">
+        A spreadsheet can carry a <span className="font-medium text-ink-2">hydrograph</span> (a time column and a discharge column), <span className="font-medium text-ink-2">dam parameters</span> (parameter
+        and value columns) or a <span className="font-medium text-ink-2">settlement list</span> (name, latitude, longitude, population) — one sheet each, or all three in
+        one workbook. Headings are matched, not sheet names, and units are read from the heading: minutes, hours, cusecs.
+      </p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".xlsx,.csv,.tsv"
+        className="hidden"
+        onChange={async (ev) => {
+          const f = ev.target.files?.[0];
+          ev.target.value = '';
+          if (!f) return;
+          setBusy(true);
+          try {
+            const d = await importDataset(f);
+            const lines = [...d.notes];
+            if (d.settlements) {
+              const n = addSettlements(d.settlements);
+              lines.push(n === 0 ? 'None of those settlements fall inside this study area, so the exposure layer is unchanged.' : `${n} of them fall inside the study area and now stand in for what OpenStreetMap had.`);
+            }
+            setDataset(d);
+            toast({ title: `Imported ${d.name}`, body: lines.join(' '), tone: 'success' });
+          } catch (err) {
+            toast({ title: 'Could not read that file', body: err instanceof Error ? err.message : String(err), tone: 'error' });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Button variant="ghost" className="w-full justify-start px-0" disabled={busy || !data} onClick={() => fileRef.current?.click()}>
+        <FileUp className="h-3.5 w-3.5" /> {busy ? 'Reading…' : 'Import a spreadsheet'}
+      </Button>
+      {dataset && (
+        <div className="rounded-2xl bg-fill/70 p-3">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-semibold">{dataset.name}</div>
+              {dataset.notes.map((n) => (
+                <div key={n} className="mt-0.5 text-[11px] leading-snug text-muted">
+                  {n}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setDataset(null)} aria-label="Remove" className="text-faint hover:text-ink">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {dataset.settlements && (
+            <p className="mt-2 text-[10.5px] leading-snug text-faint">
+              Removing this restores the modelled breach and the scenario&rsquo;s own dam figures. Settlements stay until the scenario is reloaded.
+            </p>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
 
 function EventTab() {
   const config = useScenarioStore((s) => s.config);
@@ -243,6 +314,10 @@ function EventTab() {
           </p>
         )}
       </Section>
+
+      <Divider />
+
+      <DatasetImport />
 
       <Divider />
 

@@ -12,7 +12,7 @@ import { buildExposureIndex } from '@/lib/analytics';
 import { fetchDamLine } from '@/lib/osm';
 import { catalogCrestLine } from '@/lib/dams';
 import type { ExposureIndex } from '@/lib/analytics';
-import type { ObservedExtent } from '@/lib/importers';
+import type { ImportedSettlement, ObservedExtent } from '@/lib/importers';
 import { results } from '@/simulation/results';
 import type { ExternalResult } from '@/simulation/results';
 import { controller } from '@/simulation/controller';
@@ -36,6 +36,8 @@ interface ScenarioState {
   removeCustom: (id: string) => Promise<void>;
   setObserved: (o: ObservedExtent | null) => void;
   setExternal: (e: ExternalResult | null) => void;
+  /** Merges imported settlements into the exposure layer; returns how many landed in the area. */
+  addSettlements: (list: ImportedSettlement[]) => number;
   /** Open the builder, optionally starting on a catalogue dam (from search). */
   setBuilderOpen: (open: boolean, damId?: string | null) => void;
 }
@@ -136,6 +138,36 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   },
 
   setObserved: (observed) => set({ observed }),
+  addSettlements: (list) => {
+    const { config, data } = get();
+    if (!config || !data) return 0;
+    const [w, south, e, n] = data.grid.bbox;
+    const inside = list.filter((p) => p.lng >= w && p.lng <= e && p.lat >= south && p.lat <= n);
+    if (inside.length === 0) return 0;
+    // A place the sheet names replaces the one OpenStreetMap found, rather than standing beside it
+    // and counting its population twice.
+    const replaced = new Set(inside.map((p) => p.name.trim().toLowerCase()));
+    const kept = data.assets.features.filter((f) => f.properties.kind !== 'settlement' || !replaced.has(f.properties.name.trim().toLowerCase()));
+    const added = inside.map((p, i) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] as [number, number] },
+      properties: {
+        id: `imported/${i}`,
+        kind: 'settlement' as const,
+        subtype: 'town',
+        name: p.name,
+        population: p.population,
+        populationEstimated: p.population === 0,
+      },
+    }));
+    const assets = { ...data.assets, features: [...kept, ...added] };
+    const next = { ...data, assets };
+    const exposure = buildExposureIndex(next.grid, assets, next.roads, [config.dam.lng, config.dam.lat]);
+    results.exposureIndex = exposure;
+    set({ data: next, exposure });
+    useSimStore.getState().recomputeSetup();
+    return inside.length;
+  },
   setExternal: (external) => {
     results.external = external;
     set({ external });

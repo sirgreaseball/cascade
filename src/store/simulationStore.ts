@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { EventParams } from '@/simulation/hydrograph';
 import { setupSimulation } from '@/simulation/setup';
+import type { ImportedDataset } from '@/lib/importers';
 import type { Resolution, SimulationSetup } from '@/simulation/setup';
 import type { AdapterInfo, EngineId } from '@/simulation/types';
 import { eventDefaults } from '@/lib/scenario';
@@ -59,6 +60,8 @@ const idleRun = (): EngineRun => ({
 
 interface SimState {
   event: EventParams | null;
+  /** A spreadsheet the user brought: its hydrograph drives the run, its dam figures set the event. */
+  dataset: ImportedDataset | null;
   duration: number;
   manning: number;
   /** Time of year the failure happens in: sets reservoir level, river flow and roughness. */
@@ -85,6 +88,9 @@ interface SimState {
   initForScenario: (config: ScenarioConfig, data: ScenarioData) => void;
   setEvent: (patch: Partial<EventParams>) => void;
   resetEvent: () => void;
+  setDataset: (dataset: ImportedDataset | null) => void;
+  /** Rebuilds the solver setup in place, after something outside the store changed its inputs. */
+  recomputeSetup: () => void;
   /** Reservoir level, river flow and roughness for a time of year, rebuilt in one step. */
   setSeason: (s: Season) => void;
   setDuration: (s: number) => void;
@@ -112,7 +118,7 @@ interface SimState {
 
 let scenarioRef: { config: ScenarioConfig; data: ScenarioData } | null = null;
 
-function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'resolution' | 'useGpu' | 'fastCompute'>): { setup: SimulationSetup | null; setupError: string | null } {
+function recompute(state: Pick<SimState, 'event' | 'dataset' | 'duration' | 'manning' | 'resolution' | 'useGpu' | 'fastCompute'>): { setup: SimulationSetup | null; setupError: string | null } {
   if (!scenarioRef || !state.event) return { setup: null, setupError: null };
   const { config, data } = scenarioRef;
   try {
@@ -123,6 +129,7 @@ function recompute(state: Pick<SimState, 'event' | 'duration' | 'manning' | 'res
       dem: data.dem,
       dam: config.dam,
       event: state.event,
+      hydrograph: state.dataset?.hydrograph,
       manning: state.manning,
       duration: state.duration,
       resolution: state.resolution,
@@ -140,6 +147,7 @@ const anyResults = (runs: Record<EngineId, EngineRun>) => runs.swe.frames > 0 ||
 
 export const useSimStore = create<SimState>((set, get) => ({
   event: null,
+  dataset: null,
   duration: 21_600,
   manning: 0.045,
   season: DEFAULT_SEASON,
@@ -178,7 +186,7 @@ export const useSimStore = create<SimState>((set, get) => ({
     const event = eventDefaults(config);
     // A season chosen on one dam must not carry its numbers onto the next: every scenario starts
     // from its own figures.
-    const base = { event, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, fastCompute: get().fastCompute, season: DEFAULT_SEASON };
+    const base = { event, dataset: null, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, fastCompute: get().fastCompute, season: DEFAULT_SEASON };
     set({
       ...base,
       ...recompute(base),
@@ -200,6 +208,26 @@ export const useSimStore = create<SimState>((set, get) => ({
     if (!scenarioRef) return;
     const event = eventDefaults(scenarioRef.config);
     set({ event, ...recompute({ ...get(), event }), stale: anyResults(get().runs) });
+  },
+  recomputeSetup: () => set({ ...recompute(get()) }),
+  setDataset: (dataset) => {
+    const s = get();
+    // Dam figures from the sheet become the event's figures; anything the sheet leaves out keeps
+    // the value it already had, so a partial sheet is a patch rather than a reset.
+    const d = dataset?.dam;
+    const event = s.event
+      ? {
+          ...s.event,
+          ...(d?.height !== undefined ? { damHeight: d.height } : {}),
+          ...(d?.volumeMCM !== undefined ? { volume: d.volumeMCM * 1e6 } : {}),
+          ...(d?.waterDepth !== undefined ? { waterDepth: d.waterDepth } : {}),
+          ...(d?.breachWidth !== undefined ? { breachWidth: d.breachWidth } : {}),
+          ...(d?.formationTime !== undefined ? { formationTime: d.formationTime } : {}),
+        }
+      : s.event;
+    const manning = d?.manning ?? s.manning;
+    const next = { ...s, dataset, event, manning };
+    set({ dataset, event, manning, ...recompute(next), stale: anyResults(s.runs) });
   },
   setSeason: (season) => {
     const s = get();
