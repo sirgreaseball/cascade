@@ -23,6 +23,7 @@ dist/
 
 # misc
 .DS_Store
+desktop.ini
 *.pem
 
 # debug
