@@ -40,9 +40,13 @@ const readout = (page) =>
     await page.waitForTimeout(1500);
     await page.getByText('This device', { exact: true }).first().scrollIntoViewIfNeeded();
     const line = await readout(page);
-    const ran = /Grid solver[^|]*Graphics card/.test(line) ? 'GPU' : /Grid solver[^|]*Processor/.test(line) ? 'CPU' : 'unknown';
+    // The readout joins its fields with " | ", so the solver's value is the field after the label.
+    const field = /Grid solver \| ([^|]*)/.exec(line)?.[1] ?? '';
+    // Anchored: the reason that follows also contains "graphics card" ("...the graphics card the
+    // browser gave it..."), so a substring test reads a processor run as a GPU one.
+    const ran = /^\s*Graphics card/i.test(field) ? 'GPU' : /^\s*Processor/i.test(field) ? 'CPU' : 'unknown';
     console.log(`asked for ${asked}, ran on ${ran}: finished after ${wall} s of wall time`);
-    if (ran !== asked) console.log(`   ** that timing is the ${ran}, not the ${asked} — the race rejected the graphics card **`);
+    if (ran !== asked) console.log(`   ** ${wall} s is the ${ran}, not the ${asked} — do not file it as a ${asked} timing **`);
     console.log('   ' + line);
   };
   await run('GPU', 'Run simulation');
