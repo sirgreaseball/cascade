@@ -201,8 +201,8 @@ export function gpuMismatch(adapters: AdapterProbe | null): string | null {
  *
  * Two traps: every Mac's user agent claims "Intel Mac OS X" whatever silicon is inside, so Apple
  * silicon is recognised from the graphics chip instead and macOS is left without an architecture
- * until the map has started; and `deviceMemory` is a floor rounded down to a power of two (Chromium
- * only, capped at 8), never the real amount.
+ * until the map has started; and `deviceMemory` is a lower bound rounded down to a power of two
+ * (Chromium only), never the real amount — a 16 GB machine reported 16, a 12 GB one would report 8.
  */
 export function describeDevice(): string {
   if (typeof navigator === 'undefined') return 'Unknown';

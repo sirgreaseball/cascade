@@ -33,6 +33,7 @@ import { importDataset, importExternalResult, importObservedExtent } from '@/lib
 import { depthDifference, extentAgreement } from '@/lib/compare';
 import { packageScenario } from '@/lib/scenario';
 import { download } from '@/lib/export/formats';
+import { datasetTemplate } from '@/lib/xlsx';
 import { cn } from '@/lib/utils';
 import { handoverVariants, panelVariants, tabVariants } from '@/lib/motion';
 
@@ -90,6 +91,13 @@ function DatasetImport() {
       />
       <Button variant="ghost" className="w-full justify-start px-0" disabled={busy || !data} onClick={() => fileRef.current?.click()}>
         <FileUp className="h-3.5 w-3.5" /> {busy ? 'Reading…' : 'Import a spreadsheet'}
+      </Button>
+      <Button
+        variant="ghost"
+        className="w-full justify-start px-0"
+        onClick={() => download(datasetTemplate(), 'cascade-template.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+      >
+        <Download className="h-3.5 w-3.5" /> Download a template with all three sheets
       </Button>
       {dataset && (
         <div className="rounded-2xl bg-fill/70 p-3">

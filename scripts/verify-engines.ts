@@ -20,7 +20,7 @@ import type { EventKind, FailureMode } from '../src/simulation/hydrograph.ts';
 import { gridGeometry } from '../src/lib/geo/grid.ts';
 import { buildExposureIndex } from '../src/lib/analytics.ts';
 import { importDataset } from '../src/lib/importers.ts';
-import { zipFiles } from '../src/lib/export/formats.ts';
+import { writeWorkbook } from '../src/lib/xlsx.ts';
 import type { EngineConfig, EngineId, SummaryMessage, WorkerOutbound } from '../src/simulation/types.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -50,43 +50,6 @@ function syntheticConfig(cols: number, rows: number, elevation: Float32Array, q:
   };
 }
 
-/** One worksheet's XML, in the shape Excel writes it. */
-function sheetXml(rows: (string | number)[][], shared: string[]): string {
-  const cells = rows
-    .map((row, r) => {
-      const cs = row
-        .map((v, c) => {
-          const ref = `${String.fromCharCode(65 + c)}${r + 1}`;
-          if (typeof v === 'number') return `<c r="${ref}"><v>${v}</v></c>`;
-          let i = shared.indexOf(v);
-          if (i < 0) i = shared.push(v) - 1;
-          return `<c r="${ref}" t="s"><v>${i}</v></c>`;
-        })
-        .join('');
-      return `<row r="${r + 1}">${cs}</row>`;
-    })
-    .join('');
-  return `<?xml version="1.0"?><worksheet><sheetData>${cells}</sheetData></worksheet>`;
-}
-
-function workbook(sheets: { name: string; rows: (string | number)[][] }[]): Uint8Array {
-  const shared: string[] = [];
-  const parts = sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s.rows, shared) }));
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  return zipFiles([
-    {
-      name: 'xl/workbook.xml',
-      data: `<?xml version="1.0"?><workbook xmlns:r="x">${sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</workbook>`,
-    },
-    {
-      name: 'xl/_rels/workbook.xml.rels',
-      data: `<?xml version="1.0"?><Relationships>${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`,
-    },
-    { name: 'xl/sharedStrings.xml', data: `<?xml version="1.0"?><sst>${shared.map((s) => `<si><t>${esc(s)}</t></si>`).join('')}</sst>` },
-    ...parts,
-  ]);
-}
-
 const csv = (name: string, text: string) => new File([text], name);
 
 async function importerTests() {
@@ -110,7 +73,7 @@ async function importerTests() {
   check(dam.dam?.formationTime === 4620, `minutes converted to seconds (${dam.dam?.formationTime} s)`);
 
   // The .xlsx path: ZIP container, shared strings and XML entities.
-  const xlsx = new File([workbook([
+  const xlsx = new File([writeWorkbook([
     { name: 'Hydrograph', rows: [['Time (min)', 'Discharge (m3/s)'], [0, 0], [30, 410000], [60, 547000]] },
     { name: 'Settlements', rows: [['Name', 'Latitude', 'Longitude'], ['Ram & "Co"', 30.2, 78.4]] },
   ]) as BufferSource as Uint8Array<ArrayBuffer>], 'book.xlsx');

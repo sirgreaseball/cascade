@@ -1,9 +1,11 @@
-// Reads .xlsx workbooks and delimited text into rows of strings, with no dependency.
+// Reads and writes .xlsx workbooks, and reads delimited text, with no dependency.
 //
 // An .xlsx is a ZIP of XML parts, and both halves of that are already available: DEFLATE through
 // `DecompressionStream` and the markup through a scan of the sheet XML, which Excel writes in a
 // narrow, entirely regular shape. Adding a spreadsheet library for this would cost several hundred
 // kilobytes in a bundle whose whole point is to run on a laptop in a district office.
+
+import { zipFiles } from './export/formats.ts';
 
 export interface Sheet {
   name: string;
@@ -181,4 +183,136 @@ export function parseDelimited(text: string): string[][] {
   const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
   for (const r of rows) while (r.length < width) r.push('');
   return rows;
+}
+
+// ---- Writing ------------------------------------------------------------------------------------
+
+const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** "A", "B", … "AA". */
+function columnName(i: number): string {
+  let s = '';
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+export interface SheetData {
+  name: string;
+  rows: (string | number)[][];
+}
+
+/**
+ * Writes a workbook Excel and LibreOffice will open, and `readWorkbook` will read back. Text goes
+ * through the shared-string table, as Excel writes it, so a file round-trips through both halves of
+ * this module. The ZIP is stored rather than deflated — these are a few kilobytes of a template.
+ */
+export function writeWorkbook(sheets: SheetData[]): Uint8Array {
+  const shared: string[] = [];
+  const index = new Map<string, number>();
+  const sheetXml = sheets.map((sheet) => {
+    const rows = sheet.rows
+      .map((row, r) => {
+        const cells = row
+          .map((v, c) => {
+            const ref = `${columnName(c)}${r + 1}`;
+            if (typeof v === 'number') return Number.isFinite(v) ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}"/>`;
+            if (v === '') return `<c r="${ref}"/>`;
+            let i = index.get(v);
+            if (i === undefined) {
+              i = shared.push(v) - 1;
+              index.set(v, i);
+            }
+            return `<c r="${ref}" t="s"><v>${i}</v></c>`;
+          })
+          .join('');
+        return `<row r="${r + 1}">${cells}</row>`;
+      })
+      .join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`;
+  });
+
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const ct = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+  return zipFiles([
+    {
+      name: '[Content_Types].xml',
+      data:
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+        `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+        `<Default Extension="xml" ContentType="application/xml"/>` +
+        `<Override PartName="/xl/workbook.xml" ContentType="${ct}.sheet.main+xml"/>` +
+        sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${ct}.worksheet+xml"/>`).join('') +
+        `<Override PartName="/xl/sharedStrings.xml" ContentType="${ct}.sharedStrings+xml"/></Types>`,
+    },
+    {
+      name: '_rels/.rels',
+      data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    },
+    {
+      name: 'xl/workbook.xml',
+      data:
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${rel}"><sheets>` +
+        sheets.map((s, i) => `<sheet name="${escapeXml(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') +
+        `</sheets></workbook>`,
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      data:
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') +
+        `<Relationship Id="rIdStrings" Type="${rel}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+    },
+    {
+      name: 'xl/sharedStrings.xml',
+      data:
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${shared.length}" uniqueCount="${shared.length}">` +
+        shared.map((s) => `<si><t xml:space="preserve">${escapeXml(s)}</t></si>`).join('') +
+        `</sst>`,
+    },
+    ...sheetXml.map((data, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data })),
+  ]);
+}
+
+/**
+ * The three sheets `importDataset` recognises, filled with Tehri's own figures as worked examples.
+ * Handing someone a file they can edit beats describing a format they have to construct.
+ */
+export function datasetTemplate(): Uint8Array {
+  return writeWorkbook([
+    {
+      name: 'Hydrograph',
+      rows: [
+        ['Time (min)', 'Discharge (m3/s)'],
+        [0, 0],
+        [15, 120000],
+        [30, 410000],
+        [45, 590000],
+        [60, 547000],
+        [120, 180000],
+        [240, 60000],
+        [480, 12000],
+      ],
+    },
+    {
+      name: 'Dam',
+      rows: [
+        ['Parameter', 'Value'],
+        ['Height (m)', 260.5],
+        ['Volume (MCM)', 3540],
+        ['Water depth (m)', 250],
+        ['Breach width (m)', 498],
+        ['Formation time (min)', 77],
+        ['Manning n', 0.045],
+      ],
+    },
+    {
+      name: 'Settlements',
+      rows: [
+        ['Name', 'Latitude', 'Longitude', 'Population'],
+        ['Devprayag', 30.1462, 78.5986, 2144],
+        ['Rishikesh', 30.1087, 78.2921, 102138],
+        ['Virbhadra', 30.1265, 78.3106, 15000],
+      ],
+    },
+  ]);
 }

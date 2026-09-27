@@ -1,5 +1,11 @@
-// Solver speed on this machine: the grid solver alone (SPH off) on the graphics card, then on the
-// processor, read from the Model tab's device readout. usage: node gpubench.cjs <playwrightDir> <url>
+// Solver speed on this machine: the grid solver alone (SPH off) offered the graphics card, then
+// held to the processor, read from the Model tab's device readout.
+// usage: node gpubench.cjs <playwrightDir> <url>
+//
+// The switch only *offers* the graphics card. Since the solvers are raced over the opening slice
+// (57418b2), asking for the GPU and getting it are different things, so every run here reports the
+// backend that actually ran and says so when it is not the one that was asked for. A timing printed
+// against the wrong backend is worse than no timing at all.
 const [, , pwDir, url] = process.argv;
 const { chromium } = require(pwDir);
 const readout = (page) =>
@@ -21,20 +27,23 @@ const readout = (page) =>
   await page.waitForTimeout(800);
   await page.getByRole('switch', { name: 'SPH solver' }).click();
   await page.waitForTimeout(500);
-  const run = async (label, button) => {
+  const run = async (asked, button) => {
     const t0 = Date.now();
     await page.getByRole('button', { name: button }).first().click();
     await page.getByText(/Finished in/).first().waitFor({ timeout: 1500000 });
     const wall = ((Date.now() - t0) / 1000).toFixed(1);
     await page.waitForTimeout(1500);
     await page.getByText('This device', { exact: true }).first().scrollIntoViewIfNeeded();
-    console.log(`${label}: finished after ${wall} s of wall time`);
-    console.log('   ' + (await readout(page)));
+    const line = await readout(page);
+    const ran = /Grid solver[^|]*Graphics card/.test(line) ? 'GPU' : /Grid solver[^|]*Processor/.test(line) ? 'CPU' : 'unknown';
+    console.log(`asked for ${asked}, ran on ${ran}: finished after ${wall} s of wall time`);
+    if (ran !== asked) console.log(`   ** that timing is the ${ran}, not the ${asked} — the race rejected the graphics card **`);
+    console.log('   ' + line);
   };
-  await run('grid on GPU', 'Run simulation');
-  await page.getByRole('switch', { name: 'Run the grid solver on the graphics card' }).click();
+  await run('GPU', 'Run simulation');
+  await page.getByRole('switch', { name: 'Let the grid solver try the graphics card' }).click();
   await page.waitForTimeout(600);
-  await run('grid on CPU', 'Run again with the current settings');
+  await run('CPU', 'Run again with the current settings');
   console.log('console errors: ' + errors.length);
   for (const e of errors.slice(0, 6)) console.log('   ' + e);
   await browser.close();

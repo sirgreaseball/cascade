@@ -198,6 +198,27 @@ report" output from that machine before and after GPU work.
   carving the DEM's 835 channel depressions into a continuous bed (477 uphill steps → 1) changed
   the result by nothing; nor did running 24 h instead of 9 h, which moved 84 % of the water out of
   the domain while leaving the inundation envelope identical at 89.0 km².
+- **The owner's GTX 1650 has now been measured** (28 September 2026), on the production build,
+  headless Chrome with the real GPU, 1600×1000, 3D, Tehri. The map draws on the NVIDIA card:
+  `ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 … D3D11) [discrete]`, 12 threads, 16 GB.
+  - **The WebGPU solver loses the race here too**, by 8–12× over the opening slice, so the grid
+    solver runs on the processor on this machine exactly as it does on integrated graphics. The
+    WebGPU path has now lost on every machine ever measured. Before any more work goes into it,
+    note the race samples the first 30 simulated seconds, when the flood is smallest and the CPU's
+    wet-span iteration is at its most favourable — the comparison over a whole run is the one that
+    should decide whether that solver is worth keeping.
+  - A 9 h Tehri run takes about 210 s of wall time, at 2.6 simulated minutes per second.
+  - **Frames while a simulation runs are the problem on this machine**, not idle or panning:
+    idle and panning sit well above 100 fps, better than the integrated laptop in §5's table, but
+    the running figure is far below the 60 fps floor rule 3 sets. Measure it on a quiet machine —
+    two benchmark browsers at once cost 11 fps of the idle figure and more than half the running
+    one, so nothing else may be running, this file's own benchmarks included.
+- **`scripts/bench/gpubench.cjs` used to report the wrong backend.** It labelled its first run
+  "grid on GPU" because the switch defaults on, but the switch only *offers* the graphics card and
+  the race may refuse it — so it printed processor timings under a GPU heading. It now reads the
+  backend that actually ran out of the device panel and says plainly when that is not the one asked
+  for. Its switch selector was also still the pre-race wording. Treat any GPU-vs-CPU figure taken
+  before 28 September 2026 as unattributed.
 - OpenStreetMap holds 6,448 `waterway=dam` features in India (all sizes; Overpass count). CWC's
   National Register of Large Dams lists about 6,000 large dams. A Wikidata SPARQL count timed out.
 - ESLint is at 0 errors, 0 warnings across the entire repository. Container sizing in `MapView.tsx`
