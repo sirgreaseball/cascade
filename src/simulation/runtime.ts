@@ -22,10 +22,6 @@ export interface Runtime {
 }
 
 /**
- * The one place a runtime is chosen, for both the worker and the main-thread fallback: the grid
- * solver on the GPU when WebGPU is available (and not switched off), otherwise on the CPU.
- */
-/**
  * How much slower than the processor the graphics card may be over the first slice and still be
  * used. Some slack, because this slice is the flood at its smallest: the graphics card does the
  * whole grid at once however wide the water gets, while the processor pays for every wet cell.
@@ -73,6 +69,14 @@ async function raceTheProcessor(cfg: EngineConfig, gpu: GpuShallowWaterSolver): 
   return verdict;
 }
 
+/**
+ * The one place a runtime is chosen, for both the worker and the main-thread fallback.
+ *
+ * The grid solver goes to the graphics card only when WebGPU is available, has not been switched
+ * off, and wins `raceTheProcessor` above — which machine it is running on decides that, not an
+ * assumption made here. Everything else runs on the processor, and `gpuFallback` carries the reason
+ * so the device panel can say it in plain words.
+ */
 export async function createRuntime(cfg: EngineConfig, emit: (msg: WorkerOutbound) => void): Promise<Runtime> {
   // Why the grid solver ends up on the processor is worth reporting: it is many times slower there.
   let gpuFallback: string | undefined;
