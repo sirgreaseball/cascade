@@ -175,11 +175,29 @@ report" output from that machine before and after GPU work.
 - The default 3D view loads zoom-10 elevation tiles (~153 m between height samples); the underlying
   SRTM is ~30 m. Relief retained when coarsened to ~300 m: Tehri 88 %, Machchhu 36 % — flat sites
   lose most of their shape, which is why they look low-resolution.
-- `npm run verify` passes (SWE mass error 1.85e-12 %, SPH 9.14e-3 %). Tehri flags verified:
-  the eastern boundary of the study area bbox at 78.66°E cuts through the Bhagirathi river gorge
-  at row 237 (lat 30.2055°N, bed ~490 m), where 839 Mm³ of the flood wave exits the open boundary
-  prior to Devprayag. This starvation of the downstream valley explains why SWE never reaches
-  Rishikesh in 6 h and why SWE/SPH extents diverge (CSI 0.26).
+- `npm run verify` passes (SWE mass error 1.57e-13 %, SPH 6.81e-3 %; measured 27 September 2026).
+  Tehri, 9 h: SWE reaches Rishikesh at **6h 09m**, 7.0 m deep over 35 % of the town; SPH at
+  **3h 39m**, 18.0 m over 98 %. Devprayag: SWE 1h 33m, SPH 1h 14m, both ~138 m. New Tehri and
+  Virbhadra stay dry, correctly — New Tehri is the resettlement town on the ridge at 1818 m, and
+  Virbhadra's cells sit ~28 m above the highest nearby water surface. SWE/SPH extent agreement is
+  **CSI 0.39**.
+- **A correction, because this document said otherwise until 27 September 2026.** It previously
+  claimed the study area's eastern boundary at 78.66°E cut the Bhagirathi gorge, spilling 839 Mm³
+  out of the domain and starving the valley, and that this was why SWE never reached Rishikesh.
+  That is wrong in every part, and it was wrong because `verify-engines.ts` sampled the single
+  100 m cell under each place name: Rishikesh's lands on a terrace above the river and read 0.0 m,
+  so the flood looked absent when it was merely beside that one cell. Measured instead:
+  - The main stem leaves through the **south** edge at 78.2403°E carrying 1,329 km² of catchment
+    — 71 % of the basin — and it does so *downstream of Rishikesh*, which is correct and
+    unavoidable; the river has to leave somewhere. The east-edge cell at row 237 is real but
+    drains 43 km², a side tributary.
+  - The flood travels the whole 99 km channel, reaching 78.23°E at the western edge.
+  - Extending the bounding box would therefore fix nothing. The fix was to read exposure over
+    each settlement's footprint, as `src/lib/analytics.ts` and the dashboard always had.
+  Two further things were measured and are *not* the cause, recorded so nobody re-runs them:
+  carving the DEM's 835 channel depressions into a continuous bed (477 uphill steps → 1) changed
+  the result by nothing; nor did running 24 h instead of 9 h, which moved 84 % of the water out of
+  the domain while leaving the inundation envelope identical at 89.0 km².
 - OpenStreetMap holds 6,448 `waterway=dam` features in India (all sizes; Overpass count). CWC's
   National Register of Large Dams lists about 6,000 large dams. A Wikidata SPARQL count timed out.
 - ESLint is at 0 errors, 0 warnings across the entire repository. Container sizing in `MapView.tsx`
