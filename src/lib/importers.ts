@@ -1,10 +1,14 @@
 // Imports for comparison and validation:
 //  - observed flood extents (Sentinel-1 / GEE exports as GeoJSON, KML or GeoTIFF masks);
 //  - external model results (Delft3D, HEC-RAS, TUFLOW… max-depth rasters as GeoTIFF or .asc).
+//  - datasets a user brings to the model: a hydrograph, dam parameters or settlements, as a
+//    spreadsheet or delimited text.
 
 import type { GridGeometry } from './geo/grid';
-import { crsLabel, readRasterFile, resampleToGrid } from './geo/raster';
+import { crsLabel, readRasterFile, resampleToGrid } from './geo/raster.ts';
 import type { ExternalResult } from '@/simulation/results';
+import { parseDelimited, readWorkbook } from './xlsx.ts';
+import type { Sheet } from './xlsx.ts';
 
 export interface ObservedExtent {
   name: string;
@@ -139,4 +143,214 @@ export async function importExternalResult(file: File, g: GridGeometry): Promise
     source: `${crsLabel(src.crs)}, ${src.width}×${src.height} px, covers ${Math.round((covered / values.length) * 100)}% of the area`,
     maxDepth: values,
   };
+}
+
+// ---- Datasets -----------------------------------------------------------------------------------
+//
+// A spreadsheet is how hydrology actually arrives — from a gauge record, a CWC table, a district
+// register — so a run can be driven by one instead of by the model's own regressions. Sheets are
+// recognised by their column headings rather than by name, because nobody renames a sheet to match
+// a manual: a sheet with a time column and a discharge column is a hydrograph wherever it sits.
+
+export interface ImportedHydrograph {
+  /** Seconds since the start of the event, strictly increasing. */
+  t: number[];
+  /** Outflow into the downstream reach (m³/s). */
+  q: number[];
+  peak: number;
+  timeToPeak: number;
+  /** Trapezoidal integral of the record (m³). */
+  volume: number;
+}
+
+export interface ImportedDam {
+  height?: number;
+  volumeMCM?: number;
+  waterDepth?: number;
+  breachWidth?: number;
+  /** Seconds. */
+  formationTime?: number;
+  manning?: number;
+}
+
+export interface ImportedSettlement {
+  name: string;
+  lng: number;
+  lat: number;
+  population: number;
+}
+
+export interface ImportedDataset {
+  name: string;
+  hydrograph?: ImportedHydrograph;
+  dam?: ImportedDam;
+  settlements?: ImportedSettlement[];
+  /** What was recognised, what was assumed and what was skipped — shown to the user verbatim. */
+  notes: string[];
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function findColumn(header: string[], patterns: RegExp[]): number {
+  for (const p of patterns) {
+    const i = header.findIndex((h) => p.test(norm(h)));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+/** A number from a cell, tolerating thousands separators and stray spaces. */
+function num(cell: string | undefined): number {
+  if (cell === undefined) return NaN;
+  const text = cell.replace(/[\s,](?=\d)/g, '').trim();
+  // Number('') and Number(' ') are both 0, which would silently put a blank coordinate at zero.
+  if (text === '') return NaN;
+  const v = Number(text);
+  return Number.isFinite(v) ? v : NaN;
+}
+
+/** Seconds per unit of whatever the time column is labelled in; defaults to seconds. */
+function timeScale(header: string): { scale: number; label: string } {
+  const h = norm(header);
+  if (/hour|hrs?$/.test(h)) return { scale: 3600, label: 'hours' };
+  if (/min/.test(h)) return { scale: 60, label: 'minutes' };
+  if (/day/.test(h)) return { scale: 86400, label: 'days' };
+  return { scale: 1, label: 'seconds' };
+}
+
+function readHydrograph(rows: string[][], notes: string[]): ImportedHydrograph | undefined {
+  if (rows.length < 2) return undefined;
+  const header = rows[0];
+  const ti = findColumn(header, [/^time/, /^t$/, /elapsed/, /minute|hour|second/]);
+  const qi = findColumn(header, [/discharge/, /outflow/, /^q$/, /flow/, /cumec/, /m3s/, /cfs/]);
+  if (ti < 0 || qi < 0) return undefined;
+  const { scale, label } = timeScale(header[ti]);
+  const cfs = /cfs|cubicfeet/.test(norm(header[qi]));
+  const pairs: [number, number][] = [];
+  for (const row of rows.slice(1)) {
+    const t = num(row[ti]);
+    const q = num(row[qi]);
+    if (!Number.isFinite(t) || !Number.isFinite(q)) continue;
+    pairs.push([t * scale, Math.max(0, q * (cfs ? 0.0283168 : 1))]);
+  }
+  if (pairs.length < 2) return undefined;
+  pairs.sort((a, b) => a[0] - b[0]);
+  const t: number[] = [];
+  const q: number[] = [];
+  for (const pair of pairs) {
+    // Repeated timestamps would make the interpolation ambiguous; the later value wins.
+    if (t.length > 0 && pair[0] === t[t.length - 1]) q[q.length - 1] = pair[1];
+    else {
+      t.push(pair[0]);
+      q.push(pair[1]);
+    }
+  }
+  let volume = 0;
+  let peak = 0;
+  let timeToPeak = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (q[i] > peak) {
+      peak = q[i];
+      timeToPeak = t[i];
+    }
+    if (i > 0) volume += ((q[i] + q[i - 1]) / 2) * (t[i] - t[i - 1]);
+  }
+  notes.push(
+    `Hydrograph: ${t.length} points, read as ${label}${cfs ? ' and cubic feet per second' : ''}, peak ${Math.round(peak).toLocaleString()} m³/s at ${(timeToPeak / 3600).toFixed(2)} h, ${(volume / 1e6).toFixed(0)} Mm³ total.`,
+  );
+  return { t, q, peak, timeToPeak, volume };
+}
+
+const DAM_KEYS: [keyof ImportedDam, RegExp, number][] = [
+  ['height', /^(dam)?height/, 1],
+  ['volumeMCM', /volume|capacity|storage/, 1],
+  ['waterDepth', /waterdepth|depthatdam|headwater|poollevel/, 1],
+  ['breachWidth', /breachwidth|width/, 1],
+  ['formationTime', /formation|breachtime|failuretime/, 60],
+  ['manning', /manning|roughness/, 1],
+];
+
+/** A two-column parameter/value sheet. */
+function readDam(rows: string[][], notes: string[]): ImportedDam | undefined {
+  const out: ImportedDam = {};
+  const found: string[] = [];
+  for (const row of rows) {
+    if (row.length < 2) continue;
+    const key = norm(row[0]);
+    const value = num(row[1]);
+    if (!key || !Number.isFinite(value)) continue;
+    for (const entry of DAM_KEYS) {
+      const field = entry[0];
+      if (out[field] === undefined && entry[1].test(key)) {
+        // A formation time already written in seconds should not be scaled up from minutes again.
+        const alreadySeconds = field === 'formationTime' && /sec/.test(key);
+        out[field] = value * (alreadySeconds ? 1 : entry[2]);
+        found.push(`${field} ${out[field]}`);
+        break;
+      }
+    }
+  }
+  if (found.length === 0) return undefined;
+  notes.push(`Dam parameters: ${found.join(', ')}.`);
+  return out;
+}
+
+function readSettlements(rows: string[][], notes: string[]): ImportedSettlement[] | undefined {
+  if (rows.length < 2) return undefined;
+  const header = rows[0];
+  const ni = findColumn(header, [/^name/, /settlement|village|town|city|place/]);
+  const yi = findColumn(header, [/^lat/, /^y$/]);
+  const xi = findColumn(header, [/^lon/, /^lng/, /^x$/]);
+  const pi = findColumn(header, [/population|people|residents|pop/]);
+  if (ni < 0 || yi < 0 || xi < 0) return undefined;
+  const out: ImportedSettlement[] = [];
+  let skipped = 0;
+  for (const row of rows.slice(1)) {
+    const name = (row[ni] ?? '').trim();
+    const lat = num(row[yi]);
+    const lng = num(row[xi]);
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      skipped++;
+      continue;
+    }
+    const population = pi >= 0 ? num(row[pi]) : NaN;
+    out.push({ name, lng, lat, population: Number.isFinite(population) ? Math.max(0, Math.round(population)) : 0 });
+  }
+  if (out.length === 0) return undefined;
+  notes.push(`Settlements: ${out.length} read${skipped > 0 ? `, ${skipped} row${skipped === 1 ? '' : 's'} skipped for a missing name or coordinate` : ''}.`);
+  return out;
+}
+
+/**
+ * Reads a .xlsx, .csv or .tsv into whichever of the three datasets it holds. Every sheet is offered
+ * to every reader, so one workbook can carry all three and a single CSV can carry one.
+ */
+export async function importDataset(file: File): Promise<ImportedDataset> {
+  const name = file.name.toLowerCase();
+  let sheets: Sheet[];
+  if (name.endsWith('.xlsx')) sheets = await readWorkbook(file);
+  else if (name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.txt')) sheets = [{ name: file.name, rows: parseDelimited(await file.text()) }];
+  else throw new Error('Expected a .xlsx, .csv or .tsv file.');
+
+  const notes: string[] = [];
+  const out: ImportedDataset = { name: file.name, notes };
+  for (const sheet of sheets) {
+    if (sheet.rows.length === 0) continue;
+    const before = notes.length;
+    if (!out.hydrograph) out.hydrograph = readHydrograph(sheet.rows, notes);
+    if (!out.dam) out.dam = readDam(sheet.rows, notes);
+    if (!out.settlements) out.settlements = readSettlements(sheet.rows, notes);
+    // Name the sheet a note came from, unless the sheet is already called what the note reports.
+    if (notes.length > before && sheets.length > 1) {
+      for (let i = before; i < notes.length; i++) {
+        if (!norm(notes[i]).startsWith(norm(sheet.name))) notes[i] = `${sheet.name} — ${notes[i]}`;
+      }
+    }
+  }
+  if (!out.hydrograph && !out.dam && !out.settlements) {
+    throw new Error(
+      'Nothing recognised. Expected a time and a discharge column for a hydrograph, parameter and value columns for dam settings, or name, latitude and longitude columns for settlements.',
+    );
+  }
+  return out;
 }
