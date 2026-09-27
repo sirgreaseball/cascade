@@ -38,7 +38,7 @@ import { handoverVariants, panelVariants, tabVariants } from '@/lib/motion';
 
 const LEFT_PANEL = panelVariants('left');
 const LEFT_HANDOVER = handoverVariants('left');
-import { adapterLabel, buildReport, classifyGpu, frameSnapshot, getMapGpu, gpuMismatch, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
+import { adapterLabel, buildReport, classifyGpu, describeDevice, frameSnapshot, getMapGpu, gpuMismatch, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
 import type { AdapterProbe } from '@/lib/perfMonitor';
 
 const hours = (s: number) => `${(s / 3600).toFixed(s % 3600 === 0 ? 0 : 1)}h`;
@@ -454,6 +454,7 @@ function DevicePerformance() {
         ? `Graphics card · ${adapterLabel(swe.adapter ?? adapters?.adapter ?? null)}`
         : `Processor${swe.gpuFallback ? ` · ${swe.gpuFallback}` : ''}`;
   const readout: [string, string][] = [
+    ['This machine', describeDevice()],
     ['Map drawn on', map ? `${prettyRenderer(map.renderer)}${GPU_KIND[kind] ? ` (${GPU_KIND[kind]})` : ''}` : 'Starting…'],
     ['Grid solver', solverLine],
     [

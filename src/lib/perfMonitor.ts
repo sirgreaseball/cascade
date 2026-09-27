@@ -189,6 +189,51 @@ export function gpuMismatch(adapters: AdapterProbe | null): string | null {
   return vendor === 'nvidia' || (vendor === 'amd' && mapGpu.gpu === 'intel') ? adapterLabel(adapters.adapter) : null;
 }
 
+// ---- The machine --------------------------------------------------------------------------------
+
+/**
+ * What can honestly be said about the machine, for the device panel and the report.
+ *
+ * There is no browser API for the model of a laptop or the name of its processor — no "MacBook Air",
+ * no "Ryzen 5 4600H" — so this is the operating system, the instruction set, the thread count and
+ * the memory floor; the graphics chip is named separately by `prettyRenderer`. Together they
+ * identify a machine about as closely as the web platform allows.
+ *
+ * Two traps: every Mac's user agent claims "Intel Mac OS X" whatever silicon is inside, so Apple
+ * silicon is recognised from the graphics chip instead and macOS is left without an architecture
+ * until the map has started; and `deviceMemory` is a floor rounded down to a power of two (Chromium
+ * only, capped at 8), never the real amount.
+ */
+export function describeDevice(): string {
+  if (typeof navigator === 'undefined') return 'Unknown';
+  const ua = navigator.userAgent;
+  const os = /Windows/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad|iPod/.test(ua)
+        ? 'iOS'
+        : /Mac OS X/.test(ua)
+          ? 'macOS'
+          : /Linux|X11|CrOS/.test(ua)
+            ? 'Linux'
+            : 'Unknown system';
+  const arch = mapGpu && /Apple M\d|Apple GPU/i.test(mapGpu.renderer)
+    ? 'Apple silicon'
+    : /arm64|aarch64/i.test(ua)
+      ? 'Arm'
+      : os === 'macOS'
+        ? ''
+        : /Win64|x86_64|x86-64|WOW64/i.test(ua)
+          ? '64-bit x86'
+          : '';
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const parts = [os, arch];
+  if (navigator.hardwareConcurrency) parts.push(`${navigator.hardwareConcurrency} threads`);
+  if (nav.deviceMemory) parts.push(`${nav.deviceMemory} GB or more`);
+  return parts.filter(Boolean).join(' · ');
+}
+
 // ---- Terrain ------------------------------------------------------------------------------------
 
 /** Terrain tile outcomes this session, counted by the terrain layer. */
@@ -204,7 +249,6 @@ export interface ReportContext {
 }
 
 export function buildReport(ctx: ReportContext, adapters: AdapterProbe | null): string {
-  const nav = navigator as Navigator & { deviceMemory?: number };
   const f = frameSnapshot(5);
   const adapter = adapters?.adapter;
   return [
@@ -223,7 +267,7 @@ export function buildReport(ctx: ReportContext, adapters: AdapterProbe | null): 
       : 'Frames: not measured',
     `Terrain tiles: ${terrainStats.loaded} loaded, ${terrainStats.retried} retried, ${terrainStats.degraded} low quality, ${terrainStats.cancelled} cancelled`,
     `Window: ${window.innerWidth}×${window.innerHeight} at ${window.devicePixelRatio}× pixel ratio`,
-    `Processor threads: ${navigator.hardwareConcurrency ?? '?'} · memory: ${nav.deviceMemory ? `at least ${nav.deviceMemory} GB` : 'not reported'}`,
+    `Device: ${describeDevice()}`,
     `Browser: ${navigator.userAgent}`,
   ].join('\n');
 }
