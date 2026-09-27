@@ -25,7 +25,12 @@ const readout = (page) =>
   await page.waitForTimeout(8000);
   await page.getByRole('radio', { name: 'Model', exact: true }).first().click();
   await page.waitForTimeout(800);
-  await page.getByRole('switch', { name: 'SPH solver' }).click();
+  // "Finished in" appears before the run state clears, and the settings switches stay disabled
+  // until it does — so wait for the switch itself rather than for the text, or for a fixed pause.
+  const enabled = (name) => page.locator(`[role=switch][aria-label="${name}"]:not([disabled])`).first();
+  const GPU_SWITCH = 'Let the grid solver try the graphics card';
+  await enabled('SPH solver').waitFor({ timeout: 240000 });
+  await enabled('SPH solver').click();
   await page.waitForTimeout(500);
   const run = async (asked, button) => {
     const t0 = Date.now();
@@ -41,7 +46,8 @@ const readout = (page) =>
     console.log('   ' + line);
   };
   await run('GPU', 'Run simulation');
-  await page.getByRole('switch', { name: 'Let the grid solver try the graphics card' }).click();
+  await enabled(GPU_SWITCH).waitFor({ timeout: 600000 });
+  await enabled(GPU_SWITCH).click();
   await page.waitForTimeout(600);
   await run('CPU', 'Run again with the current settings');
   console.log('console errors: ' + errors.length);
