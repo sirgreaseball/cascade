@@ -17,7 +17,8 @@ import { dryBedInflowBenchmark, momentumObstacleBenchmark, ritterBenchmark, stok
 import type { Resolution } from '../src/simulation/setup.ts';
 import { defaultEventParams } from '../src/simulation/hydrograph.ts';
 import type { EventKind, FailureMode } from '../src/simulation/hydrograph.ts';
-import { gridGeometry, lngLatToCell } from '../src/lib/geo/grid.ts';
+import { gridGeometry } from '../src/lib/geo/grid.ts';
+import { buildExposureIndex } from '../src/lib/analytics.ts';
 import type { EngineConfig, EngineId, SummaryMessage, WorkerOutbound } from '../src/simulation/types.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -124,9 +125,13 @@ async function scenarioRun(id: string, engines: EngineId[], durationOverride: nu
   console.log(`  Hydrograph: peak ${Math.round(h.peak).toLocaleString()} m³/s at ${fmtTime(h.timeToPeak)} (Froehlich 1995 regression: ${h.froehlichPeak ? Math.round(h.froehlichPeak).toLocaleString() : '—'}), released ${(h.volumeReleased / 1e6).toFixed(0)} Mm³`);
   console.log(`  Dam site: bed ${setup.site.bed.elevation.toFixed(0)} m, crest ${setup.site.crestElevation.toFixed(0)} m, ${setup.site.wallCells} wall cells, ${setup.site.sources.length} breach cells, downstream (${setup.site.direction.map((v) => v.toFixed(2)).join(', ')})`);
 
-  const towns = assets.features
-    .filter((f: { properties: { kind: string; subtype: string } }) => f.properties.kind === 'settlement' && ['city', 'town'].includes(f.properties.subtype))
-    .slice(0, 12);
+  // Exposure is read over each settlement's footprint, exactly as the dashboard reads it: a town is
+  // an area, not a point. Sampling the single cell under the place name reports whatever that one
+  // 100 m cell happens to be — for Rishikesh, a terrace above the river, which read 0.0 m and was
+  // long mistaken for the flood never arriving.
+  const roads = JSON.parse(await readFile(path.join(root, 'public', scenario.exposure.roadsUrl), 'utf8'));
+  const exposure = buildExposureIndex(g, assets, roads, [scenario.dam.lng, scenario.dam.lat]);
+  const towns = exposure.assets.filter((a) => a.kind === 'settlement' && ['city', 'town'].includes(a.subtype)).slice(0, 12);
 
   const results: Partial<Record<EngineId, SummaryMessage>> = {};
   for (const engine of engines) {
@@ -168,9 +173,20 @@ async function scenarioRun(id: string, engines: EngineId[], durationOverride: nu
       console.log(`    inundated (max envelope) ${(wet * g.cellArea / 1e6).toFixed(1)} km², deepest ${deepest.toFixed(1)} m`);
       check(wet > 50, `${engine} floods the valley`);
       for (const t of towns) {
-        const cell = lngLatToCell(g, t.geometry.coordinates[0], t.geometry.coordinates[1]);
-        if (!cell) continue;
-        console.log(`      ${t.properties.name.padEnd(22)} arrival ${fmtTime(s.arrival[cell.index]).padStart(7)}  max depth ${s.maxDepth[cell.index].toFixed(1).padStart(5)} m`);
+        let deepest = 0;
+        let flooded = 0;
+        let first = -1;
+        for (let j = 0; j < t.footprint.length; j++) {
+          const k = t.footprint[j];
+          if (s.maxDepth[k] > deepest) deepest = s.maxDepth[k];
+          if (s.maxDepth[k] >= 0.1) flooded++;
+          const at = s.arrival[k];
+          if (at >= 0 && (first < 0 || at < first)) first = at;
+        }
+        const share = t.footprint.length > 0 ? flooded / t.footprint.length : 0;
+        console.log(
+          `      ${t.name.padEnd(22)} arrival ${fmtTime(first).padStart(7)}  max depth ${deepest.toFixed(1).padStart(5)} m  over ${(share * 100).toFixed(0).padStart(3)}% of the town`,
+        );
       }
     }
   }

@@ -3,11 +3,11 @@
 // footprint of cells sized by place type (a town is not a point), so "people exposed" is the
 // population times the flooded share of the settlement's footprint.
 
-import { haversine, lngLatToCell } from './geo/grid';
-import type { GridGeometry } from './geo/grid';
-import type { AssetCollection, AssetKind, RoadCollection } from './osm';
-import { assetLoss, hazardClass, roadLoss } from './damage';
-import { grahamFatalityRate } from './lifeLoss';
+import { haversine, lngLatToCell } from './geo/grid.ts';
+import type { GridGeometry } from './geo/grid.ts';
+import type { AssetCollection, AssetKind, RoadCollection } from './osm.ts';
+import { assetLoss, hazardClass, roadLoss } from './damage.ts';
+import { grahamFatalityRate } from './lifeLoss.ts';
 import type { SummaryMessage } from '@/simulation/types';
 
 import { FLOOD_THRESHOLD, sampleExposure } from '../simulation/exposure.ts';
