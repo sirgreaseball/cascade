@@ -19,6 +19,8 @@ import { defaultEventParams } from '../src/simulation/hydrograph.ts';
 import type { EventKind, FailureMode } from '../src/simulation/hydrograph.ts';
 import { gridGeometry } from '../src/lib/geo/grid.ts';
 import { buildExposureIndex } from '../src/lib/analytics.ts';
+import { importDataset } from '../src/lib/importers.ts';
+import { zipFiles } from '../src/lib/export/formats.ts';
 import type { EngineConfig, EngineId, SummaryMessage, WorkerOutbound } from '../src/simulation/types.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -46,6 +48,75 @@ function syntheticConfig(cols: number, rows: number, elevation: Float32Array, q:
     outputInterval: 600,
     wetThreshold: 0.1,
   };
+}
+
+/** One worksheet's XML, in the shape Excel writes it. */
+function sheetXml(rows: (string | number)[][], shared: string[]): string {
+  const cells = rows
+    .map((row, r) => {
+      const cs = row
+        .map((v, c) => {
+          const ref = `${String.fromCharCode(65 + c)}${r + 1}`;
+          if (typeof v === 'number') return `<c r="${ref}"><v>${v}</v></c>`;
+          let i = shared.indexOf(v);
+          if (i < 0) i = shared.push(v) - 1;
+          return `<c r="${ref}" t="s"><v>${i}</v></c>`;
+        })
+        .join('');
+      return `<row r="${r + 1}">${cs}</row>`;
+    })
+    .join('');
+  return `<?xml version="1.0"?><worksheet><sheetData>${cells}</sheetData></worksheet>`;
+}
+
+function workbook(sheets: { name: string; rows: (string | number)[][] }[]): Uint8Array {
+  const shared: string[] = [];
+  const parts = sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s.rows, shared) }));
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return zipFiles([
+    {
+      name: 'xl/workbook.xml',
+      data: `<?xml version="1.0"?><workbook xmlns:r="x">${sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</workbook>`,
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      data: `<?xml version="1.0"?><Relationships>${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`,
+    },
+    { name: 'xl/sharedStrings.xml', data: `<?xml version="1.0"?><sst>${shared.map((s) => `<si><t>${esc(s)}</t></si>`).join('')}</sst>` },
+    ...parts,
+  ]);
+}
+
+const csv = (name: string, text: string) => new File([text], name);
+
+async function importerTests() {
+  console.log('\nDataset import');
+
+  // Units are taken from the column heading, not assumed: hours to seconds, cusecs to cumecs.
+  const gauge = await importDataset(csv('gauge.csv', 'Elapsed (hours),Outflow (cfs)\n0,0\n0.5,14000000\n1,20800000\n2,9000000\n'));
+  const h = gauge.hydrograph;
+  check(!!h && h.t[1] === 1800, `hours read as hours (${h?.t[1]} s at the second point)`);
+  check(!!h && Math.abs(h.q[2] - 20_800_000 * 0.0283168) < 1, `cubic feet per second converted (${h?.q[2].toFixed(0)} m³/s)`);
+  check(!!h && h.timeToPeak === 3600, 'peak found at the right time');
+
+  // A blank coordinate must drop the row: Number('') is 0, which would place the town at 0°N 0°E.
+  const towns = await importDataset(csv('towns.csv', 'Name,Latitude,Longitude,Population\nRishikesh,30.1087,78.2921,"102,138"\nNo fix,,78.3,10\nDevprayag,30.1462,78.5986,2144\n'));
+  check(towns.settlements?.length === 2, `a row with no latitude is skipped (${towns.settlements?.length} of 3 kept)`);
+  check(towns.settlements?.[0].population === 102138, 'a thousands separator in a population is read');
+
+  // Likewise a blank parameter must be absent rather than zero.
+  const dam = await importDataset(csv('dam.csv', 'Parameter,Value\nHeight (m),260.5\nBreach width (m),\nFormation time (min),77\n'));
+  check(dam.dam?.breachWidth === undefined, 'a blank dam parameter is left unset');
+  check(dam.dam?.formationTime === 4620, `minutes converted to seconds (${dam.dam?.formationTime} s)`);
+
+  // The .xlsx path: ZIP container, shared strings and XML entities.
+  const xlsx = new File([workbook([
+    { name: 'Hydrograph', rows: [['Time (min)', 'Discharge (m3/s)'], [0, 0], [30, 410000], [60, 547000]] },
+    { name: 'Settlements', rows: [['Name', 'Latitude', 'Longitude'], ['Ram & "Co"', 30.2, 78.4]] },
+  ]) as BufferSource as Uint8Array<ArrayBuffer>], 'book.xlsx');
+  const book = await importDataset(xlsx);
+  check(book.hydrograph?.t[1] === 1800 && book.hydrograph?.peak === 547000, 'a workbook hydrograph is read');
+  check(book.settlements?.[0].name === 'Ram & "Co"', `XML entities are decoded (${book.settlements?.[0].name})`);
 }
 
 function syntheticTests() {
@@ -209,6 +280,7 @@ const only = args.includes('--swe') ? ['swe'] : args.includes('--sph') ? ['sph']
 const di = args.indexOf('--duration');
 const ri = args.indexOf('--resolution');
 syntheticTests();
+await importerTests();
 await scenarioRun(id, only as EngineId[], di >= 0 ? Number(args[di + 1]) : null, (ri >= 0 ? args[ri + 1] : 'standard') as Resolution);
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
 process.exitCode = failures === 0 ? 0 : 1;

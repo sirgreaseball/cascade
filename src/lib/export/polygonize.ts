@@ -2,7 +2,7 @@
 // binary mask per class, then Douglas–Peucker simplification. Coordinates are WGS 84 lng/lat.
 
 import { contours } from 'd3-contour';
-import type { GridGeometry } from '../geo/grid';
+import type { GridGeometry } from '../geo/grid.ts';
 
 export interface ClassBand {
   min: number;

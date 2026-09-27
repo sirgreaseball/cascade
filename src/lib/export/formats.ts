@@ -2,8 +2,8 @@
 // ESRI ASCII grid, CSV and a STORE zip container.
 
 import type { GridGeometry } from '../geo/grid';
-import { orientPolygon } from './polygonize';
-import type { Ring } from './polygonize';
+import { orientPolygon } from './polygonize.ts';
+import type { Ring } from './polygonize.ts';
 
 export const PRJ_WGS84 =
   'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
