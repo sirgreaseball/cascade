@@ -207,12 +207,27 @@ report" output from that machine before and after GPU work.
     note the race samples the first 30 simulated seconds, when the flood is smallest and the CPU's
     wet-span iteration is at its most favourable — the comparison over a whole run is the one that
     should decide whether that solver is worth keeping.
-  - A 9 h Tehri run takes about 210 s of wall time, at 2.6 simulated minutes per second.
-  - **Frames while a simulation runs are the problem on this machine**, not idle or panning:
-    idle and panning sit well above 100 fps, better than the integrated laptop in §5's table, but
-    the running figure is far below the 60 fps floor rule 3 sets. Measure it on a quiet machine —
-    two benchmark browsers at once cost 11 fps of the idle figure and more than half the running
-    one, so nothing else may be running, this file's own benchmarks included.
+  - A 9 h Tehri run takes **190–209 s** of wall time on the processor, at 2.6 simulated minutes per
+    second. Both `gpubench` runs landed on the processor — see above — so there is still no
+    whole-run GPU timing for this machine, and there cannot be one through the interface while the
+    race refuses the card. Getting one means bypassing `raceTheProcessor` deliberately.
+  - **Frames, four clean runs** (nothing else on the machine), against §5's integrated-laptop row:
+
+    | | idle | pan (new tiles) | pan (cached) | running | running, later |
+    |---|---|---|---|---|---|
+    | Intel UHD, `8d6b4b0` | 120.1 | 82.0 | 77.1 | 56.0 | 56.0 |
+    | GTX 1650, 28 Sep 2026 | 116.5 / 136.8 / 141.1 / 143.8 | 92.6 / 130.0 / 141.9 / 142.0 | 98.3 / 138.5 / 143.1 / 143.8 | 30.0 / 31.6 / 35.1 / 45.1 | 49.4 / 50.3 / 50.5 / 50.7 |
+
+    Drawing is far better on the discrete card — about **140 fps** idle and panning against the
+    integrated laptop's 77–120. The low first sample in each column is a cold tile cache, not the
+    renderer. **Running is worse**: a median near **33 fps**, settling to a very repeatable
+    **50 fps** later in a run. Both are under the 60 fps floor rule 3 sets, and both are *below*
+    the integrated laptop's 56, even though the same processor path runs the solver on both. The
+    main thread is idle throughout (blocked 1–3 %), so the cost is not main-thread work; it is the
+    per-frame cost of drawing while the worker has the cores. This is the open performance
+    question on the target machine, and it is the opposite of what §5 assumed.
+  - Measure on a quiet machine. Two benchmark browsers at once cost 11 fps of idle and more than
+    half of running — a contaminated sample looked like a catastrophic regression and was not one.
 - **`scripts/bench/gpubench.cjs` used to report the wrong backend.** It labelled its first run
   "grid on GPU" because the switch defaults on, but the switch only *offers* the graphics card and
   the race may refuse it — so it printed processor timings under a GPU heading. It now reads the
