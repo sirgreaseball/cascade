@@ -41,7 +41,9 @@ interface Form {
 }
 
 const fromDam = (d: DamCatalogEntry): Partial<Form> => ({
-  name: `${d.name} Dam`,
+  // Catalogue names are bare ("Tehri"), while names taken from OpenStreetMap usually carry the
+  // word already ("Akkalpada Dam") — appending it regardless gives "Akkalpada Dam Dam".
+  name: /\b(dam|reservoir|barrage|weir|sagar|lake)\b/i.test(d.name) ? d.name : `${d.name} Dam`,
   river: d.river || 'River',
   region: [d.district, d.state].filter(Boolean).join(', ') || d.state,
   lng: d.lng,
@@ -123,9 +125,11 @@ export default function ScenarioBuilder() {
 
   useEffect(() => {
     const onPick = (e: Event) => {
-      const { lng, lat } = (e as CustomEvent<{ lng: number; lat: number }>).detail;
-      setForm((f) => ({ ...f, lng: Number(lng.toFixed(5)), lat: Number(lat.toFixed(5)) }));
-      setCatalogId(null);
+      const { lng, lat, dam } = (e as CustomEvent<{ lng: number; lat: number; dam?: DamCatalogEntry }>).detail;
+      // A dam picked off the map brings its whole record; bare ground brings only where it was.
+      setForm((f) => ({ ...f, ...(dam ? fromDam(dam) : {}), lng: Number(lng.toFixed(5)), lat: Number(lat.toFixed(5)) }));
+      setCatalogId(dam?.id ?? null);
+      setQuery('');
     };
     window.addEventListener('cascade:pick', onPick);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && useUiStore.getState().setPickingDam(false);

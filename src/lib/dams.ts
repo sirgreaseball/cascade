@@ -21,6 +21,13 @@ export interface DamCatalogEntry {
   volumeMCM: number;
   type: 'Embankment' | 'Concrete gravity' | 'Arch' | 'Masonry' | 'Composite' | 'Rockfill' | string;
   year?: number;
+  /**
+   * True for a record found in OpenStreetMap rather than the CWC register: the position and name
+   * are real, the height, crest length and storage are placeholders. Saying so is the point —
+   * these dams are the ones nobody has surveyed into a public dataset, and a model run on a guessed
+   * height is only worth as much as the guess.
+   */
+  approximate?: boolean;
 }
 
 export const DAM_CATALOG_ATTRIBUTION = {
