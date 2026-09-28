@@ -27,6 +27,9 @@ export const EXIT: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] };
 /** The house easing for anything tweened rather than sprung. */
 export const EASE = [0.22, 1, 0.36, 1] as const;
 
+/** Two things trading places in one slot: brief, and symmetric so neither half is noticed. */
+export const SWAP: Transition = { duration: 0.18, ease: EASE };
+
 /** How long each section waits behind the one above it. */
 const STAGGER = 0.035;
 

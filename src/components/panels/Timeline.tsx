@@ -1,6 +1,6 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { useSimStore, isRunning } from '@/store/simulationStore';
@@ -12,7 +12,7 @@ import { Button, Dot, Segmented } from '@/components/ui/primitives';
 import { IDENTITY } from '@/components/map/colormaps';
 import { useLatestTime, usePrimaryEngine } from '@/components/useSimView';
 import { cn } from '@/lib/utils';
-import { chromeVariants, POP_SPRING } from '@/lib/motion';
+import { chromeVariants, SWAP } from '@/lib/motion';
 
 const BOTTOM_CHROME = chromeVariants('bottom', 0.14);
 
@@ -48,6 +48,7 @@ export default function Timeline() {
   const primary = usePrimaryEngine();
   const running = isRunning(runs);
   const hasResults = runs.swe.frames > 0 || runs.sph.frames > 0;
+  const showRun = !hasResults && !running;
   const trackRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [trackW, setTrackW] = useState(480);
@@ -124,45 +125,54 @@ export default function Timeline() {
     >
       <div className="glass pointer-events-auto flex h-[76px] items-center gap-4 rounded-[26px] pl-3 pr-4 shadow-panel">
         {/* Transport */}
-        {/* Run, then the transport it turns into: the big button shrinks away as the controls
-            grow out of the same spot, rather than one blinking into the other. */}
-        <motion.div layout transition={POP_SPRING} className="flex shrink-0 items-center gap-1.5">
-          <AnimatePresence mode="popLayout" initial={false}>
-          {!hasResults && !running ? (
-            <motion.div key="run" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={POP_SPRING}>
-              <Button data-coach="run" variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
-                <Play className="h-4 w-4 fill-current" />
-                Run simulation
-              </Button>
-            </motion.div>
-          ) : (
-            <motion.div key="transport" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={POP_SPRING} className="flex items-center gap-1.5">
-              <button
-                onClick={togglePlay}
-                aria-label={follow || playing ? 'Pause' : 'Play'}
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-ink text-canvas transition-transform active:scale-95"
-              >
-                {follow || playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="ml-0.5 h-5 w-5 fill-current" />}
+        {/* Run and the transport it becomes share one slot, stacked in the same grid cell. The slot
+            is therefore as wide as the wider of the two whichever is showing, so the swap moves
+            nothing on either side of it and is a plain crossfade — rather than a width spring, a
+            scale pop and a pulled-out-of-flow exit all running at once, which read as a lurch. */}
+        <div className="grid shrink-0 items-center justify-items-start">
+          <motion.div
+            className="col-start-1 row-start-1"
+            initial={false}
+            animate={{ opacity: showRun ? 1 : 0 }}
+            transition={SWAP}
+            inert={!showRun}
+          >
+            <Button data-coach="run" variant="primary" size="lg" className="h-12 px-5" disabled={!setup} onClick={() => controller.run()}>
+              <Play className="h-4 w-4 fill-current" />
+              Run simulation
+            </Button>
+          </motion.div>
+          <motion.div
+            className="col-start-1 row-start-1 flex items-center gap-1.5"
+            initial={false}
+            animate={{ opacity: showRun ? 0 : 1 }}
+            transition={SWAP}
+            inert={showRun}
+          >
+            <button
+              onClick={togglePlay}
+              aria-label={follow || playing ? 'Pause' : 'Play'}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-ink text-canvas transition-transform active:scale-95"
+            >
+              {follow || playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="ml-0.5 h-5 w-5 fill-current" />}
+            </button>
+            {running ? (
+              <button onClick={() => controller.reset()} aria-label="Stop the run" title="Stop the run" className="flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]">
+                <Square className="h-3.5 w-3.5 fill-current" />
               </button>
-              {running ? (
-                <button onClick={() => controller.reset()} aria-label="Stop the run" title="Stop the run" className="flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]">
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                </button>
-              ) : (
-                <button
-                  onClick={() => controller.run()}
-                  aria-label="Run again with the current settings"
-                  title={stale ? 'Settings changed — run again' : 'Run again'}
-                  className={cn('relative flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]', stale && 'text-accent')}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  {stale && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />}
-                </button>
-              )}
-            </motion.div>
-          )}
-          </AnimatePresence>
-        </motion.div>
+            ) : (
+              <button
+                onClick={() => controller.run()}
+                aria-label="Run again with the current settings"
+                title={stale ? 'Settings changed — run again' : 'Run again'}
+                className={cn('relative flex h-9 w-9 items-center justify-center rounded-full text-ink-2 hover:bg-white/[0.08]', stale && 'text-accent')}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {stale && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />}
+              </button>
+            )}
+          </motion.div>
+        </div>
 
         {/* Clock */}
         <div className="w-[108px] shrink-0">
