@@ -32,7 +32,11 @@ export interface FrameSnapshot {
   worst: number;
   /** Frames that took more than twice the usual interval: the hitches people notice. */
   hitches: number;
-  /** Share of the window the main thread spent in tasks longer than 50 ms. */
+  /**
+   * Share of the window the main thread spent in tasks longer than 50 ms. Not how busy it was: the
+   * browser reports no task shorter than that, and a thread doing 20 ms of work every frame reads 0
+   * here while holding the page at 50 fps. A trace showed exactly that during a run.
+   */
   blocked: number;
   /** Median time between frames (ms): the display's interval when the page keeps up. */
   median: number;
@@ -312,7 +316,7 @@ export function buildReport(ctx: ReportContext, adapters: AdapterProbe | null): 
     `Map renderer: ${mapGpu ? `${mapGpu.renderer} [${classifyGpu(mapGpu.renderer)}]` : 'not initialised'}`,
     `WebGPU adapter: ${adapter ? `${adapter.vendor} / ${adapter.architecture} / ${adapter.description || '-'}` : adapters?.webgpu ? 'none found' : adapters ? 'WebGPU not available' : 'not checked'}`,
     f
-      ? `Frames (5 s): ${f.fps.toFixed(1)} fps, median ${f.median.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, worst ${f.worst.toFixed(1)} ms, ${f.hitches} hitches, main thread blocked ${(f.blocked * 100).toFixed(1)}%`
+      ? `Frames (5 s): ${f.fps.toFixed(1)} fps, median ${f.median.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, worst ${f.worst.toFixed(1)} ms, ${f.hitches} hitches, ${(f.blocked * 100).toFixed(1)}% of the time in tasks over 50 ms`
       : 'Frames: not measured',
     `Terrain tiles: ${terrainStats.loaded} loaded, ${terrainStats.retried} retried, ${terrainStats.degraded} low quality, ${terrainStats.cancelled} cancelled`,
     `Tile throughput: ${link.verdict ? `${link.mbps.toFixed(1)} Mbps, treated as ${link.verdict}` : 'still measuring'}`,

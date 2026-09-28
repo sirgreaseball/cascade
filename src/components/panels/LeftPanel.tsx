@@ -560,7 +560,7 @@ function DevicePerformance() {
     [
       'Frames, last 5 s',
       frames
-        ? `${Math.round(frames.fps)} fps · worst ${Math.round(frames.worst)} ms · ${frames.hitches} hitch${frames.hitches === 1 ? '' : 'es'}${frames.blocked > 0.02 ? ` · main thread busy ${Math.round(frames.blocked * 100)}%` : ''}`
+        ? `${Math.round(frames.fps)} fps · worst ${Math.round(frames.worst)} ms · ${frames.hitches} hitch${frames.hitches === 1 ? '' : 'es'}${frames.blocked > 0.02 ? ` · ${Math.round(frames.blocked * 100)}% in tasks over 50 ms` : ''}`
         : 'Measuring…',
     ],
   ];

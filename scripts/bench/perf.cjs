@@ -60,7 +60,9 @@ const { chromium } = require(pwDir);
         blocked: lt.reduce((a, e) => a + e.dur, 0) / span,
       };
     }, t0);
-    console.log(`${label.padEnd(16)} ${name.padEnd(10)} fps ${r.fps.toFixed(1).padStart(5)}  p95 ${r.p95.toFixed(0).padStart(5)} ms  worst ${r.worst.toFixed(0).padStart(5)} ms  long tasks ${String(r.longTasks).padStart(3)}  main thread blocked ${(r.blocked * 100).toFixed(0)}%`);
+    // Only tasks of 50 ms or more are reported by the browser, so this is time lost to long tasks,
+    // not how busy the main thread was: a trace showed it 99 % busy while this read 0 %.
+    console.log(`${label.padEnd(16)} ${name.padEnd(10)} fps ${r.fps.toFixed(1).padStart(5)}  p95 ${r.p95.toFixed(0).padStart(5)} ms  worst ${r.worst.toFixed(0).padStart(5)} ms  long tasks ${String(r.longTasks).padStart(3)} (${(r.blocked * 100).toFixed(0)}% of the time)`);
   };
 
   await measure('idle', 5000);
