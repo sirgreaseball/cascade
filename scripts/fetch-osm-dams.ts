@@ -94,14 +94,27 @@ async function overpass(query: string, attempt = 0): Promise<OsmElement[]> {
   return (JSON.parse(text) as { elements?: OsmElement[] }).elements ?? [];
 }
 
-const queryFor = (code: string) => `[out:json][timeout:240];
-area["ISO3166-2"="${code}"]->.r;
-(
+const STRUCTURES = `(
   nwr["waterway"="dam"]["name"](area.r);
   nwr["landuse"="reservoir"]["name"](area.r);
   nwr["water"="reservoir"]["name"](area.r);
 );
 out center tags;`;
+
+const byIso = (code: string) => `[out:json][timeout:240];
+area["ISO3166-2"="${code}"]->.r;
+${STRUCTURES}`;
+
+/**
+ * The same query keyed on the state's name. India has renamed several ISO codes — Chhattisgarh
+ * IN-CT to IN-CG, Odisha IN-OR to IN-OD, Uttarakhand IN-UT to IN-UK — and OpenStreetMap carries
+ * whichever the last mapper wrote. A code that has moved returns an empty area rather than an
+ * error, so a state silently vanishes from the catalogue; falling back to the name catches that.
+ */
+const byName = (state: string) => `[out:json][timeout:240];
+rel["boundary"="administrative"]["admin_level"="4"]["name:en"="${state}"];
+map_to_area->.r;
+${STRUCTURES}`;
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -132,11 +145,17 @@ async function main(): Promise<void> {
 
   const added: CatalogueRecord[] = [];
   const failures: string[] = [];
+  const empty: string[] = [];
   const seen = new Set<string>();
   for (const [code, state] of REGIONS) {
     let elements: OsmElement[];
     try {
-      elements = await overpass(queryFor(code));
+      elements = await overpass(byIso(code));
+      if (elements.length === 0) {
+        await sleep(1200);
+        elements = await overpass(byName(state));
+        if (elements.length > 0) console.log(`    (${code} found nothing; matched on the name instead)`);
+      }
     } catch (err) {
       console.log(`  ${code} ${state}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
       failures.push(`${code} ${state}`);
@@ -177,7 +196,8 @@ async function main(): Promise<void> {
       });
       kept++;
     }
-    console.log(`  ${code} ${state.padEnd(38)} ${String(elements.length).padStart(5)} features → ${String(kept).padStart(4)} kept`);
+    console.log(`  ${code} ${state.padEnd(38)} ${String(elements.length).padStart(5)} features -> ${String(kept).padStart(4)} kept`);
+    if (elements.length === 0) empty.push(`${code} ${state}`);
     await sleep(1200);
   }
 
@@ -202,6 +222,7 @@ async function main(): Promise<void> {
   console.log(`written to ${path.relative(root, out)}`);
   if (failures.length > 0) console.log(`
 states that never answered, re-run to fill them in: ${failures.join(', ')}`);
+  if (empty.length > 0) console.log(`states that answered with nothing, which is worth checking: ${empty.join(', ')}`);
 }
 
 await main();

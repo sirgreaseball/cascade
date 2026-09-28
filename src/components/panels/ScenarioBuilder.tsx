@@ -355,7 +355,10 @@ export default function ScenarioBuilder() {
                       <div className="text-[13px] font-semibold">1 · Dam or blockage</div>
                       <div className="relative">
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-faint" />
-                        <TextInput className="pl-9" placeholder="Search major Indian dams" value={query} onChange={(e) => setQuery(e.target.value)} />
+                        <TextInput className="pl-9" placeholder="Search by dam, river, district or state" value={query} onChange={(e) => setQuery(e.target.value)} />
+                      </div>
+                      <div className="text-[11px] leading-snug text-faint">
+                        {formatNumber(catalog.length)} dams and reservoirs across India. {query && matches.length === 0 ? 'Nothing matched — try the river or the district, or pick it straight off the map.' : 'Or pick one off the map, where every dam is marked.'}
                       </div>
                       <div className="scroll-soft grid max-h-[150px] grid-cols-2 gap-1.5 overflow-y-auto">
                         {matches.map((d) => (
@@ -367,9 +370,19 @@ export default function ScenarioBuilder() {
                             }}
                             className={cn('rounded-xl px-3 py-2 text-left transition-colors', catalogId === d.id ? 'bg-ink text-canvas' : 'bg-fill hover:bg-fill-2')}
                           >
-                            <div className="truncate text-[12.5px] font-medium">{d.name}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-[12.5px] font-medium">{d.name}</span>
+                              {d.approximate && (
+                                <span
+                                  title="Position and name from OpenStreetMap; height and storage are placeholders to replace below."
+                                  className={cn('shrink-0 rounded-full px-1.5 py-px text-[9.5px] font-semibold', catalogId === d.id ? 'bg-canvas/20 text-canvas' : 'bg-fill-2 text-muted')}
+                                >
+                                  no figures
+                                </span>
+                              )}
+                            </div>
                             <div className={cn('truncate text-[11px]', catalogId === d.id ? 'text-canvas/70' : 'text-muted')}>
-                              {d.river} · {d.district ? `${d.district}, ` : ''}{d.state}
+                              {[d.river, d.district, d.state].filter(Boolean).join(' · ')}
                             </div>
                           </button>
                         ))}
@@ -526,8 +539,10 @@ export default function ScenarioBuilder() {
             transition={POP_SPRING}
             className="glass-strong absolute left-1/2 top-[76px] z-40 flex items-center gap-3 rounded-full py-2 pl-4 pr-2 shadow-float"
           >
-            <Crosshair className="h-4 w-4 text-accent" />
-            <span className="text-[13px]">Click the dam or blockage on the map</span>
+            <Crosshair className="h-4 w-4 shrink-0 text-accent" />
+            <span className="text-[13px]">
+              Click a dam — <span className="text-critical">red</span> is surveyed, <span className="text-ink-2">white</span> has no figures yet — or anywhere on the river for a blockage
+            </span>
             <Button size="sm" onClick={() => setPickingDam(false)}>
               Cancel
             </Button>
