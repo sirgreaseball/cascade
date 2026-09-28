@@ -274,6 +274,39 @@ function useLocalTerrain(enabled: boolean) {
 
 const metresPerPixel = (zoom: number, lat: number) => (156_543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
 
+/** MapLibre's own `wrap`, reproduced exactly: its rounding is part of what has to be matched. */
+const wrapBearing = (b: number) => {
+  const w = ((((b + 180) % 360) + 360) % 360) - 180;
+  return w === -180 ? 180 : w;
+};
+
+/**
+ * The camera, with its angles as MapLibre will report them back.
+ *
+ * MapLibre keeps pitch and bearing in radians and returns them in degrees, and most angles do not
+ * survive the trip: 55° — the default tilt, and Tehri's — comes back as 55.00000000000001. The map
+ * component compares the camera it is handed with the one MapLibre reports, finds them different,
+ * and repaints the whole basemap on the spot. So every render of this component repainted it,
+ * camera still or not: each new flood frame, each summary, and every frame of the breach pulse at
+ * the start of a run. Holding the camera at angles that come back unchanged makes the two agree
+ * exactly. Pitch settles after one trip and bearing within two; the loop is bounded regardless.
+ */
+function settleCamera(v: MapViewState): MapViewState {
+  let pitch = v.pitch ?? 0;
+  for (let i = 0; i < 4; i++) {
+    const back = ((pitch / 180) * Math.PI) / Math.PI * 180;
+    if (back === pitch) break;
+    pitch = back;
+  }
+  let bearing = v.bearing ?? 0;
+  for (let i = 0; i < 4; i++) {
+    const back = ((wrapBearing(bearing) * Math.PI) / 180 / Math.PI) * 180;
+    if (back === bearing) break;
+    bearing = back;
+  }
+  return pitch === v.pitch && bearing === v.bearing ? v : { ...v, pitch, bearing };
+}
+
 export default function MapView() {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
@@ -363,6 +396,8 @@ export default function MapView() {
   const terrain = useLocalTerrain(terrainMode === 'local' && view.terrain3d);
 
   const [viewState, setViewState] = useState<MapViewState>({ longitude: 78.44, latitude: 30.22, zoom: 9.6, pitch: 55, bearing: -20 });
+  // What deck.gl (and through it MapLibre) is given: the same camera, its angles settled.
+  const camera = useMemo(() => settleCamera(viewState), [viewState]);
   const zoomStep = Math.round(viewState.zoom * 2) / 2;
   const [hover, setHover] = useState<Hover | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1229,7 +1264,7 @@ export default function MapView() {
         ref={deckRef}
         // Continuous redraws only while the flood plays; otherwise deck.gl draws on change.
         _animate={animating}
-        viewState={viewState}
+        viewState={camera}
         onViewStateChange={({ viewState: v }) => setViewState(v as MapViewState)}
         controller={{ inertia: 250, scrollZoom: { smooth: true, speed: 0.02 } }}
         layers={layers as never}
