@@ -27,8 +27,16 @@ export const EXIT: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] };
 /** The house easing for anything tweened rather than sprung. */
 export const EASE = [0.22, 1, 0.36, 1] as const;
 
-/** Two things trading places in one slot: brief, and symmetric so neither half is noticed. */
-export const SWAP: Transition = { duration: 0.18, ease: EASE };
+/**
+ * Two things trading places in one slot. The movement springs — firm, no overshoot — while the fade
+ * runs shorter than it, so the outgoing half is gone before the incoming one is fully there and the
+ * two never sit on top of each other as a double exposure. The pair leaves and arrives from
+ * opposite sides, so the swap reads as one thing handing over to the next rather than a dissolve.
+ */
+export const SWAP: Transition = { type: 'spring', stiffness: 540, damping: 42, opacity: { duration: 0.13, ease: EASE } };
+
+/** How far the halves of a swap travel. Enough to show direction, not enough to look like a slide. */
+export const SWAP_SHIFT = 7;
 
 /** How long each section waits behind the one above it. */
 const STAGGER = 0.035;

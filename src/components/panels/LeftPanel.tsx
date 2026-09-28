@@ -287,7 +287,7 @@ function EventTab() {
             </div>
           </div>
         )}
-        <Slider tip="Flow already in the river before the failure, added underneath the breach outflow." label="River base flow" value={event.baseFlow} min={0} max={5000} step={10} onChange={(v) => setEvent({ baseFlow: v })} format={formatDischarge} />
+        <Slider tip="Flow already in the river, added to the breach outflow at the same source — so it is what keeps the river running once the reservoir has emptied. Against a full breach it is a fraction of a percent of the flow, so the curve will barely move; it counts for gated releases and for the tail of a long run." label="River base flow" value={event.baseFlow} min={0} max={5000} step={10} onChange={(v) => setEvent({ baseFlow: v })} format={formatDischarge} />
         <button className="flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink" onClick={resetEvent}>
           <RotateCcw className="h-3.5 w-3.5" /> Reset to scenario defaults
         </button>

@@ -12,7 +12,7 @@ import { Button, Dot, Segmented } from '@/components/ui/primitives';
 import { IDENTITY } from '@/components/map/colormaps';
 import { useLatestTime, usePrimaryEngine } from '@/components/useSimView';
 import { cn } from '@/lib/utils';
-import { chromeVariants, SWAP } from '@/lib/motion';
+import { chromeVariants, SWAP, SWAP_SHIFT } from '@/lib/motion';
 
 const BOTTOM_CHROME = chromeVariants('bottom', 0.14);
 
@@ -32,6 +32,7 @@ function areaPath(t: number[], q: number[], duration: number, qMax: number): str
 
 export default function Timeline() {
   const setup = useSimStore((s) => s.setup);
+  const referencePeak = useSimStore((s) => s.referencePeak);
   const duration = useSimStore((s) => s.duration);
   const playhead = useSimStore((s) => s.playhead);
   const playing = useSimStore((s) => s.playing);
@@ -68,10 +69,14 @@ export default function Timeline() {
     if (setup) return { t: setup.hydrograph.t, q: setup.hydrograph.q, modelled: false };
     return null;
   }, [setup, primary, version]);
+  // Scaled against the scenario's own defaults rather than against itself: an axis that follows
+  // whatever it is drawing makes every setting look identical, which is exactly the case where
+  // someone moving a slider needs to see the flood get smaller. It only ever grows from there, so
+  // a setting fiercer than the default still fits.
   const qMax = useMemo(() => {
     const preview = setup ? setup.hydrograph.peak : 0;
-    return Math.max(preview, ...(series?.q ?? [0])) * 1.05;
-  }, [series, setup]);
+    return Math.max(referencePeak, preview, ...(series?.q ?? [0])) * 1.05;
+  }, [series, setup, referencePeak]);
   // The timeline re-renders with the playhead (60 Hz); build the hydrograph path only when it changes.
   const area = useMemo(() => (series ? areaPath(series.t, series.q, duration, qMax) : ''), [series, duration, qMax]);
 
@@ -133,7 +138,7 @@ export default function Timeline() {
           <motion.div
             className="col-start-1 row-start-1"
             initial={false}
-            animate={{ opacity: showRun ? 1 : 0 }}
+            animate={{ opacity: showRun ? 1 : 0, x: showRun ? 0 : -SWAP_SHIFT, scale: showRun ? 1 : 0.97 }}
             transition={SWAP}
             inert={!showRun}
           >
@@ -145,7 +150,7 @@ export default function Timeline() {
           <motion.div
             className="col-start-1 row-start-1 flex items-center gap-1.5"
             initial={false}
-            animate={{ opacity: showRun ? 0 : 1 }}
+            animate={{ opacity: showRun ? 0 : 1, x: showRun ? SWAP_SHIFT : 0, scale: showRun ? 0.97 : 1 }}
             transition={SWAP}
             inert={showRun}
           >
@@ -224,6 +229,14 @@ export default function Timeline() {
               {area && <path d={area} fill="rgba(255,255,255,0.08)" />}
               {area && hasResults && <path d={area} fill={IDENTITY.swe} fillOpacity={0.22} clipPath="url(#computed)" />}
             </svg>
+            {/* The figure the curve is drawn to. Without it a slider that halves the flood looks
+                like it did nothing, because the shape alone cannot carry a magnitude. */}
+            {series && (
+              <div className="tnum pointer-events-none absolute right-0 top-0 text-[9.5px] text-faint">
+                peak {formatDischarge(Math.max(...series.q))}
+                {!series.modelled && ' · preview'}
+              </div>
+            )}
             {/* Hour ticks */}
             <div className="absolute inset-x-0 bottom-0 h-3">
               {ticks.map((t, i) => (

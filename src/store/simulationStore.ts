@@ -62,6 +62,12 @@ interface SimState {
   event: EventParams | null;
   /** A spreadsheet the user brought: its hydrograph drives the run, its dam figures set the event. */
   dataset: ImportedDataset | null;
+  /**
+   * Peak outflow at the scenario's own default settings, fixed for as long as that scenario is
+   * loaded. The timeline draws against it so moving a slider visibly raises or lowers the curve
+   * instead of every setting redrawing at the same height on a rescaled axis.
+   */
+  referencePeak: number;
   duration: number;
   manning: number;
   /** Time of year the failure happens in: sets reservoir level, river flow and roughness. */
@@ -148,6 +154,7 @@ const anyResults = (runs: Record<EngineId, EngineRun>) => runs.swe.frames > 0 ||
 export const useSimStore = create<SimState>((set, get) => ({
   event: null,
   dataset: null,
+  referencePeak: 0,
   duration: 21_600,
   manning: 0.045,
   season: DEFAULT_SEASON,
@@ -187,9 +194,11 @@ export const useSimStore = create<SimState>((set, get) => ({
     // A season chosen on one dam must not carry its numbers onto the next: every scenario starts
     // from its own figures.
     const base = { event, dataset: null, duration: config.defaults.duration, manning: config.defaults.manning, resolution: get().resolution, useGpu: get().useGpu, fastCompute: get().fastCompute, season: DEFAULT_SEASON };
+    const initial = recompute(base);
     set({
       ...base,
-      ...recompute(base),
+      ...initial,
+      referencePeak: initial.setup?.hydrograph.peak ?? 0,
       stale: false,
       runs: { swe: idleRun(), sph: idleRun() },
       playhead: 0,
