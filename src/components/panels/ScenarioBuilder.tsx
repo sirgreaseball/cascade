@@ -12,7 +12,7 @@ import { gridForBBox, gridGeometry } from '@/lib/geo/grid';
 import { fillNoData, sampleTerrariumGrid, TERRARIUM_ATTRIBUTION } from '@/lib/geo/terrarium';
 import { fetchTerrariumTile } from '@/lib/geo/tiles';
 import { crsLabel, readRasterFile, resampleToGrid } from '@/lib/geo/raster';
-import { fetchDamLine, fetchOsmExposure, OSM_ATTRIBUTION } from '@/lib/osm';
+import { fetchDamLine, fetchOsmExposure, OSM_ATTRIBUTION, searchOsmDams } from '@/lib/osm';
 import { computeBlockageLake } from '@/lib/blockageLake';
 import type { AssetCollection, AssetKind, RoadCollection } from '@/lib/osm';
 import { makeScenarioData, unpackageScenario } from '@/lib/scenario';
@@ -168,6 +168,46 @@ export default function ScenarioBuilder() {
     const tokens = norm.split(' ').filter(Boolean);
     return catalog.filter((d) => damMatchesTokens(tokens, d).matches);
   }, [catalog, query]);
+
+  // ---- Looking beyond what is bundled --------------------------------------------------------
+  // The catalogue is a snapshot, and a snapshot cannot answer "do you know *my* dam?" — whatever
+  // was not packaged is invisible, however large the file grows. When a search finds little
+  // locally, OpenStreetMap is asked directly, so what can be found is bounded by what has been
+  // mapped rather than by what shipped. It needs a connection; the bundled list still answers
+  // instantly and offline, and this only runs when that list comes up short.
+  // Results carry the query they answer, so a stale set is simply not shown rather than cleared:
+  // resetting state from the effect body is what starts a cascade of renders.
+  const [live, setLive] = useState<{ query: string; items: DamCatalogEntry[]; state: 'searching' | 'done' | 'failed' }>({
+    query: '',
+    items: [],
+    state: 'done',
+  });
+  const query3 = query.trim();
+  const wantsLive = query3.length >= 3 && matches.length < 5;
+  useEffect(() => {
+    if (!wantsLive) return;
+    const controller = new AbortController();
+    // Typing is not a query: wait for the pause that means the name is finished.
+    const timer = setTimeout(() => {
+      setLive({ query: query3, items: [], state: 'searching' });
+      searchOsmDams(query3, fetch, controller.signal)
+        .then((found) => setLive({ query: query3, items: found, state: 'done' }))
+        .catch(() => {
+          if (!controller.signal.aborted) setLive({ query: query3, items: [], state: 'failed' });
+        });
+    }, 550);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query3, wantsLive]);
+
+  const liveState = live.query === query3 && wantsLive ? live.state : 'done';
+  const liveMatches = useMemo(() => {
+    if (live.query !== query3 || !wantsLive) return [];
+    const known = new Set(matches.map((d) => d.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    return live.items.filter((d) => !known.has(d.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  }, [live, query3, wantsLive, matches]);
 
   const estimatedCells = Math.round(((form.reachKm + form.widthKm) * form.widthKm * 1e6) / (form.cellSize * form.cellSize));
   const building = steps !== null && steps.some((s) => s.state === 'active');
@@ -358,10 +398,19 @@ export default function ScenarioBuilder() {
                         <TextInput className="pl-9" placeholder="Search by dam, river, district or state" value={query} onChange={(e) => setQuery(e.target.value)} />
                       </div>
                       <div className="text-[11px] leading-snug text-faint">
-                        {formatNumber(catalog.length)} dams and reservoirs across India. {query && matches.length === 0 ? 'Nothing matched — try the river or the district, or pick it straight off the map.' : 'Or pick one off the map, where every dam is marked.'}
+                        {formatNumber(catalog.length)} dams held locally.{' '}
+                        {liveState === 'searching'
+                          ? 'Looking through OpenStreetMap for the rest…'
+                          : liveState === 'failed'
+                            ? 'OpenStreetMap could not be reached, so only the local list is showing.'
+                            : liveMatches.length > 0
+                              ? `${liveMatches.length} more found in OpenStreetMap.`
+                              : query && matches.length === 0
+                                ? 'Nothing here — try the river or the district, or pick it off the map.'
+                                : 'Anything else is looked up in OpenStreetMap as you type.'}
                       </div>
                       <div className="scroll-soft grid max-h-[150px] grid-cols-2 gap-1.5 overflow-y-auto">
-                        {matches.map((d) => (
+                        {[...matches, ...liveMatches].map((d) => (
                           <button
                             key={d.id}
                             onClick={() => {

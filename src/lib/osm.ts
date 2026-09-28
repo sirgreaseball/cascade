@@ -206,7 +206,15 @@ async function overpass<T>(
     try {
       return await Promise.any(
         OVERPASS_ENDPOINTS.map(async (endpoint, i) => {
-          const res = await fetchImpl(endpoint, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: controllers[i].signal });
+          const res = await fetchImpl(endpoint, {
+            method: 'POST',
+            body,
+            // Overpass answers a request with no User-Agent with a 406 that reads like a blocked
+            // network. A browser always sends one and ignores this header; Node sends none, so
+            // without it the same code works in the app and fails in every script.
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Cascade/1.0 (dam-break model)' },
+            signal: controllers[i].signal,
+          });
           if (!res.ok) throw new Error(`Overpass ${new URL(endpoint).host} returned ${res.status}`);
           const json = (await res.json()) as T;
           controllers.forEach((c, j) => j !== i && c.abort());
@@ -394,4 +402,125 @@ export async function fetchDamLine(
   if (!best) return null;
   const line = damCentreline(best, crestLength);
   return line.length >= 2 ? line : null;
+}
+
+/**
+ * Looks a dam up in OpenStreetMap by name, live, through Nominatim.
+ *
+ * The bundled catalogue is a snapshot, and a snapshot is the wrong shape for "does it know *my*
+ * dam?" — whatever was not fetched is invisible however large the file grows. This asks the map
+ * itself, so coverage is bounded by what has been mapped rather than by what was packaged.
+ *
+ * Nominatim rather than Overpass: a name is what the user has, and Overpass has no name index — a
+ * regex scan across India times out, which is exactly what it did. Nominatim is built for this and
+ * answers in well under a second. It gives no height or storage, but OpenStreetMap barely records
+ * those anyway, so the builder asks for them either way.
+ */
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+
+/** Great-circle distance in kilometres. */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Categories and types that are a dam or the water it holds, so a district of the same name is not offered. */
+const WATER_CLASSES = new Set(['waterway', 'water', 'reservoir', 'natural', 'landuse']);
+const WATER_TYPES = new Set(['dam', 'weir', 'reservoir', 'water', 'lake', 'basin', 'barrage']);
+
+interface NominatimPlace {
+  osm_type?: string;
+  osm_id?: number;
+  display_name?: string;
+  name?: string;
+  lat: string;
+  lon: string;
+  /** jsonv2 calls it `category`; the older format calls it `class`. Both appear in the wild. */
+  category?: string;
+  class?: string;
+  type?: string;
+  address?: Record<string, string>;
+}
+
+/**
+ * The shape a catalogue entry takes, restated here rather than imported: this module is shared with
+ * the Node build scripts and deliberately has no imports, as its header says. `DamCatalogEntry` in
+ * `dams.ts` is structurally the same, so a result drops straight into the catalogue.
+ */
+export interface OsmDamResult {
+  id: string;
+  name: string;
+  river: string;
+  state: string;
+  district: string;
+  nearestCity: string;
+  lng: number;
+  lat: number;
+  height: number;
+  crestLength: number;
+  volumeMCM: number;
+  type: string;
+  approximate: boolean;
+}
+
+async function nominatim(q: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<NominatimPlace[]> {
+  const url = `${NOMINATIM}?q=${encodeURIComponent(q)}&countrycodes=in&format=jsonv2&addressdetails=1&limit=25`;
+  const res = await fetchImpl(url, { signal, headers: { Accept: 'application/json', 'User-Agent': 'Cascade/1.0 (dam-break model)' } });
+  if (!res.ok) throw new Error(`OpenStreetMap search returned ${res.status}`);
+  return (await res.json()) as NominatimPlace[];
+}
+
+export async function searchOsmDams(name: string, fetchImpl: typeof fetch = fetch, signal?: AbortSignal): Promise<OsmDamResult[]> {
+  const q = name.trim();
+  if (q.length < 3) return [];
+  let places = await nominatim(q, fetchImpl, signal);
+  // People type the dam's name, not "<name> Dam", and a bare name ranks the district above the
+  // structure — "Idukki" returns the district, "Idukki Dam" returns Idukki Arch Dam. Asking again
+  // with the word costs one round trip and is the difference between finding it and not.
+  if (!/(dam|reservoir|barrage|weir|sagar)/i.test(q)) {
+    const withWord = await nominatim(`${q} dam`, fetchImpl, signal);
+    const known = new Set(places.map((p) => `${p.osm_type}${p.osm_id}`));
+    places = [...withWord, ...places.filter((p) => !known.has(`${p.osm_type}${p.osm_id}`))];
+  }
+  const out: OsmDamResult[] = [];
+  for (const p of places) {
+    const label = (p.name || p.display_name?.split(',')[0] || '').trim();
+    const lat = Number(p.lat);
+    const lng = Number(p.lon);
+    if (!label || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    // Either the feature is tagged as water, or its name says what it is — "Hatnur Dam" mapped as
+    // a locality is still the dam somebody is looking for.
+    const watery =
+      WATER_CLASSES.has(p.category ?? p.class ?? '') ||
+      WATER_TYPES.has(p.type ?? '') ||
+      /dam|reservoir|barrage|weir|sagar|bandh/i.test(label);
+    if (!watery) continue;
+    // One dam is routinely mapped twice — the wall and the water behind it — a kilometre or two
+    // apart. Measuring the gap merges those; rounding coordinates into buckets does not, because
+    // two points a kilometre apart still fall either side of a boundary often enough to show the
+    // same dam twice.
+    const bare = label.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (out.some((d) => d.name.toLowerCase().replace(/[^a-z0-9]/g, '') === bare && haversineKm(d.lat, d.lng, lat, lng) < 15)) continue;
+    const a = p.address ?? {};
+    out.push({
+      id: `osm-${(p.osm_type ?? 'n')[0]}${p.osm_id ?? out.length}`,
+      name: label,
+      river: '',
+      state: a.state ?? '',
+      district: a.state_district ?? a.county ?? '',
+      nearestCity: a.city ?? a.town ?? a.village ?? '',
+      lng: Number(lng.toFixed(5)),
+      lat: Number(lat.toFixed(5)),
+      // OpenStreetMap almost never carries these; the builder asks for them and says why.
+      height: 30,
+      crestLength: 300,
+      volumeMCM: 50,
+      type: p.type ?? 'Unknown',
+      approximate: true,
+    });
+  }
+  return out;
 }
