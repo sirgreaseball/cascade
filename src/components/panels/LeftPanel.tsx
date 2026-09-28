@@ -12,7 +12,7 @@ import { froehlich2008 } from '@/simulation/hydrograph';
 import { SEASONS, seasonProfile } from '@/simulation/season';
 import type { Season } from '@/simulation/season';
 import type { EventKind, FailureMode } from '@/simulation/hydrograph';
-import type { Resolution } from '@/simulation/setup';
+import type { Resolution, SimulationSetup } from '@/simulation/setup';
 import { canRefine, PARTICLE_BUDGET } from '@/simulation/setup';
 import { runBenchmarks } from '@/simulation/benchmarks';
 import type { BenchmarkResult } from '@/simulation/benchmarks';
@@ -125,23 +125,16 @@ function DatasetImport() {
   );
 }
 
-function EventTab() {
-  const config = useScenarioStore((s) => s.config);
-  const event = useSimStore((s) => s.event);
-  const setEvent = useSimStore((s) => s.setEvent);
-  const resetEvent = useSimStore((s) => s.resetEvent);
-  const season = useSimStore((s) => s.season);
-  const setSeason = useSimStore((s) => s.setSeason);
-  const setup = useSimStore((s) => s.setup);
-  const setupError = useSimStore((s) => s.setupError);
-  const duration = useSimStore((s) => s.duration);
+/**
+ * The outflow chart, subscribed on its own to the results and the playhead: the only part of the
+ * Event tab that changes while a run plays. When the whole tab listened, every frame message and
+ * every simulated minute re-rendered all of its sliders and switches too.
+ */
+function OutflowChart({ setup, duration, imported }: { setup: SimulationSetup | null; duration: number; imported: boolean }) {
   const version = useSimStore((s) => s.resultsVersion);
-  // The chart marker moves in one-minute steps, so the panel is not re-rendered every frame.
+  // The chart marker moves in one-minute steps, so the chart is not re-rendered every frame.
   const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
-  // An imported record is prescribed, not routed: it has no free-outflow bound to compare against.
-  const imported = useSimStore((s) => s.dataset?.hydrograph !== undefined);
-
   const series = useMemo(() => {
     void version;
     const out: ChartSeries[] = [];
@@ -160,6 +153,41 @@ function EventTab() {
     }
     return out;
   }, [setup, version, imported]);
+  if (series.length === 0) return null;
+  return <LineChart series={series} xMax={duration} yFormat={(v) => formatCompact(v)} xFormat={hours} marker={hasResults ? playhead : null} />;
+}
+
+/** The grid solver's peak outflow so far: re-rendered with each of its frames, when it can change. */
+function ModelledPeak() {
+  const frames = useSimStore((s) => s.runs.swe.frames);
+  const r = results.get('swe');
+  let peak: { q: number; t: number } | null = null;
+  if (frames > 0 && r && r.stats.length) {
+    let best = 0;
+    for (let i = 1; i < r.stats.length; i++) if (r.stats[i].inflowRate > r.stats[best].inflowRate) best = i;
+    peak = { q: r.stats[best].inflowRate, t: r.times[best] };
+  }
+  return (
+    <div>
+      <div className="text-[11px] text-muted">Modelled peak</div>
+      <div className="text-[14px] font-semibold">{peak ? formatDischarge(peak.q) : '—'}</div>
+      <div className="text-[10.5px] text-faint">{peak ? `at ${formatDuration(peak.t)}, with tailwater` : 'after a run'}</div>
+    </div>
+  );
+}
+
+function EventTab() {
+  const config = useScenarioStore((s) => s.config);
+  const event = useSimStore((s) => s.event);
+  const setEvent = useSimStore((s) => s.setEvent);
+  const resetEvent = useSimStore((s) => s.resetEvent);
+  const season = useSimStore((s) => s.season);
+  const setSeason = useSimStore((s) => s.setSeason);
+  const setup = useSimStore((s) => s.setup);
+  const setupError = useSimStore((s) => s.setupError);
+  const duration = useSimStore((s) => s.duration);
+  // An imported record is prescribed, not routed: it has no free-outflow bound to compare against.
+  const imported = useSimStore((s) => s.dataset?.hydrograph !== undefined);
 
   if (!config || !event) return null;
   const release = event.kind === 'controlled-release';
@@ -167,13 +195,6 @@ function EventTab() {
   const fr = froehlich2008(event.volume, event.breachDepth, event.failureMode);
   const h = setup?.hydrograph;
   const head = event.waterDepth - (event.damHeight - event.breachDepth);
-  const modelledPeak = (() => {
-    const r = results.get('swe');
-    if (!r || !r.stats.length) return null;
-    let best = 0;
-    for (let i = 1; i < r.stats.length; i++) if (r.stats[i].inflowRate > r.stats[best].inflowRate) best = i;
-    return { q: r.stats[best].inflowRate, t: r.times[best] };
-  })();
 
   return (
     <div className="space-y-6">
@@ -297,16 +318,10 @@ function EventTab() {
 
       <Section title={imported ? 'Imported hydrograph' : storm ? 'Runoff into the reach' : release ? 'Release hydrograph' : 'Breach outflow'}>
         {setupError && <p className="text-[12px] text-critical">{setupError}</p>}
-        {series.length > 0 && (
-          <LineChart series={series} xMax={duration} yFormat={(v) => formatCompact(v)} xFormat={hours} marker={hasResults ? playhead : null} />
-        )}
+        <OutflowChart setup={setup} duration={duration} imported={imported} />
         {h && (
           <div className="grid grid-cols-3 gap-3">
-            <div>
-              <div className="text-[11px] text-muted">Modelled peak</div>
-              <div className="text-[14px] font-semibold">{modelledPeak ? formatDischarge(modelledPeak.q) : '—'}</div>
-              <div className="text-[10.5px] text-faint">{modelledPeak ? `at ${formatDuration(modelledPeak.t)}, with tailwater` : 'after a run'}</div>
-            </div>
+            <ModelledPeak />
             <div>
               <div className="text-[11px] text-muted">{imported || release || storm ? 'Peak' : 'Free-outflow bound'}</div>
               <div className="text-[14px] font-semibold">{formatDischarge(h.peak)}</div>

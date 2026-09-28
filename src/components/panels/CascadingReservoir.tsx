@@ -17,7 +17,9 @@ import { lngLatToCell } from '@/lib/geo/grid';
 
 export default function CascadingReservoir() {
   const config = useScenarioStore((s) => s.config);
-  const playhead = useSimStore((s) => s.playhead);
+  // Figures for reading, so a new value each simulated minute is plenty — the same step the
+  // panels' charts use. Following the playhead itself recomputed this on every playback step.
+  const playhead = useSimStore((s) => Math.round(s.playhead / 60) * 60);
   const version = useSimStore((s) => s.resultsVersion);
   const primary = usePrimaryEngine();
 

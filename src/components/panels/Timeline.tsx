@@ -37,11 +37,30 @@ function areaPath(t: number[], q: number[], duration: number, qMax: number): str
   return `${d} L${((lastT / duration) * W).toFixed(1)} ${H} Z`;
 }
 
+/**
+ * The two things on the timeline that move with every playback step, each subscribed on its own.
+ * When the whole timeline listened to the playhead it re-rendered on every step, and every re-render
+ * of its animated parts made framer-motion measure the page's layout — twice a frame, for a clock.
+ */
+function PlayheadClock({ hasResults }: { hasResults: boolean }) {
+  const clock = useSimStore((s) => formatClock(hasResults ? s.playhead : 0));
+  return <div className="tnum text-[22px] font-semibold leading-none tracking-[-0.03em]">T+{clock}</div>;
+}
+
+function PlayheadMarker({ duration }: { duration: number }) {
+  const at = useSimStore((s) => Math.min(s.playhead, duration) / duration);
+  return (
+    <div className="pointer-events-none absolute top-0 h-[calc(100%-14px)]" style={{ left: `${at * 100}%` }}>
+      <div className="absolute -left-px top-0 h-full w-[2px] rounded-full bg-ink" />
+      <div className="absolute -left-[5px] -top-[3px] h-[10px] w-[10px] rounded-full bg-ink ring-2 ring-white" />
+    </div>
+  );
+}
+
 export default function Timeline() {
   const setup = useSimStore((s) => s.setup);
   const referencePeak = useSimStore((s) => s.referencePeak);
   const duration = useSimStore((s) => s.duration);
-  const playhead = useSimStore((s) => s.playhead);
   const playing = useSimStore((s) => s.playing);
   const follow = useSimStore((s) => s.follow);
   const speed = useSimStore((s) => s.speed);
@@ -86,7 +105,7 @@ export default function Timeline() {
     const preview = setup ? setup.hydrograph.peak : 0;
     return Math.max(referencePeak * AXIS_HEADROOM, preview, ...(series?.q ?? [0])) * 1.05;
   }, [series, setup, referencePeak]);
-  // The timeline re-renders with the playhead (60 Hz); build the hydrograph path only when it changes.
+  // The timeline re-renders with every frame message; build the hydrograph path only when it changes.
   const area = useMemo(() => (series ? areaPath(series.t, series.q, duration, qMax) : ''), [series, duration, qMax]);
 
   const seek = (clientX: number) => {
@@ -190,7 +209,7 @@ export default function Timeline() {
 
         {/* Clock */}
         <div className="w-[108px] shrink-0">
-          <div className="tnum text-[22px] font-semibold leading-none tracking-[-0.03em]">T+{formatClock(hasResults ? playhead : 0)}</div>
+          <PlayheadClock hasResults={hasResults} />
           <div className="mt-1 flex items-center gap-1.5 truncate text-[11px] text-muted">
             {running && !follow && hasResults ? (
               <button onClick={() => useSimStore.getState().goLive()} className="flex items-center gap-1 rounded-full bg-critical/10 px-1.5 py-px font-semibold text-critical transition-colors hover:bg-critical/15" title="Jump to the latest computed moment">
@@ -258,12 +277,7 @@ export default function Timeline() {
                 </span>
               ))}
             </div>
-            {hasResults && (
-              <div className="pointer-events-none absolute top-0 h-[calc(100%-14px)]" style={{ left: `${(Math.min(playhead, duration) / duration) * 100}%` }}>
-                <div className="absolute -left-px top-0 h-full w-[2px] rounded-full bg-ink" />
-                <div className="absolute -left-[5px] -top-[3px] h-[10px] w-[10px] rounded-full bg-ink ring-2 ring-white" />
-              </div>
-            )}
+            {hasResults && <PlayheadMarker duration={duration} />}
             {hoverT !== null && (
               <div className="pointer-events-none absolute -top-9 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-canvas" style={{ left: `${hoverX! * 100}%` }}>
                 <span className="tnum">T+{formatClock(hoverT)}</span>
