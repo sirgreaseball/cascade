@@ -10,6 +10,8 @@ import { isRunning, useSimStore } from '@/store/simulationStore';
 class SimulationController {
   private clients: Partial<Record<EngineId, EngineClient>> = {};
   private runId = 0;
+  /** What the workers were last told, so the store's every change does not become a message. */
+  private throttled: boolean | null = null;
 
   async run(): Promise<void> {
     const sim = useSimStore.getState();
@@ -59,6 +61,8 @@ class SimulationController {
         }
       }),
     );
+    // New workers have not been told anything yet.
+    this.throttled = null;
     this.updatePacing();
   }
 
@@ -127,6 +131,9 @@ class SimulationController {
     const isAnimating = sim.playing || (sim.follow && isRunning(sim.runs));
     const fastest = sim.fastCompute;
     const throttle = isAnimating && !isHidden && !fastest;
+    // Called on every store change, which during playback is every step of the playhead.
+    if (throttle === this.throttled) return;
+    this.throttled = throttle;
     for (const client of Object.values(this.clients)) {
       client?.setPacing(throttle);
     }
