@@ -278,6 +278,7 @@ export default function MapView() {
   const data = useScenarioStore((s) => s.data);
   const exposure = useScenarioStore((s) => s.exposure);
   const observed = useScenarioStore((s) => s.observed);
+  const scenarioIndex = useScenarioStore((s) => s.index);
   const ensemble = useEnsembleStore((s) => s.result);
   const setup = useSimStore((s) => s.setup);
   const view = useSimStore((s) => s.view);
@@ -370,6 +371,19 @@ export default function MapView() {
   // district irrigation structures nobody can name from memory, so picking is done by looking:
   // the country flat, every catalogued dam on it, click the one you want.
   const [damCatalog, setDamCatalog] = useState<DamCatalogEntry[]>(DAM_CATALOG);
+  /** Dams that already have a scenario, so picking shows what is new rather than what is built. */
+  const builtDams = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of scenarioIndex) {
+      ids.add(m.id);
+      ids.add(m.name.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    }
+    return ids;
+  }, [scenarioIndex]);
+  const isBuilt = useCallback(
+    (d: DamCatalogEntry) => builtDams.has(d.id) || builtDams.has(d.name.toLowerCase().replace(/[^a-z0-9]/g, '')),
+    [builtDams],
+  );
   // Written after each commit rather than during render, so the snapshot taken when picking starts
   // is the camera the user was actually looking at.
   const viewStateRef = useRef(viewState);
@@ -928,14 +942,18 @@ export default function MapView() {
           getPosition: (d: DamCatalogEntry) => [d.lng, d.lat, 0],
           // Surveyed dams sit above the ones taken from OpenStreetMap without figures, because
           // picking one of those means typing its height and storage in by hand afterwards.
-          getRadius: (d: DamCatalogEntry) => (d.approximate ? (near ? 3.4 : 2.6) : near ? 5 : 4),
+          getRadius: (d: DamCatalogEntry) => (isBuilt(d) ? (near ? 5.5 : 4.5) : d.approximate ? (near ? 3.4 : 2.6) : near ? 5 : 4),
           radiusUnits: 'pixels',
           stroked: true,
           lineWidthUnits: 'pixels',
           getLineWidth: 1.25,
-          getFillColor: (d: DamCatalogEntry) => (d.approximate ? [255, 255, 255, 190] : [244, 63, 94, 255]),
-          getLineColor: (d: DamCatalogEntry) => (d.approximate ? [0, 0, 0, 90] : [255, 255, 255, 235]),
-          updateTriggers: { getRadius: [near] },
+          // Green for a dam that already has a scenario, red for one waiting to be built, white for
+          // one OpenStreetMap knows the position of but not the figures. The question while picking
+          // is "what can I make?", so what is already made should not compete for the eye.
+          getFillColor: (d: DamCatalogEntry) =>
+            isBuilt(d) ? [16, 245, 125, 255] : d.approximate ? [255, 255, 255, 190] : [244, 63, 94, 255],
+          getLineColor: (d: DamCatalogEntry) => (d.approximate && !isBuilt(d) ? [0, 0, 0, 90] : [255, 255, 255, 235]),
+          updateTriggers: { getRadius: [near, builtDams], getFillColor: [builtDams], getLineColor: [builtDams] },
         }),
       );
       // Names only once the view is close enough for them not to pile on top of each other.
@@ -1045,7 +1063,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, builtDams, isBuilt, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -1132,23 +1150,46 @@ export default function MapView() {
     [data, exposure, impacts, primary, view.terrain3d, evacuationMap],
   );
 
-  const onClick = useCallback((info: PickingInfo) => {
-    if (useUiStore.getState().pickingDam) {
-      // A catalogued dam carries its name, river and figures; bare ground carries a position only,
-      // which is still a valid way to place a blockage that no register has ever listed.
-      const dam = info.layer?.id === 'dam-catalog' ? (info.object as DamCatalogEntry | undefined) : undefined;
-      if (!dam && !info.coordinate) return;
-      window.dispatchEvent(
-        new CustomEvent('cascade:pick', {
-          detail: dam ? { lng: dam.lng, lat: dam.lat, dam } : { lng: info.coordinate![0], lat: info.coordinate![1] },
-        }),
-      );
-      useUiStore.getState().setPickingDam(false);
-      return;
-    }
-    // Clicking a place selects it; clicking empty map clears the selection.
-    useSimStore.getState().selectAsset(info.layer?.id === 'assets' && info.index >= 0 ? info.index : null);
-  }, []);
+  const onClick = useCallback(
+    (info: PickingInfo) => {
+      if (useUiStore.getState().pickingDam) {
+        // A catalogued dam carries its name, river and figures; bare ground carries a position only,
+        // which is still a valid way to place a blockage that no register has ever listed.
+        let dam = info.layer?.id === 'dam-catalog' ? (info.object as DamCatalogEntry | undefined) : undefined;
+        if (!dam && info.coordinate) {
+          // A dot is a few pixels wide and a country is wide, so a click meant for a dam lands
+          // beside it more often than on it. Falling through to a bare coordinate was the worst
+          // possible answer: the form kept the previous dam's name and figures and only moved the
+          // pin, so picking Bisalpur produced a scenario still called Koyna. Snap to whatever is
+          // nearest within a thumb's width on screen, and hand over nothing at all beyond that.
+          const [lng, lat] = info.coordinate;
+          const metresPerPixel = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** viewStateRef.current.zoom;
+          const reach = 20 * metresPerPixel;
+          let best = Infinity;
+          for (const d of damCatalog) {
+            const dx = (d.lng - lng) * 111320 * Math.cos((lat * Math.PI) / 180);
+            const dy = (d.lat - lat) * 110540;
+            const distance = Math.hypot(dx, dy);
+            if (distance < best && distance <= reach) {
+              best = distance;
+              dam = d;
+            }
+          }
+        }
+        if (!dam && !info.coordinate) return;
+        window.dispatchEvent(
+          new CustomEvent('cascade:pick', {
+            detail: dam ? { lng: dam.lng, lat: dam.lat, dam } : { lng: info.coordinate![0], lat: info.coordinate![1] },
+          }),
+        );
+        useUiStore.getState().setPickingDam(false);
+        return;
+      }
+      // Clicking a place selects it; clicking empty map clears the selection.
+      useSimStore.getState().selectAsset(info.layer?.id === 'assets' && info.index >= 0 ? info.index : null);
+    },
+    [damCatalog],
+  );
 
   // Keep hover cards inside the map.
   const [containerSize, setContainerSize] = useState({ width: 1600, height: 1000 });

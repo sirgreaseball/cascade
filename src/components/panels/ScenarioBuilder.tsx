@@ -126,8 +126,18 @@ export default function ScenarioBuilder() {
   useEffect(() => {
     const onPick = (e: Event) => {
       const { lng, lat, dam } = (e as CustomEvent<{ lng: number; lat: number; dam?: DamCatalogEntry }>).detail;
-      // A dam picked off the map brings its whole record; bare ground brings only where it was.
-      setForm((f) => ({ ...f, ...(dam ? fromDam(dam) : {}), lng: Number(lng.toFixed(5)), lat: Number(lat.toFixed(5)) }));
+      setForm((f) => ({
+        ...f,
+        ...(dam
+          ? fromDam(dam)
+          : // Ground with no dam on it is a new blockage, so the previous dam's identity goes with
+            // it. Keeping the name and river while moving the pin is how a click near Bisalpur used
+            // to produce a scenario still called Koyna — wrong, and wrong in a way that reads as
+            // correct. The figures stay as a starting point; they are the user's to set either way.
+            { name: 'New blockage', river: '', region: '', event: 'lake-outburst' as EventKind }),
+        lng: Number(lng.toFixed(5)),
+        lat: Number(lat.toFixed(5)),
+      }));
       setCatalogId(dam?.id ?? null);
       setQuery('');
     };
