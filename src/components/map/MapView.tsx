@@ -145,8 +145,8 @@ const BLANK_IMAGE = typeof ImageData !== 'undefined' ? new ImageData(1, 1) : nul
 const OBSERVED_RGB = hexToRgb(IDENTITY.observed);
 
 /**
- * The flood at the playhead, read from the stores on every draw so it animates at the display's own
- * rate without re-rendering React. Textures are re-uploaded only when a new pair of frames, a new
+ * The flood at the playhead, read from the stores on every draw so it animates with each playback
+ * step without re-rendering React. Textures are re-uploaded only when a new pair of frames, a new
  * envelope or a different painted layer is actually needed.
  */
 function floodFrame(device: Device): FloodFrame {
@@ -318,9 +318,8 @@ export default function MapView() {
   const view = useSimStore((s) => s.view);
   const engines = useSimStore((s) => s.engines);
   // The flood reads the playhead itself on every draw (floodFrame): React re-renders when results
-  // arrive or playback starts and stops, never once per frame.
+  // arrive, never once per frame.
   const hasResults = useSimStore((s) => s.runs.swe.frames > 0 || s.runs.sph.frames > 0);
-  const animating = useSimStore((s) => s.playing || (s.follow && isRunning(s.runs)));
   const sphFrame = useFrameIndex('sph');
   const deckRef = useRef<DeckGLRef>(null);
   const selectedAsset = useSimStore((s) => s.selectedAsset);
@@ -505,12 +504,17 @@ export default function MapView() {
   }, [selectedAsset, exposure]);
 
   // ---- Flood ------------------------------------------------------------------------------
-  // While the flood plays, deck.gl redraws every frame and the flood shader reads the playhead
-  // itself; when paused, moving the playhead asks for a single redraw.
+  // The flood shader reads the playhead itself on every draw, so a moved playhead needs a redraw
+  // and nothing more. The flood layer asks for one, and deck.gl draws in its own frame, after React
+  // has applied any other change to the layers: one draw a frame while the playhead moves, and none
+  // while it stands still — paused, or a live run waiting on the solver's next frame. (deck.gl's
+  // `_animate` redrew every frame of a run whether anything had moved or not.)
   useEffect(
     () =>
       useSimStore.subscribe((s, prev) => {
-        if (s.playhead !== prev.playhead && !(s.playing || (s.follow && isRunning(s.runs)))) deckRef.current?.deck?.redraw('playhead');
+        if (s.playhead === prev.playhead) return;
+        const layers = deckRef.current?.deck?.props.layers as Layer[] | undefined;
+        layers?.find((l) => l?.id === 'flood-skin' || l?.id === 'flood')?.setNeedsRedraw();
       }),
     [],
   );
@@ -1262,8 +1266,6 @@ export default function MapView() {
     <div ref={containerRef} className="absolute inset-0" onMouseLeave={() => setHover(null)}>
       <DeckGL
         ref={deckRef}
-        // Continuous redraws only while the flood plays; otherwise deck.gl draws on change.
-        _animate={animating}
         viewState={camera}
         onViewStateChange={({ viewState: v }) => setViewState(v as MapViewState)}
         controller={{ inertia: 250, scrollZoom: { smooth: true, speed: 0.02 } }}
