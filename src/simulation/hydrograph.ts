@@ -273,7 +273,7 @@ function releaseHydrograph(p: EventParams, duration: number, sampleEvery: number
 export function defaultEventParams(
   kind: EventKind,
   dam: { height: number; volumeM3: number; waterDepth?: number },
-  mode: FailureMode = kind === 'lake-outburst' ? 'overtopping' : 'overtopping',
+  mode: FailureMode = 'overtopping',
 ): EventParams {
   const waterDepth = dam.waterDepth ?? dam.height * 0.95;
   const breachDepth = dam.height;

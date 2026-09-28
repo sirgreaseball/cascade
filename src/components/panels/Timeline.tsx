@@ -19,6 +19,13 @@ const BOTTOM_CHROME = chromeVariants('bottom', 0.14);
 const W = 1000;
 const H = 44;
 
+/**
+ * How much taller than the scenario's default peak the timeline's axis reaches. Two puts the
+ * defaults at half height: the observed range across every control is roughly a fifth of the
+ * default to a bit over twice it, so both directions read clearly without the curve flattening.
+ */
+const AXIS_HEADROOM = 2;
+
 function areaPath(t: number[], q: number[], duration: number, qMax: number): string {
   if (t.length < 2 || qMax <= 0) return '';
   let d = `M0 ${H}`;
@@ -69,13 +76,15 @@ export default function Timeline() {
     if (setup) return { t: setup.hydrograph.t, q: setup.hydrograph.q, modelled: false };
     return null;
   }, [setup, primary, version]);
-  // Scaled against the scenario's own defaults rather than against itself: an axis that follows
+  // Scaled against the scenario's own defaults rather than against itself. An axis that follows
   // whatever it is drawing makes every setting look identical, which is exactly the case where
-  // someone moving a slider needs to see the flood get smaller. It only ever grows from there, so
-  // a setting fiercer than the default still fits.
+  // someone moving a slider needs to see the flood change. The defaults are put at half height
+  // rather than the top, so a fiercer setting has somewhere to grow into and a gentler one has
+  // somewhere to fall — a setting can be read against the scenario at a glance. Beyond that
+  // headroom the axis still grows, so nothing is ever drawn off the top.
   const qMax = useMemo(() => {
     const preview = setup ? setup.hydrograph.peak : 0;
-    return Math.max(referencePeak, preview, ...(series?.q ?? [0])) * 1.05;
+    return Math.max(referencePeak * AXIS_HEADROOM, preview, ...(series?.q ?? [0])) * 1.05;
   }, [series, setup, referencePeak]);
   // The timeline re-renders with the playhead (60 Hz); build the hydrograph path only when it changes.
   const area = useMemo(() => (series ? areaPath(series.t, series.q, duration, qMax) : ''), [series, duration, qMax]);
