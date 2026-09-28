@@ -62,6 +62,7 @@ function place(r: DOMRect): { left: number; top?: number; bottom?: number } {
 export default function FirstRun() {
   const ready = useScenarioStore((s) => s.status) === 'ready';
   const mapReady = useUiStore((s) => s.mapReady);
+  const pickingDam = useUiStore((s) => s.pickingDam);
   const [step, setStep] = useState(-1);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
@@ -120,7 +121,9 @@ export default function FirstRun() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const active = step >= 0 && step < STEPS.length && rect;
+  // The tour points at controls in the side panel, which is hidden while a dam is being picked off
+  // the map — so it would be spotlighting nothing, over the one view it is most in the way of.
+  const active = step >= 0 && step < STEPS.length && rect && !pickingDam;
   const s = active ? STEPS[step] : null;
   const pos = active && rect ? place(rect) : null;
   return (
