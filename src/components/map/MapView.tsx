@@ -1025,24 +1025,7 @@ export default function MapView() {
       const z = view.terrain3d ? bed.elevation + config.dam.height + 80 : 0;
       const at = [{ position: [bed.lng, bed.lat, z] as [number, number, number] }];
       const position = (d: { position: [number, number, number] }) => d.position;
-      if (rings.length) {
-        list.push(
-          new ScatterplotLayer({
-            id: 'dam-pulse',
-            data: rings.map((p) => ({ position: at[0].position, p })),
-            getPosition: (d: { position: [number, number, number] }) => d.position,
-            getRadius: (d: { p: number }) => 17 + d.p * 78,
-            radiusUnits: 'pixels',
-            filled: false,
-            stroked: true,
-            getLineColor: (d: { p: number }) => [232, 78, 78, Math.round(225 * (1 - d.p) ** 1.1)] as [number, number, number, number],
-            getLineWidth: 2.5,
-            lineWidthUnits: 'pixels',
-            parameters: { depthTest: false },
-            updateTriggers: { getRadius: rings, getLineColor: rings },
-          }),
-        );
-      }
+      // The breach pulse goes here, between the water and the marker (see `withPulse`).
       if (view.terrain3d) {
         list.push(
           new PathLayer({
@@ -1103,7 +1086,32 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, builtDams, isBuilt, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, builtDams, isBuilt, onTerrainError, onTerrainTile, hasFlood, layerFade, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+
+  // The breach pulse changes on every frame of its couple of seconds, so it is built on its own and
+  // spliced in just below the dam marker. Inside the list above, each of its frames rebuilt every
+  // layer on the map.
+  const withPulse = useMemo(() => {
+    if (!setup || !config || rings.length === 0) return layers;
+    const bed = setup.site.bed;
+    const position: [number, number, number] = [bed.lng, bed.lat, view.terrain3d ? bed.elevation + config.dam.height + 80 : 0];
+    const pulse = new ScatterplotLayer({
+      id: 'dam-pulse',
+      data: rings.map((p) => ({ position, p })),
+      getPosition: (d: { position: [number, number, number] }) => d.position,
+      getRadius: (d: { p: number }) => 17 + d.p * 78,
+      radiusUnits: 'pixels',
+      filled: false,
+      stroked: true,
+      getLineColor: (d: { p: number }) => [232, 78, 78, Math.round(225 * (1 - d.p) ** 1.1)] as [number, number, number, number],
+      getLineWidth: 2.5,
+      lineWidthUnits: 'pixels',
+      parameters: { depthTest: false },
+      updateTriggers: { getRadius: rings, getLineColor: rings },
+    });
+    const marker = layers.findIndex((l) => (l as Layer).id === 'dam-stem' || (l as Layer).id === 'dam-halo');
+    return marker < 0 ? [...layers, pulse] : [...layers.slice(0, marker), pulse, ...layers.slice(marker)];
+  }, [layers, rings, setup, config, view.terrain3d]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -1269,7 +1277,7 @@ export default function MapView() {
         viewState={camera}
         onViewStateChange={({ viewState: v }) => setViewState(v as MapViewState)}
         controller={{ inertia: 250, scrollZoom: { smooth: true, speed: 0.02 } }}
-        layers={layers as never}
+        layers={withPulse as never}
         layerFilter={pickOnlyPlaces as never}
         effects={lighting}
         onHover={onHover}
