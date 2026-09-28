@@ -50,6 +50,7 @@ import {
 } from './colormaps';
 import { FloodExtension, FloodField, keyOf } from './floodGpu';
 import type { FloodFrame } from './floodGpu';
+import { trimLumaOverhead } from './lumaOverhead';
 import { hillshadeDataUrl, IMAGERY_ATTRIBUTION, IMAGERY_URL, MAP_ATTRIBUTION, MAP_LABELS_URL, MAP_TILES_URL, ROADS_ATTRIBUTION, ROADS_OVERLAY_URL, satelliteDataUrl, terrariumDataUrl } from './terrain';
 
 /** Sky and horizon glow above the 3D terrain; the horizon matches the terrain's haze. */
@@ -1237,7 +1238,10 @@ export default function MapView() {
         onHover={onHover}
         onClick={onClick}
         onError={(err) => console.warn('[map]', err.message)}
-        onDeviceInitialized={(device) => setMapGpu(device.info)}
+        onDeviceInitialized={(device) => {
+          setMapGpu(device.info);
+          trimLumaOverhead(device);
+        }}
         useDevicePixels={PIXEL_RATIO}
         deviceProps={{ webgl: { antialias: GPU.tier === 'high' } } as never}
         pickingRadius={6}
