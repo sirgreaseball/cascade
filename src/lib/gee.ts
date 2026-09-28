@@ -88,10 +88,18 @@ var floodedArea = flooded.multiply(ee.Image.pixelArea()).reduceRegion({
 });
 print('Newly flooded area (km²):', ee.Number(floodedArea.get('flooded')).divide(1e6));
 
+// The study area first, so there is always something on screen: a flood can be a fraction of a
+// square kilometre, and a few dark pixels in a shaded gorge look identical to a script that did
+// nothing. The outline says where to look; the ratio layer shows what the detection is reading.
 Map.centerObject(aoi, 11);
+Map.addLayer(ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(aoi)]), 1, 2),
+  {palette: ['ffffff']}, 'Study area');
 Map.addLayer(beforeFiltered, {min: -25, max: 0}, 'Before (VH, dB)', false);
 Map.addLayer(afterFiltered, {min: -25, max: 0}, 'After (VH, dB)', false);
-Map.addLayer(flooded, {palette: ['4a3aa7']}, 'Newly flooded (Sentinel-1)');
+Map.addLayer(difference, {min: 0.8, max: 2, palette: ['08306b', 'ffffff', 'e31a1c']},
+  'After / before ratio', false);
+// Bright, fully opaque, and drawn last: against dark terrain a small extent has to announce itself.
+Map.addLayer(flooded, {palette: ['00e5ff']}, 'Newly flooded (Sentinel-1)');
 
 var vectors = flooded.reduceToVectors({
   geometry: aoi, scale: 20, geometryType: 'polygon', eightConnected: false,

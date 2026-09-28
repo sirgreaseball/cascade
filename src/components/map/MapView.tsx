@@ -32,6 +32,8 @@ import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/forma
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
 import { setMapGpu, classifyGpu, getMapGpu, linkSpeed, onPerfChange } from '@/lib/perfMonitor';
+import { DAM_CATALOG, loadNationalDamCatalog } from '@/lib/dams';
+import type { DamCatalogEntry } from '@/lib/dams';
 import type { GpuKind } from '@/lib/perfMonitor';
 import { primaryEngine, useFrameIndex, usePrimaryEngine, useImpacts } from '@/components/useSimView';
 import {
@@ -362,6 +364,40 @@ export default function MapView() {
   const zoomStep = Math.round(viewState.zoom * 2) / 2;
   const [hover, setHover] = useState<Hover | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ---- Picking a dam off the map -------------------------------------------------------------
+  // Searching by name only finds a dam whose name you already know. Most of the catalogue is
+  // district irrigation structures nobody can name from memory, so picking is done by looking:
+  // the country flat, every catalogued dam on it, click the one you want.
+  const [damCatalog, setDamCatalog] = useState<DamCatalogEntry[]>(DAM_CATALOG);
+  // Written after each commit rather than during render, so the snapshot taken when picking starts
+  // is the camera the user was actually looking at.
+  const viewStateRef = useRef(viewState);
+  useEffect(() => {
+    viewStateRef.current = viewState;
+  }, [viewState]);
+  /** Where the camera was before picking, so cancelling puts the map back where it was. */
+  const cameraBeforePick = useRef<{ camera: MapViewState; terrain3d: boolean } | null>(null);
+  useEffect(() => {
+    if (!pickingDam) {
+      const prev = cameraBeforePick.current;
+      if (prev) {
+        cameraBeforePick.current = null;
+        useSimStore.getState().setView({ terrain3d: prev.terrain3d });
+        setViewState(prev.camera);
+      }
+      return;
+    }
+    loadNationalDamCatalog().then(setDamCatalog).catch(() => undefined);
+    cameraBeforePick.current = { camera: viewStateRef.current, terrain3d: view.terrain3d };
+    // Flat and pulled back to the whole country: dams are being compared against each other here,
+    // and a pitched camera hides the ones behind a ridge.
+    useSimStore.getState().setView({ terrain3d: false });
+    setViewState({ longitude: 79.5, latitude: 22.6, zoom: 4.1, pitch: 0, bearing: 0 });
+    // The camera to restore is captured once, when picking starts; following it would overwrite
+    // that snapshot on every pan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickingDam]);
 
   // Fly to each newly loaded scenario.
   useEffect(() => {
@@ -817,21 +853,35 @@ export default function MapView() {
       const far = zoomStep < 10.5;
       const baseRadius = (d: { kind: string; subtype: string }) =>
         d.kind === 'settlement' ? (d.subtype === 'city' ? 4.2 : d.subtype === 'town' ? 3.3 : d.subtype === 'village' ? (far ? 1.4 : 1.9) : far ? 1.1 : 1.5) : far ? 1.9 : 2.4;
+      /**
+       * A small place whose population OpenStreetMap never recorded, and which the flood has not
+       * reached. It is drawn quietest, because it is the least certain thing on the map: a
+       * Himalayan valley carries 870 such hamlets against 17 on the Punjab plain, each standing
+       * for an assumed 150 people, and at equal weight that many assumptions bury the towns whose
+       * figures are real. Anything the water reaches keeps full weight whatever its provenance —
+       * when a place is in danger, being unsure of its size is no reason to draw it faintly.
+       */
+      const assumed = (d: { kind: string; subtype: string; populationEstimated: boolean }) =>
+        d.kind === 'settlement' && d.populationEstimated && d.subtype !== 'city' && d.subtype !== 'town';
       list.push(
         new ScatterplotLayer({
           id: 'assets',
           data: exposure.assets,
           pickable: true,
           getPosition: (d: { lng: number; lat: number }, { index }: { index: number }) => [d.lng, d.lat, lift(index)],
-          getRadius: (d: { kind: string; subtype: string }, { index }: { index: number }) => baseRadius(d) + (flooded(index) ? 1.8 : 0),
+          getRadius: (d: { kind: string; subtype: string; populationEstimated: boolean }, { index }: { index: number }) =>
+            flooded(index) ? baseRadius(d) + 1.8 : baseRadius(d) * (assumed(d) ? 0.72 : 1),
           radiusUnits: 'pixels',
           stroked: true,
           lineWidthUnits: 'pixels',
-          getLineWidth: (_d: unknown, { index }: { index: number }) => (index === selectedAsset ? 3 : flooded(index) ? 1.5 : 0.75),
-          getFillColor: (d: { kind: string; subtype: string }, { index }: { index: number }) => {
+          // The ring is most of a 1-pixel dot's weight, so the quietest places go without one.
+          getLineWidth: (d: { kind: string; subtype: string; populationEstimated: boolean }, { index }: { index: number }) =>
+            index === selectedAsset ? 3 : flooded(index) ? 1.5 : assumed(d) ? 0 : 0.75,
+          getFillColor: (d: { kind: string; subtype: string; populationEstimated: boolean }, { index }: { index: number }) => {
             const s = statuses?.[index];
             if (s && s.hazard > 0) return [...hazardRgb[s.hazard - 1], 255] as [number, number, number, number];
             if (d.kind !== 'settlement') return [29, 29, 31, 200];
+            if (assumed(d)) return [255, 255, 255, far ? 64 : 104];
             return [255, 255, 255, far && d.subtype !== 'town' && d.subtype !== 'city' ? 120 : 175];
           },
           getLineColor: (_d: unknown, { index }: { index: number }) =>
@@ -864,6 +914,51 @@ export default function MapView() {
           updateTriggers: { getPosition: [view.terrain3d, assetZ] },
         }),
       );
+    }
+    // Every catalogued dam, while one is being picked. Drawn in the same vocabulary as the places
+    // layer — a filled dot with a ring, a labelled name — so the map does not change character
+    // just because it is being used to choose something.
+    if (pickingDam) {
+      const near = zoomStep >= 6;
+      list.push(
+        new ScatterplotLayer({
+          id: 'dam-catalog',
+          data: damCatalog,
+          pickable: true,
+          getPosition: (d: DamCatalogEntry) => [d.lng, d.lat, 0],
+          // Surveyed dams sit above the ones taken from OpenStreetMap without figures, because
+          // picking one of those means typing its height and storage in by hand afterwards.
+          getRadius: (d: DamCatalogEntry) => (d.approximate ? (near ? 3.4 : 2.6) : near ? 5 : 4),
+          radiusUnits: 'pixels',
+          stroked: true,
+          lineWidthUnits: 'pixels',
+          getLineWidth: 1.25,
+          getFillColor: (d: DamCatalogEntry) => (d.approximate ? [255, 255, 255, 190] : [244, 63, 94, 255]),
+          getLineColor: (d: DamCatalogEntry) => (d.approximate ? [0, 0, 0, 90] : [255, 255, 255, 235]),
+          updateTriggers: { getRadius: [near] },
+        }),
+      );
+      // Names only once the view is close enough for them not to pile on top of each other.
+      if (near) {
+        list.push(
+          new TextLayer({
+            id: 'dam-catalog-labels',
+            data: damCatalog,
+            getPosition: (d: DamCatalogEntry) => [d.lng, d.lat, 0],
+            getText: (d: DamCatalogEntry) => d.name,
+            getSize: 11,
+            getColor: [242, 242, 242, 255],
+            getPixelOffset: [0, -13],
+            fontFamily: 'Inter, system-ui, sans-serif',
+            fontWeight: 600,
+            fontSettings: { sdf: true, buffer: 6 },
+            outlineWidth: 5,
+            outlineColor: [5, 5, 5, 215],
+            characterSet: 'auto',
+            parameters: { depthTest: false },
+          }),
+        );
+      }
     }
     // The dam: a red marker with its name, raised on a thin stem in 3D, drawn over everything.
     // The imagery shows the structure itself; the marker says where the breach is.
@@ -950,7 +1045,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -1038,8 +1133,16 @@ export default function MapView() {
   );
 
   const onClick = useCallback((info: PickingInfo) => {
-    if (useUiStore.getState().pickingDam && info.coordinate) {
-      window.dispatchEvent(new CustomEvent('cascade:pick', { detail: { lng: info.coordinate[0], lat: info.coordinate[1] } }));
+    if (useUiStore.getState().pickingDam) {
+      // A catalogued dam carries its name, river and figures; bare ground carries a position only,
+      // which is still a valid way to place a blockage that no register has ever listed.
+      const dam = info.layer?.id === 'dam-catalog' ? (info.object as DamCatalogEntry | undefined) : undefined;
+      if (!dam && !info.coordinate) return;
+      window.dispatchEvent(
+        new CustomEvent('cascade:pick', {
+          detail: dam ? { lng: dam.lng, lat: dam.lat, dam } : { lng: info.coordinate![0], lat: info.coordinate![1] },
+        }),
+      );
       useUiStore.getState().setPickingDam(false);
       return;
     }
