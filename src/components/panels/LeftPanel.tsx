@@ -39,7 +39,7 @@ import { handoverVariants, panelVariants, tabVariants } from '@/lib/motion';
 
 const LEFT_PANEL = panelVariants('left');
 const LEFT_HANDOVER = handoverVariants('left');
-import { adapterLabel, buildReport, classifyGpu, describeDevice, frameSnapshot, getMapGpu, gpuMismatch, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
+import { adapterLabel, buildReport, classifyGpu, describeDevice, frameSnapshot, getMapGpu, gpuMismatch, linkMbps, linkSpeed, onPerfChange, prettyRenderer, probeAdapters, startFrameMonitor, terrainStats } from '@/lib/perfMonitor';
 import type { AdapterProbe } from '@/lib/perfMonitor';
 
 const hours = (s: number) => `${(s / 3600).toFixed(s % 3600 === 0 ? 0 : 1)}h`;
@@ -552,7 +552,14 @@ function DevicePerformance() {
   if (speed) {
     readout.push([swe.status === 'done' ? 'Last run' : 'This run so far', `${formatDuration(speed.t)} simulated at ${speed.perSecond.toFixed(1)} min per second${swe.backend === 'gpu' ? ` · ${Math.round(speed.readShare * 100)}% of it copying back` : ''}`]);
   }
-  if (terrainStats.loaded > 0) readout.push(['Terrain tiles', `${terrainStats.loaded} loaded · ${terrainStats.retried} retried · ${terrainStats.degraded} low quality`]);
+  const link = linkSpeed();
+  if (terrainStats.loaded > 0) {
+    readout.push([
+      'Terrain tiles',
+      `${terrainStats.loaded} loaded · ${terrainStats.retried} retried · ${terrainStats.degraded} low quality` +
+        (link ? ` · ${linkMbps().toFixed(1)} Mbps` : ''),
+    ]);
+  }
 
   const hints: React.ReactNode[] = [];
   if (kind === 'software') hints.push('The browser is drawing without the graphics card. Switch on hardware acceleration in its settings, then restart it.');
@@ -567,6 +574,10 @@ function DevicePerformance() {
       <>
         If this laptop also has an NVIDIA or AMD graphics card, give the browser the high-performance GPU: Settings → System → Display → Graphics → your browser → High performance, then fully restart it. <span className="font-mono">chrome://gpu</span> then lists the graphics card as active.
       </>,
+    );
+  if (link === 'slow')
+    hints.push(
+      `Terrain is being drawn at the coarser zoom because tiles arrived at ${linkMbps().toFixed(1)} Mbps. The finer level is four times as many tiles, which this connection would spend most of a minute on. On a faster link the map steps up on its own.`,
     );
   if (swe.status !== 'idle' && swe.backend === 'cpu' && swe.gpuFallback) hints.push(`The grid solver ran on the processor because ${swe.gpuFallback}.`);
 

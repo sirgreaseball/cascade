@@ -236,6 +236,55 @@ export function describeDevice(): string {
 
 // ---- Terrain ------------------------------------------------------------------------------------
 
+/**
+ * How fast terrain tiles are actually arriving, which decides how much terrain detail to ask for.
+ *
+ * Detail costs bandwidth, not graphics: one extra zoom level is four times as many tiles. Choosing
+ * it from the graphics chip — a good card means it can afford more — gets exactly one case wrong,
+ * and it is a common one: a laptop with a discrete card on a tethered phone, where the card is idle
+ * and the link is the whole cost. So the map starts at the cheaper level and only asks for more
+ * once the connection has shown it can carry it. The verdict is latched: detail may rise once, and
+ * never falls, so tiles are never thrown away and re-fetched at a coarser zoom.
+ */
+export type LinkSpeed = null | 'fast' | 'slow';
+
+/** Tiles to wait for. Fewer and one slow tile decides it; more and the view has already filled. */
+const LINK_SAMPLES = 12;
+
+/**
+ * Megabits per second worth the extra zoom level. A viewport holds roughly 40 terrain tiles, about
+ * 160 with the extra level; at the ~30 kB a Terrarium tile runs to, that is near 5 MB, which should
+ * arrive in a few seconds rather than most of a minute.
+ */
+const FAST_MBPS = 12;
+
+const link = { bytes: 0, samples: 0, startedAt: 0, mbps: 0, verdict: null as LinkSpeed };
+
+/** Called by the terrain loader for each tile that arrives. */
+export function noteTileBytes(bytes: number): void {
+  if (link.verdict !== null) return;
+  if (link.startedAt === 0) link.startedAt = performance.now();
+  link.bytes += bytes;
+  if (++link.samples < LINK_SAMPLES) return;
+  // Aggregate throughput, not per-request latency: tiles download in parallel, so the wall time
+  // across all of them is what the link actually delivered.
+  const seconds = Math.max((performance.now() - link.startedAt) / 1000, 0.001);
+  link.mbps = (link.bytes * 8) / 1e6 / seconds;
+  link.verdict = link.mbps >= FAST_MBPS ? 'fast' : 'slow';
+  for (const listener of listeners) listener();
+}
+
+/** null until enough tiles have arrived to judge. */
+export function linkSpeed(): LinkSpeed {
+  return link.verdict;
+}
+
+/** For the device panel and the report: the measured figure behind the verdict. */
+export function linkMbps(): number {
+  return link.mbps;
+}
+
+
 /** Terrain tile outcomes this session, counted by the terrain layer. */
 export const terrainStats = { loaded: 0, retried: 0, degraded: 0, cancelled: 0 };
 
@@ -266,6 +315,7 @@ export function buildReport(ctx: ReportContext, adapters: AdapterProbe | null): 
       ? `Frames (5 s): ${f.fps.toFixed(1)} fps, median ${f.median.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, worst ${f.worst.toFixed(1)} ms, ${f.hitches} hitches, main thread blocked ${(f.blocked * 100).toFixed(1)}%`
       : 'Frames: not measured',
     `Terrain tiles: ${terrainStats.loaded} loaded, ${terrainStats.retried} retried, ${terrainStats.degraded} low quality, ${terrainStats.cancelled} cancelled`,
+    `Tile throughput: ${link.verdict ? `${link.mbps.toFixed(1)} Mbps, treated as ${link.verdict}` : 'still measuring'}`,
     `Window: ${window.innerWidth}×${window.innerHeight} at ${window.devicePixelRatio}× pixel ratio`,
     `Device: ${describeDevice()}`,
     `Browser: ${navigator.userAgent}`,

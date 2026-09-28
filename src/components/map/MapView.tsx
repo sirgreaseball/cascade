@@ -31,7 +31,7 @@ import type { EvacuationRoute } from '@/lib/evacuation';
 import { formatClock, formatDepth, formatSpeed, formatNumber } from '@/lib/format';
 import { displayName } from '@/lib/text';
 import { detectGpu } from '@/lib/gpu';
-import { setMapGpu, classifyGpu, getMapGpu, onPerfChange } from '@/lib/perfMonitor';
+import { setMapGpu, classifyGpu, getMapGpu, linkSpeed, onPerfChange } from '@/lib/perfMonitor';
 import type { GpuKind } from '@/lib/perfMonitor';
 import { primaryEngine, useFrameIndex, usePrimaryEngine, useImpacts } from '@/components/useSimView';
 import {
@@ -290,16 +290,37 @@ export default function MapView() {
   const pickingDam = useUiStore((s) => s.pickingDam);
   const primary = usePrimaryEngine();
   const impacts = useImpacts(primary);
+  // A tile that fails on a flaky link is cosmetic and arrives in floods; the first one is worth
+  // knowing about, the next two hundred are not.
+  const basemapTileFailures = useRef(0);
+  const onBasemapError = useCallback((e: { error?: Error }) => {
+    // MapLibre hands the error over in its own shape, and which of name/message carries the class
+    // has moved between versions — so the text is matched rather than the field.
+    const err = e?.error ?? (e as unknown as Error | undefined);
+    const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    if (/AJAXError|Failed to fetch|Failed to load|NetworkError/i.test(text)) {
+      const n = ++basemapTileFailures.current;
+      if (n === 1 || n % 50 === 0) console.warn(`[basemap] ${n} tile${n === 1 ? '' : 's'} failed to load; showing coarser imagery instead.`);
+      return;
+    }
+    console.warn('[basemap]', text);
+  }, []);
+
   // Seamless world terrain from the same SRTM tiles when online; the scenario DEM block offline.
   const [terrainMode, setTerrainMode] = useState<'world' | 'local'>(() => (typeof navigator !== 'undefined' && !navigator.onLine ? 'local' : 'world'));
   const [gpuKind, setGpuKind] = useState<GpuKind>(() => {
     const g = getMapGpu();
     return g ? classifyGpu(g.renderer) : 'unknown';
   });
+  // Terrain detail is bought with bandwidth, so it is earned rather than assumed: the map starts
+  // at the cheaper zoom and steps up once tiles have proven they arrive fast enough. Latched on,
+  // so the step happens at most once and never throws loaded tiles away.
+  const [fineTerrain, setFineTerrain] = useState(false);
   useEffect(() => {
     return onPerfChange(() => {
       const g = getMapGpu();
       if (g) setGpuKind(classifyGpu(g.renderer));
+      if (linkSpeed() === 'fast') setFineTerrain(true);
     });
   }, []);
   // Mesh terrain in a worker; if the worker cannot start, fall back to the main thread.
@@ -620,7 +641,7 @@ export default function MapView() {
         // finer meshes near the camera, and haze towards the horizon.
         new HiResTerrainLayer({
           // A new id when meshing falls back to the main thread or roads toggle, so tiles reload properly.
-          id: `terrain-world-${view.basemap}-${view.showRoads ? 'r' : 'nr'}-${terrainWorker ? 'w' : 'm'}`,
+          id: `terrain-world-${view.basemap}-${view.showRoads ? 'r' : 'nr'}-${terrainWorker ? 'w' : 'm'}-${fineTerrain ? 'fine' : 'base'}`,
           elevationData: TERRARIUM_URL,
           texture,
           textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
@@ -628,7 +649,9 @@ export default function MapView() {
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 17,
           meshMaxError: 2,
-          zoomOffset: gpuKind === 'discrete' ? 1 : 0,
+          // One level deeper is four times the tiles, so it waits on both: a card that can draw it
+          // and a link that can fetch it.
+          zoomOffset: gpuKind === 'discrete' && fineTerrain ? 1 : 0,
           extensions: [haze],
           // The tile servers speak HTTP/2: more requests in flight fill the view faster when zooming.
           maxRequests: 16,
@@ -927,7 +950,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, onTerrainError, onTerrainTile, hasFlood, layerFade, rings, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // ---- Hover: read the rasters under the cursor --------------------------------------------
   const onHover = useCallback(
@@ -1096,6 +1119,12 @@ export default function MapView() {
           pixelRatio={view.terrain3d && terrainMode === 'world' ? 0.5 : PIXEL_RATIO}
           // In 3D world mode the first terrain tile marks the map ready instead.
           onLoad={() => !(view.terrain3d && terrainMode === 'world') && useUiStore.getState().setMapReady(true)}
+          // Without a listener here MapLibre reports its own errors with console.error, and a
+          // basemap tile that times out on a phone hotspot then stops the whole app behind the
+          // development error overlay — over a cosmetic tile the user can do nothing about, which
+          // the map has already covered by showing its coarser parent. Tile fetches are counted
+          // and reported once rather than each time; anything else is a real fault, so it speaks.
+          onError={onBasemapError}
         />
       </DeckGL>
       {hover && (

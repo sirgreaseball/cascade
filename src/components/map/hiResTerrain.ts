@@ -16,7 +16,7 @@
 
 import type { Layer } from '@deck.gl/core';
 import { TerrainLayer } from '@deck.gl/geo-layers';
-import { terrainStats } from '@/lib/perfMonitor';
+import { noteTileBytes, terrainStats } from '@/lib/perfMonitor';
 
 /** Last zoom of the AWS Terrarium elevation tiles. */
 const TERRARIUM_MAX_ZOOM = 15;
@@ -123,7 +123,11 @@ async function download(job: Job): Promise<Blob> {
   for (let attempt = 0; ; attempt++) {
     try {
       const res = await fetch(job.url, { signal, mode: 'cors' });
-      if (res.ok) return await res.blob();
+      if (res.ok) {
+        const blob = await res.blob();
+        noteTileBytes(blob.size);
+        return blob;
+      }
       throw new HttpError(res.status);
     } catch (err) {
       if (isAbort(err) || signal.aborted) throw abortError();
