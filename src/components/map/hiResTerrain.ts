@@ -125,7 +125,7 @@ async function download(job: Job): Promise<Blob> {
       const res = await fetch(job.url, { signal, mode: 'cors' });
       if (res.ok) {
         const blob = await res.blob();
-        noteTileBytes(blob.size);
+        noteTileBytes(blob.size, job.url);
         return blob;
       }
       throw new HttpError(res.status);

@@ -262,11 +262,38 @@ const LINK_SAMPLES = 12;
  */
 const FAST_MBPS = 12;
 
+/**
+ * A tile the network delivered faster than this came from the browser's cache, and says nothing
+ * about the link. Counted as downloads, cached tiles made an 8 Mbps connection measure 471 Mbps on
+ * a reload, which switched on the four-times-heavier terrain for every visit after the first.
+ * Measured on that connection: cache hits took 0.5-1.1 ms, the fastest real download 43 ms.
+ *
+ * The time is the browser's own (Resource Timing), not the fetch's as JavaScript sees it: a cached
+ * tile resolves only when the page gets round to it, often tens of milliseconds later while a
+ * scenario is loading, which made it look like a download.
+ */
+const CACHE_HIT_MS = 10;
+
+if (typeof performance !== 'undefined' && performance.setResourceTimingBufferSize) {
+  // The browser keeps 250 entries by default, and a scenario's tiles fill that in seconds.
+  performance.setResourceTimingBufferSize(2000);
+}
+
+/** How long the network took to deliver `url`, as the browser recorded it; null if it did not. */
+function networkMs(url: string): number | null {
+  const entries = performance.getEntriesByName(url, 'resource');
+  return entries.length ? entries[entries.length - 1].duration : null;
+}
+
 const link = { bytes: 0, samples: 0, startedAt: 0, mbps: 0, verdict: null as LinkSpeed };
 
 /** Called by the terrain loader for each tile that arrives. */
-export function noteTileBytes(bytes: number): void {
+export function noteTileBytes(bytes: number, url: string): void {
   if (link.verdict !== null) return;
+  // A tile the browser has no timing for cannot be told from a cached one, so it is not counted:
+  // detail is only ever bought on evidence.
+  const ms = networkMs(url);
+  if (ms === null || ms < CACHE_HIT_MS) return;
   if (link.startedAt === 0) link.startedAt = performance.now();
   link.bytes += bytes;
   if (++link.samples < LINK_SAMPLES) return;
