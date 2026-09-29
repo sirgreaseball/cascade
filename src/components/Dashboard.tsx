@@ -264,7 +264,13 @@ function LoadingVeil() {
   const [waitedEnough, setWaitedEnough] = useState(false);
   useEffect(() => {
     const a = setTimeout(() => setMinElapsed(true), MIN_VEIL_MS);
-    const b = setTimeout(() => setWaitedEnough(true), MAX_VEIL_MS);
+    const b = setTimeout(() => {
+      setWaitedEnough(true);
+      // The bars and the timeline — the Run button with them — arrive on mapReady. On a link where
+      // terrain tiles take many seconds, or never come, waiting for the first one left the app
+      // without its controls; after this long they arrive whether the map has drawn or not.
+      useUiStore.getState().setMapReady(true);
+    }, MAX_VEIL_MS);
     return () => {
       clearTimeout(a);
       clearTimeout(b);
