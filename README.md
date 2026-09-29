@@ -8,6 +8,8 @@
 
 Two independent hydrodynamic solvers, real terrain, real settlements, and an honest account of what the model does not know.
 
+**[Open Cascade → cascading.vercel.app](https://cascading.vercel.app)** · simulator at [/dashboard](https://cascading.vercel.app/dashboard)
+
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![deck.gl 9](https://img.shields.io/badge/deck.gl-9-1a73e8)](https://deck.gl)
@@ -108,7 +110,7 @@ npm run demo      # optimised build + server — use this to present
 npm run dev       # hot reload, slower rendering
 ```
 
-The dashboard is at `http://localhost:3000`. Bundled scenarios work offline once built; imagery, the scenario builder, OpenStreetMap and Earth Engine need a connection.
+The front page is at `http://localhost:3000` and the simulator at `http://localhost:3000/dashboard` — the same layout as the live site, since `npm run build` builds the front page (`frontend/`) into the app. Bundled scenarios work offline once built; imagery, the scenario builder, OpenStreetMap and Earth Engine need a connection.
 
 **One click instead:** double-click `start.cmd` (Windows) or run `./start.sh` (macOS / Linux).
 
@@ -142,6 +144,7 @@ src/simulation/   solvers (swe, sph, sweGpu), runtime, breach hydrograph, setup,
 src/components/   dashboard, map layers and shaders, panels
 src/lib/          geometry, analytics, export formats (KML/SHP/GeoJSON/raster/CAP/brief), motion
 scripts/          scenario builder, engine verification, Earth Engine scripts, benchmarks
+frontend/         the front page (Vite, React Three Fiber), built into the site at "/"
 public/scenarios/ bundled scenarios with their DEMs and exposure
 docs/             architecture, data pipeline, handover notes
 ```
