@@ -5,11 +5,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEnsembleStore } from '@/store/ensembleStore';
 import { useScenarioStore } from '@/store/scenarioStore';
-import { useSimStore } from '@/store/simulationStore';
+import { isRunning, useSimStore } from '@/store/simulationStore';
 import { useUiStore } from '@/store/uiStore';
+import { controller } from '@/simulation/controller';
 import { results } from '@/simulation/results';
 import { usePrimaryEngine, useImpacts } from '@/components/useSimView';
-import { Count, Divider, Dot, Hint, Section, Segmented, Stat, Tag } from '@/components/ui/primitives';
+import { Button, Count, Divider, Dot, Hint, Section, Segmented, Stat, Tag } from '@/components/ui/primitives';
 import { LineChart } from '@/components/ui/charts';
 import { HAZARD_COLORS, IDENTITY } from '@/components/map/colormaps';
 import { extentAgreement, depthDifference } from '@/lib/compare';
@@ -101,7 +102,7 @@ function ExposureOverview() {
     <div className="space-y-5">
       <div className="rounded-2xl bg-fill/70 p-4">
         <div className="text-[13px] font-semibold">Run the simulation to see who is affected, when, and how badly.</div>
-        <p className="mt-1 text-[12px] leading-snug text-muted">Press Run simulation below. Both solvers compute in the background while the flood plays out on the map.</p>
+        <p className="mt-1 text-[12px] leading-snug text-muted">Press Run simulation below. The grid solver computes in the background while the flood plays out on the map.</p>
       </div>
       <Section title="In the study area">
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -220,6 +221,36 @@ function Comparison() {
         <div className="mb-1 text-[11.5px] text-muted">Flooded area (km²)</div>
         <LineChart series={series} xMax={duration} height={110} yFormat={(v) => formatNumber(v, v < 10 ? 1 : 0)} xFormat={(s) => `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`} marker={playhead} />
       </div>
+    </Section>
+  );
+}
+
+/**
+ * The two-method check, one click away. The grid solver runs alone by default — it is the
+ * reference, and running both doubles the work — so without this the comparison that shows how far
+ * the answer depends on the method would sit behind a switch in the Model tab.
+ */
+function SecondOpinion() {
+  const gridRan = useSimStore((s) => s.runs.swe.frames > 0);
+  const sphRan = useSimStore((s) => s.runs.sph.frames > 0);
+  const running = useSimStore((s) => isRunning(s.runs));
+  const setEngine = useSimStore((s) => s.setEngine);
+  if (!gridRan || sphRan || running) return null;
+  return (
+    <Section title="Check it another way" action={<Tag>SPH</Tag>}>
+      <p className="text-[12px] leading-snug text-muted">
+        Smoothed-particle hydrodynamics computes the same flood with moving parcels of water instead of a grid. Where the two agree, the answer does not hang on the method;
+        the Difference layer maps where they part. Both solvers run again, which takes a few minutes.
+      </p>
+      <Button
+        className="w-full"
+        onClick={() => {
+          setEngine('sph', true);
+          void controller.run();
+        }}
+      >
+        Run SPH alongside the grid solver
+      </Button>
     </Section>
   );
 }
@@ -352,6 +383,7 @@ export default function RightPanel() {
                     <PlacesList />
                   </Section>
                   <Comparison />
+                  <SecondOpinion />
                 </>
               )}
             </div>

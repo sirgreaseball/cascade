@@ -21,8 +21,8 @@ const STEPS = [
   },
   {
     at: 'run',
-    title: 'Run both solvers',
-    body: 'A shallow-water grid and a particle model compute the same flood two different ways. Where they agree, the answer is solid.',
+    title: 'Run the flood',
+    body: 'The shallow-water grid solver works the flood out in the background while it plays on the map. A second, particle solver can check it afterwards: where the two agree, the answer is solid.',
   },
   {
     at: 'timeline',
