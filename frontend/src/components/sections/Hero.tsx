@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { DASHBOARD_URL, REPO_URL } from '../../config';
+import CascadeMark from '../CascadeMark';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -55,10 +56,13 @@ export default function Hero() {
         
         {/* Top HUD */}
         <div className="flex justify-between items-start font-mono text-[10px] tracking-[0.2em] text-dim uppercase hud-element opacity-0">
-          <div>
-            SIH26161<br />
-            NTRO<br />
-            DISASTER MANAGEMENT
+          <div className="flex items-start gap-3.5">
+            <CascadeMark className="h-10 w-10 shrink-0 drop-shadow-[0_0_24px_rgba(255,255,255,0.18)]" />
+            <div>
+              <div className="font-sans text-[17px] font-semibold normal-case tracking-[-0.02em] text-white leading-none mb-2">Cascade</div>
+              SIH26161 · NTRO<br />
+              DISASTER MANAGEMENT
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />

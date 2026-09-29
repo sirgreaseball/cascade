@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { DASHBOARD_URL } from '../../config';
+import CascadeMark from '../CascadeMark';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -49,7 +50,11 @@ export default function FinalCTA() {
 
       {/* Footer */}
       <div className="border-t border-white/10 pt-6 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left font-mono text-[10px] tracking-widest text-dim uppercase">
-        <p>Built for Smart India Hackathon   SIH26161   NTRO</p>
+        <p className="flex items-center gap-2.5">
+          <CascadeMark className="h-5 w-5 shrink-0" />
+          Built for Smart India Hackathon · SIH26161 · NTRO
+        </p>
+        <p className="text-white/70">© 2026 Dhruv Sonar · All rights reserved</p>
         <p>Open data: SRTM terrain, OpenStreetMap, Sentinel-1 via Google Earth Engine</p>
       </div>
     </section>

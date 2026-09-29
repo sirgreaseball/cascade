@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
+import CascadeMark from './CascadeMark';
 
 export default function Preloader() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,7 +51,8 @@ export default function Preloader() {
   return (
     <div ref={containerRef} className="fixed inset-0 z-50 bg-[#050505] flex flex-col items-center justify-center pointer-events-none">
       
-      {/* Wipe Text - Claude Elegant Serif */}
+      {/* The mark, then the name wiping in beneath it */}
+      <CascadeMark className="h-14 w-14 md:h-20 md:w-20 mb-6 md:mb-8 drop-shadow-[0_0_40px_rgba(255,255,255,0.18)]" />
       <div className="relative overflow-hidden">
         <div ref={wipeRef} className="font-serif italic text-6xl md:text-9xl font-light tracking-tight text-white/90 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)]" style={{ clipPath: 'polygon(0% 100%, 100% 100%, 100% 100%, 0% 100%)' }}>
           Cascade
