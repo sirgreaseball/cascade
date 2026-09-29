@@ -90,6 +90,8 @@ export interface ScenarioConfig {
   custom?: boolean;
   historical?: boolean;
   year?: number;
+  /** The day a failure that happened happened (YYYY-MM-DD): the satellite check looks around it. */
+  eventDate?: string;
   createdAt?: string;
 }
 

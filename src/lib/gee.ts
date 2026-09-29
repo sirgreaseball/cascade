@@ -22,9 +22,28 @@ export interface GeeParams {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Latest 12 days (one Sentinel-1 repeat cycle) against the same window a month earlier. */
-export function defaultGeeDates(now = new Date()): Pick<GeeParams, 'preStart' | 'preEnd' | 'postStart' | 'postEnd'> {
+/** Sentinel-1A's first operational acquisitions: nothing before this can be mapped from it. */
+export const SENTINEL1_START = '2014-10-03';
+
+/** Whether Sentinel-1 was flying on a given day (YYYY-MM-DD). */
+export const sentinel1Covers = (date: string) => date >= SENTINEL1_START;
+
+/**
+ * The windows the script compares. Around a real event that Sentinel-1 saw: the 45 days before it
+ * against the 12 days from it (one repeat cycle). Otherwise the latest 12 days against the same
+ * window a month earlier, for a flood happening now.
+ */
+export function defaultGeeDates(now = new Date(), eventDate?: string): Pick<GeeParams, 'preStart' | 'preEnd' | 'postStart' | 'postEnd'> {
   const day = 86_400_000;
+  if (eventDate && sentinel1Covers(eventDate)) {
+    const t = new Date(`${eventDate}T00:00:00Z`).getTime();
+    return {
+      preStart: iso(new Date(t - 45 * day)),
+      preEnd: iso(new Date(t - day)),
+      postStart: iso(new Date(t)),
+      postEnd: iso(new Date(t + 12 * day)),
+    };
+  }
   return {
     postStart: iso(new Date(now.getTime() - 12 * day)),
     postEnd: iso(now),
@@ -60,6 +79,9 @@ var s1 = ee.ImageCollection('COPERNICUS/S1_GRD')
 var beforeCollection = s1.filterDate(before[0], before[1]);
 var afterCollection = s1.filterDate(after[0], after[1]);
 print('Sentinel-1 scenes before / after:', beforeCollection.size(), afterCollection.size());
+print(ee.Algorithms.If(beforeCollection.size().gt(0).and(afterCollection.size().gt(0)),
+  'Both windows have scenes: the comparison below is meaningful.',
+  'One window has no Sentinel-1 scene over this area. Widen its dates in Cascade and copy the script again.'));
 print('After-event acquisitions:', afterCollection.aggregate_array('system:time_start')
   .map(function (t) { return ee.Date(t).format('YYYY-MM-dd HH:mm'); }));
 
@@ -94,8 +116,8 @@ print('Newly flooded area (km²):', ee.Number(floodedArea.get('flooded')).divide
 Map.centerObject(aoi, 11);
 Map.addLayer(ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(aoi)]), 1, 2),
   {palette: ['ffffff']}, 'Study area');
-Map.addLayer(beforeFiltered, {min: -25, max: 0}, 'Before (VH, dB)', false);
-Map.addLayer(afterFiltered, {min: -25, max: 0}, 'After (VH, dB)', false);
+Map.addLayer(beforeFiltered, {min: -25, max: 0}, 'Before (' + polarization + ', dB)', false);
+Map.addLayer(afterFiltered, {min: -25, max: 0}, 'After (' + polarization + ', dB)', false);
 Map.addLayer(difference, {min: 0.8, max: 2, palette: ['08306b', 'ffffff', 'e31a1c']},
   'After / before ratio', false);
 // Bright, fully opaque, and drawn last: against dark terrain a small extent has to announce itself.

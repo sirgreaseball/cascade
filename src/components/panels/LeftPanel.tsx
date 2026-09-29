@@ -27,7 +27,7 @@ import { LineChart } from '@/components/ui/charts';
 import type { ChartSeries } from '@/components/ui/charts';
 import { IDENTITY } from '@/components/map/colormaps';
 import { formatCompact, formatDischarge, formatDuration, formatNumber, formatVolume } from '@/lib/format';
-import { buildGeeScript, defaultGeeDates, GEE_CODE_EDITOR } from '@/lib/gee';
+import { buildGeeScript, defaultGeeDates, GEE_CODE_EDITOR, sentinel1Covers } from '@/lib/gee';
 import type { GeeParams } from '@/lib/gee';
 import { importDataset, importExternalResult, importObservedExtent } from '@/lib/importers';
 import { depthDifference, extentAgreement } from '@/lib/compare';
@@ -43,6 +43,9 @@ import { adapterLabel, buildReport, classifyGpu, describeDevice, frameSnapshot, 
 import type { AdapterProbe } from '@/lib/perfMonitor';
 
 const hours = (s: number) => `${(s / 3600).toFixed(s % 3600 === 0 ? 0 : 1)}h`;
+
+/** "2021-02-07" as "7 February 2021", read as the calendar day it names wherever the reader is. */
+const formatEventDate = (date: string) => new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 /** MacDonald & Langridge-Monopolis (1984) peak-outflow regression, Qp = 1.154 (Vw·Hw)^0.412. */
 const mlmPeak = (volume: number, head: number) => 1.154 * (volume * Math.max(head, 0)) ** 0.412;
@@ -948,8 +951,10 @@ function ObserveTab() {
   const setView = useSimStore((s) => s.setView);
   const summaryVersion = useSimStore((s) => s.summaryVersion);
   const toast = useUiStore((s) => s.toast);
+  // A scenario that reconstructs a real failure starts the windows on the day it happened; the tab
+  // is remounted per scenario (see LeftPanel), so switching dams resets them.
   const [params, setParams] = useState<Omit<GeeParams, 'scenarioId' | 'scenarioName' | 'bbox'>>(() => ({
-    ...defaultGeeDates(),
+    ...defaultGeeDates(new Date(), config?.eventDate),
     polarization: 'VH',
     pass: 'DESCENDING',
     threshold: 1.25,
@@ -975,6 +980,13 @@ function ObserveTab() {
         <p className="text-[12.5px] leading-relaxed text-ink-2">
           Map what actually flooded from Sentinel-1 radar — it sees through cloud and at night — using Google Earth Engine, then bring the result back here to check the model.
         </p>
+        {config.eventDate && (
+          <p className="-mt-1 rounded-xl bg-fill/70 px-3 py-2 text-[11.5px] leading-snug text-muted">
+            {sentinel1Covers(config.eventDate)
+              ? `The windows below bracket the event itself, ${formatEventDate(config.eventDate)}: the weeks before it against the twelve days from it.`
+              : `This happened on ${formatEventDate(config.eventDate)}, before Sentinel-1 began imaging in October 2014, so there is no radar record of it. The windows below look at the valley as it is now.`}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Before, from">
             <TextInput type="date" value={params.preStart} onChange={(e) => setParams({ ...params, preStart: e.target.value })} />
@@ -1098,6 +1110,8 @@ export default function LeftPanel() {
   const setOpen = useUiStore((s) => s.setLeftOpen);
   const tab = useUiStore((s) => s.leftTab);
   const setTab = useUiStore((s) => s.setLeftTab);
+  // The Observe tab's dates start from the open scenario, so it starts afresh with each one.
+  const scenarioId = useScenarioStore((s) => s.config?.id);
   // Which way the tabs were travelled, so the new one arrives from the side you moved towards.
   const [dir, setDir] = useState(1);
   const changeTab = (next: UiTab) => {
@@ -1138,7 +1152,7 @@ export default function LeftPanel() {
                 <motion.div key={tab} variants={tabVariants(dir)} initial="hidden" animate="shown" exit="gone">
                   {tab === 'event' && <EventTab />}
                   {tab === 'model' && <ModelTab />}
-                  {tab === 'observe' && <ObserveTab />}
+                  {tab === 'observe' && <ObserveTab key={scenarioId} />}
                 </motion.div>
               </AnimatePresence>
             </div>
