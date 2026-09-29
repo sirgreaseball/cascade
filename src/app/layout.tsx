@@ -8,7 +8,12 @@ const inter = Inter({
   display: 'swap',
 });
 
+// Where the site is served, so the Open Graph image gets an absolute address when a link is
+// shared. Vercel provides the production host at build time.
+const SITE = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: 'Cascade — Dam break flood intelligence',
   description:
     'Hydrodynamic dam-break and flash-flood simulation for Indian rivers: grid and SPH solvers, downstream impact, satellite validation and GIS export.',
