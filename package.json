@@ -13,7 +13,7 @@
     "lint": "eslint",
     "verify": "node scripts/verify-engines.ts",
     "data:build": "node scripts/build-scenario.ts",
-    "build:splash": "npm --prefix frontend install --no-audit --no-fund && npm --prefix frontend run build"
+    "build:splash": "npm --prefix frontend install --include=dev --no-audit --no-fund && npm --prefix frontend run build"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",
