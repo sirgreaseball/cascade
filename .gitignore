@@ -49,3 +49,6 @@ scripts/.cache/
 /public/workers/
 !public/data/**
 !public/scenarios/**
+
+# the splash app (frontend/) built into the dashboard by npm run build
+/public/splash/

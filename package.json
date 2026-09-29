@@ -6,13 +6,14 @@
     "postinstall": "node scripts/copy-workers.mjs",
     "predev": "node scripts/copy-workers.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-workers.mjs",
+    "prebuild": "node scripts/copy-workers.mjs && npm run build:splash",
     "build": "next build",
     "start": "next start",
     "demo": "npm run build && next start",
     "lint": "eslint",
     "verify": "node scripts/verify-engines.ts",
-    "data:build": "node scripts/build-scenario.ts"
+    "data:build": "node scripts/build-scenario.ts",
+    "build:splash": "npm --prefix frontend install --no-audit --no-fund && npm --prefix frontend run build"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",
