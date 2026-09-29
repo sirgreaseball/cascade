@@ -1,147 +1,112 @@
-// Utilities to calculate upstream reservoir draining and downstream cascading dam routing.
-// For cascading systems like Tehri -> Koteshwar, tracks how the upstream reservoir drains
-// through the breach, and how the downstream reservoir absorbs inflow, spills, or overtops.
+// The reservoirs either side of a failure, read from the run on screen.
+//
+// Upstream: how far the breached reservoir has drained. The volume the run has released comes off
+// the stored volume, and the level follows from the same stage–storage law the breach routing uses
+// (V = V0 (d / d0)^m, d measured from the dam's base), so the level shown is the level that drove the
+// outflow, standing on the dam's own bed in the model.
+//
+// Downstream, for a cascade such as Tehri → Koteshwar: the model's water surface at the next dam,
+// against that dam's normal pool and crest. SRTM was flown in February 2000, before Koteshwar's
+// reservoir existed, so the reservoir itself is not in the terrain; its normal pool is taken as a
+// floor under the flood surface the model computes there, and the verdict is whether that surface
+// reaches the crest. Its pool would add a little more water than the model routes — 88 Mm³ against
+// the 3.5 km³ a full Tehri breach releases.
 
-import type { CascadingDamInfo, ScenarioConfig } from './scenario.ts';
+import type { CascadingDamInfo } from './scenario.ts';
 import type { FrameStats } from '@/simulation/types.ts';
 
 export interface UpstreamReservoirState {
-  initialVolumeMCM: number;
-  remainingVolumeMCM: number;
-  releasedVolumeMCM: number;
+  initialVolume: number;
+  remainingVolume: number;
+  releasedVolume: number;
   fractionDrained: number;
-  currentLevelM: number;
-  initialLevelM: number;
-  bedElevationM: number;
+  /** Water level (m above sea level) now, and when the run began. */
+  level: number;
+  initialLevel: number;
   outflowRate: number;
 }
 
 export interface CascadingDamState {
   name: string;
   type: string;
-  crestLength: number;
-  height: number;
-  volumeMCM: number;
   normalPoolElev: number;
   crestElev: number;
   spillwayCapacity: number;
-  currentDepthM: number;
-  currentWaterElev: number;
+  /** Water level at the dam (m above sea level): the normal pool, or the flood surface above it. */
+  waterElev: number;
+  /** How far the water stands above the normal pool (m). */
+  surcharge: number;
   arrived: boolean;
   arrivalTimeS: number | null;
   spillwayDischarge: number;
   overtopped: boolean;
-  overtoppingDepthM: number;
   overtoppingDischarge: number;
   status: 'normal' | 'surcharged' | 'critical' | 'overtopping';
   statusText: string;
 }
 
-/**
- * Calculates the current draining state of the upstream reservoir.
- */
-export function calculateReservoirDrainage(
-  config: ScenarioConfig | null,
-  currentStats: FrameStats | null,
-  playheadS: number
-): UpstreamReservoirState | null {
-  if (!config || !config.dam) return null;
-
-  const initialVolumeMCM = config.dam.volumeMCM || 200;
-  const initialDepth = config.dam.waterDepth || config.dam.height * 0.95;
-  const bedElev = config.dem.min ?? 500;
-  const initialLevelM = bedElev + initialDepth;
-
-  let releasedMCM = 0;
-  let outflowRate = 0;
-
-  if (currentStats) {
-    releasedMCM = currentStats.inflowVolume / 1e6;
-    outflowRate = currentStats.inflowRate;
-  } else if (playheadS <= 0) {
-    releasedMCM = 0;
-    outflowRate = 0;
-  }
-
-  const remainingVolumeMCM = Math.max(0, initialVolumeMCM - releasedMCM);
-  const fractionDrained = Math.min(1, Math.max(0, releasedMCM / Math.max(initialVolumeMCM, 0.1)));
-
-  // Volume-elevation curve exponent m (assumed 2.0 for typical V-shaped valleys)
-  const m = 2.0;
-  const currentHead = initialDepth * (remainingVolumeMCM / Math.max(initialVolumeMCM, 0.1)) ** (1 / m);
-  const currentLevelM = bedElev + Math.max(0, currentHead);
-
+/** Where the breached reservoir stands, given what the run has released so far. */
+export function reservoirDrainage(
+  reservoir: { volume: number; waterDepth: number; storageExponent: number; bedElevation: number },
+  stats: FrameStats | null,
+): UpstreamReservoirState {
+  const released = Math.min(reservoir.volume, Math.max(0, stats?.inflowVolume ?? 0));
+  const remaining = Math.max(0, reservoir.volume - released);
+  const m = Math.max(reservoir.storageExponent, 1);
+  const depth = reservoir.volume > 0 ? reservoir.waterDepth * (remaining / reservoir.volume) ** (1 / m) : 0;
   return {
-    initialVolumeMCM,
-    remainingVolumeMCM,
-    releasedVolumeMCM: Math.min(initialVolumeMCM, releasedMCM),
-    fractionDrained,
-    currentLevelM,
-    initialLevelM,
-    bedElevationM: bedElev,
-    outflowRate,
+    initialVolume: reservoir.volume,
+    remainingVolume: remaining,
+    releasedVolume: released,
+    fractionDrained: reservoir.volume > 0 ? released / reservoir.volume : 0,
+    level: reservoir.bedElevation + depth,
+    initialLevel: reservoir.bedElevation + reservoir.waterDepth,
+    outflowRate: stats?.inflowRate ?? 0,
   };
 }
 
 /**
- * Calculates the live state of a downstream cascading dam based on sampled water depth.
+ * A downstream dam under the flood. `groundElev` is the terrain at the dam in the model and
+ * `floodDepth` the model's depth there now; together they are the flood's surface.
  */
-export function calculateCascadingDamState(
-  dam: CascadingDamInfo,
-  floodDepthM: number,
-  arrivalS: number | null
-): CascadingDamState {
-  const normalPoolElev = dam.normalPoolElev ?? 612;
-  const crestElev = dam.crestElev ?? normalPoolElev + (dam.height ? dam.height * 0.1 : 6.5);
-  const spillwayCapacity = dam.spillwayCapacity ?? 13240;
-  const crestLength = dam.crestLength ?? 300;
-  const depth = Math.max(0, floodDepthM);
-  const currentWaterElev = normalPoolElev + depth;
-
-  const arrived = depth >= 0.1;
-  const overtopped = currentWaterElev > crestElev;
-  const overtoppingDepthM = overtopped ? currentWaterElev - crestElev : 0;
-
-  // Broad-crested weir equation for overtopping: Q = 1.7 * L * H^1.5
-  const overtoppingDischarge = overtopped ? 1.7 * crestLength * Math.pow(overtoppingDepthM, 1.5) : 0;
-
-  // Spillway routing: passes water as reservoir surcharges above normal pool
-  let spillwayDischarge = 0;
-  if (depth > 0) {
-    const theoreticalSpill = 2.1 * (crestLength * 0.4) * Math.pow(depth, 1.5);
-    spillwayDischarge = Math.min(spillwayCapacity, theoreticalSpill);
-  }
+export function cascadingDamState(dam: CascadingDamInfo, groundElev: number, floodDepth: number, arrivalS: number | null): CascadingDamState {
+  const normalPoolElev = dam.normalPoolElev ?? groundElev + (dam.waterDepth ?? dam.height * 0.9);
+  const crestElev = dam.crestElev ?? normalPoolElev + dam.height * 0.1;
+  const spillwayCapacity = dam.spillwayCapacity ?? 0;
+  const arrived = floodDepth >= 0.1;
+  const waterElev = arrived ? Math.max(normalPoolElev, groundElev + floodDepth) : normalPoolElev;
+  const surcharge = waterElev - normalPoolElev;
+  const overtopped = waterElev > crestElev;
+  const over = Math.max(0, waterElev - crestElev);
+  // Broad-crested weir over the crest; the spillway passes the surcharge up to its rated capacity.
+  const overtoppingDischarge = overtopped ? 1.7 * dam.crestLength * over ** 1.5 : 0;
+  const spillwayDischarge = surcharge > 0 ? Math.min(spillwayCapacity, 2.1 * dam.crestLength * 0.4 * surcharge ** 1.5) : 0;
 
   let status: CascadingDamState['status'] = 'normal';
-  let statusText = 'Conservation pool level';
-
+  let statusText = 'At its normal pool: the flood has not reached it.';
   if (overtopped) {
     status = 'overtopping';
-    statusText = `Overtopping crest (+${overtoppingDepthM.toFixed(1)} m) · Severe cascading breach risk`;
-  } else if (crestElev - currentWaterElev <= 2.0 && arrived) {
+    statusText = `The flood stands ${over.toFixed(1)} m over the crest. A dam overtopped like this is at real risk of failing in turn.`;
+  } else if (arrived && crestElev - waterElev <= 2) {
     status = 'critical';
-    statusText = `Critical freeboard (${(crestElev - currentWaterElev).toFixed(1)} m remaining)`;
+    statusText = `${(crestElev - waterElev).toFixed(1)} m below the crest.`;
   } else if (arrived) {
     status = 'surcharged';
-    statusText = `Surcharge absorbed · Spillway active (${Math.round(spillwayDischarge).toLocaleString()} m³/s)`;
+    statusText = `Above its normal pool; the spillway passes what it can.`;
   }
 
   return {
     name: dam.name,
-    type: dam.type ?? 'Gravity dam',
-    crestLength,
-    height: dam.height,
-    volumeMCM: dam.volumeMCM,
+    type: dam.type ?? 'Dam',
     normalPoolElev,
     crestElev,
     spillwayCapacity,
-    currentDepthM: depth,
-    currentWaterElev,
+    waterElev,
+    surcharge,
     arrived,
     arrivalTimeS: arrivalS,
     spillwayDischarge,
     overtopped,
-    overtoppingDepthM,
     overtoppingDischarge,
     status,
     statusText,
