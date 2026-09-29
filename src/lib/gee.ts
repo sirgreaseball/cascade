@@ -108,7 +108,17 @@ flooded = flooded.updateMask(flooded.connectedPixelCount(8).gte(8));
 var floodedArea = flooded.multiply(ee.Image.pixelArea()).reduceRegion({
   reducer: ee.Reducer.sum(), geometry: aoi, scale: 10, bestEffort: true, maxPixels: 1e10
 });
-print('Newly flooded area (km²):', ee.Number(floodedArea.get('flooded')).divide(1e6));
+// No flooded pixel at all leaves the sum empty rather than zero.
+var floodedKm2 = ee.Number(ee.Algorithms.If(floodedArea.get('flooded'), floodedArea.get('flooded'), 0)).divide(1e6);
+print('Newly flooded area (km²):', floodedKm2);
+print(ee.Algorithms.If(floodedKm2.lt(1),
+  'Under 1 km² found, so the patches are small at this zoom: each is outlined in cyan. In a steep valley the slope mask (radar shadow) removes most of the gorge, and a flash flood can drain before the next radar pass; widen the after window, or zoom in on the outlines.',
+  'Newly flooded ground is shaded and outlined in cyan.'));
+
+var vectors = flooded.reduceToVectors({
+  geometry: aoi, scale: 20, geometryType: 'polygon', eightConnected: false,
+  bestEffort: true, maxPixels: 1e10, tileScale: 4
+});
 
 // The study area first, so there is always something on screen: a flood can be a fraction of a
 // square kilometre, and a few dark pixels in a shaded gorge look identical to a script that did
@@ -122,11 +132,10 @@ Map.addLayer(difference, {min: 0.8, max: 2, palette: ['08306b', 'ffffff', 'e31a1
   'After / before ratio', false);
 // Bright, fully opaque, and drawn last: against dark terrain a small extent has to announce itself.
 Map.addLayer(flooded, {palette: ['00e5ff']}, 'Newly flooded (Sentinel-1)');
+// Outlines keep a minimum width on screen, so a patch a few pixels across still shows at the
+// study-area zoom without its area being exaggerated.
+Map.addLayer(vectors.style({color: '00e5ff', width: 2, fillColor: '00e5ff55'}), {}, 'Newly flooded (outlines)');
 
-var vectors = flooded.reduceToVectors({
-  geometry: aoi, scale: 20, geometryType: 'polygon', eightConnected: false,
-  bestEffort: true, maxPixels: 1e10, tileScale: 4
-});
 Export.table.toDrive({
   collection: vectors, description: 'cascade_${tag}_observed_flood',
   folder: 'Cascade', fileFormat: 'GeoJSON'
