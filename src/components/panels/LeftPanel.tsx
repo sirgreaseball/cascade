@@ -911,7 +911,7 @@ function ModelTab() {
                 <p className="mt-1.5 pl-4 text-[11px] leading-snug text-faint">
                   Peak-depth error over the {formatNumber(externalAgreement.depth.n)} cells either model floods: RMSE {externalAgreement.depth.rmse.toFixed(2)} m, mean{' '}
                   {externalAgreement.depth.meanSigned >= 0 ? '+' : '−'}
-                  {Math.abs(externalAgreement.depth.meanSigned).toFixed(2)} m ({externalAgreement.depth.meanSigned >= 0 ? 'imported model deeper' : 'grid solver deeper'}), mean absolute{' '}
+                  {Math.abs(externalAgreement.depth.meanSigned).toFixed(2)} m ({externalAgreement.depth.meanSigned >= 0 ? `${external.name.startsWith('Kept run') ? 'the kept run' : 'the imported model'} deeper` : 'this run deeper'}), mean absolute{' '}
                   {externalAgreement.depth.meanAbsolute.toFixed(2)} m.
                 </p>
               </>
