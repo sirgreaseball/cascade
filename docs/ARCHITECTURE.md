@@ -11,7 +11,7 @@ solvers, the analytics, the exports — runs in the visitor's browser.
 `npm run build` builds the splash first (`prebuild` → `build:splash`, with `--include=dev` so it
 also works where `NODE_ENV=production`), then `next build`. `next.config.ts` rewrites `/` to
 `/splash/index.html` whenever the splash has been built; without it, `/` falls back to the
-dashboard. Vercel builds and deploys `main` on every push (https://cascading.vercel.app).
+dashboard. Vercel builds and deploys `main` on every push (https://trycascade.vercel.app).
 
 ---
 

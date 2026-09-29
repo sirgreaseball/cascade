@@ -5,7 +5,7 @@ continues the work, and last brought up to date on 29 September 2026, the eve of
 Hackathon submission, after the site was deployed. Read all of it before changing anything. Every
 number here was measured; where something was not measured, it says so.
 
-**The live site is https://cascading.vercel.app** — the splash at `/`, the simulator at
+**The live site is https://trycascade.vercel.app** — the splash at `/`, the simulator at
 `/dashboard` — deployed from `main` on every push.
 
 ---

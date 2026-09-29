@@ -2,7 +2,7 @@
 
 ## Before
 
-- Use the live site, https://cascading.vercel.app (front page) → **Enter command center** →
+- Use the live site, https://trycascade.vercel.app (front page) → **Enter command center** →
   `/dashboard`; or locally `npm run build` then `npx next start -p 3000`. Chrome, 100 % zoom, the
   window in front — a covered window stops drawing.
 - Be on a network that reaches Esri imagery, AWS terrain tiles and OpenStreetMap (the university

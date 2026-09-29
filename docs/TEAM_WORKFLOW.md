@@ -1,7 +1,7 @@
 # Team workflow
 
 - **`main` is the product.** Every push to `main` is built and deployed by Vercel to
-  https://cascading.vercel.app, and teammates pull it onto their own machines. Keep commits small,
+  https://trycascade.vercel.app, and teammates pull it onto their own machines. Keep commits small,
   and push only what you have run and built (`npm run build` builds the splash too).
 - **Before a commit**: `npx tsc --noEmit -p .`, `npx eslint src`, and `npm run verify` whenever
   solver code changes. `docs/HANDOFF.md` §0 has the rules that are not negotiable.

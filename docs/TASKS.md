@@ -19,7 +19,7 @@ behind each line — commits, measurements, the reasons — is in `docs/HANDOFF.
 | Data in | Spreadsheets (.xlsx / .csv / .tsv) with a hydrograph, dam figures or settlements; DEMs; exposure; scenario files | Event tab, builder |
 | Data out | KML, Shapefile, GeoJSON, ASCII rasters, CSV evacuation list, one-page brief, CAP 1.2 alert (English and Hindi) | Export |
 | Map | 3D terrain with imagery to about half a metre, detail chosen by measured bandwidth, flood drawn and animated on the GPU | `src/components/map/` |
-| Site | Splash at `/`, simulator at `/dashboard`, deployed from `main` to https://cascading.vercel.app | `frontend/`, `next.config.ts` |
+| Site | Splash at `/`, simulator at `/dashboard`, deployed from `main` to https://trycascade.vercel.app | `frontend/`, `next.config.ts` |
 
 ## Open
 

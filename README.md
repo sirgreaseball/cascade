@@ -8,7 +8,7 @@
 
 Two independent hydrodynamic solvers, real terrain, real settlements, and an honest account of what the model does not know.
 
-**[Open Cascade → cascading.vercel.app](https://cascading.vercel.app)** · simulator at [/dashboard](https://cascading.vercel.app/dashboard)
+**[Open Cascade → trycascade.vercel.app](https://trycascade.vercel.app)** · simulator at [/dashboard](https://trycascade.vercel.app/dashboard)
 
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
