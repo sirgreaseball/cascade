@@ -112,7 +112,7 @@ var floodedArea = flooded.multiply(ee.Image.pixelArea()).reduceRegion({
 var floodedKm2 = ee.Number(ee.Algorithms.If(floodedArea.get('flooded'), floodedArea.get('flooded'), 0)).divide(1e6);
 print('Newly flooded area (km²):', floodedKm2);
 print(ee.Algorithms.If(floodedKm2.lt(1),
-  'Under 1 km² found, so the patches are small at this zoom: each is outlined in cyan. In a steep valley the slope mask (radar shadow) removes most of the gorge, and a flash flood can drain before the next radar pass; widen the after window, or zoom in on the outlines.',
+  'Under 1 km² found, so the patches are small at this zoom: each is outlined in cyan. In a steep valley the slope mask (radar shadow) removes most of the gorge, and a flash flood can drain before the next radar pass; widen the after window, or zoom in on the outlines. Patches high on the slopes, away from the river, are more likely wet snow, which darkens radar the way water does.',
   'Newly flooded ground is shaded and outlined in cyan.'));
 
 var vectors = flooded.reduceToVectors({
