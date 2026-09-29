@@ -12,7 +12,7 @@ A scenario is `public/scenarios/<id>.json` plus `public/data/<id>/`:
 
 Cell *(col, row)* covers longitudes `bbox[0] + col·Δλ … +Δλ` and latitudes `bbox[3] − row·Δφ … −Δφ`, with `Δλ = (bbox[2] − bbox[0]) / cols` and `Δφ = (bbox[3] − bbox[1]) / rows`.
 
-Key fields in the JSON: `bbox`, `cellSize` (target metres), `grid`, `event` (`dam-break` · `lake-outburst` · `controlled-release`), `dam` (location, height, crest length, storage in million m³, water depth), and `defaults` (Manning n, simulated duration, optional breach width / formation time).
+Key fields in the JSON: `bbox`, `cellSize` (target metres), `grid`, `event` (`dam-break` · `lake-outburst` · `controlled-release` · `cloudburst`), `dam` (location, height, crest length, storage in million m³, water depth, crest line), and `defaults` (Manning n, simulated duration, optional breach width / formation time). Optional: `cascadingDams` (dams downstream, shown in the Event tab's reservoirs panel), `observations` (what was recorded, for the historical check), `eventDate` (the day a real failure happened; the Earth Engine check looks around it), `historical` and `year`.
 
 ## Building bundled data
 

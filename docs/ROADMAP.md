@@ -1,34 +1,54 @@
-# Post-Hackathon Roadmap
+# Roadmap
 
-This document outlines the strategic technical vision for transitioning the CASCADE platform from a hackathon MVP to a production-ready enterprise tool for disaster management agencies like NTRO.
+Where Cascade goes after the hackathon. It stays what it is now — a browser application with no
+server, whose results can be checked — and grows in the directions a district control room or an
+exercise planner would push it. Updated 29 September 2026; what exists today is in
+`docs/ARCHITECTURE.md` and `docs/TASKS.md`.
 
-## 1. High-Fidelity Solver Integration
-- **Goal:** Replace the current lightweight Web Worker Cellular Automata simulation with professional-grade solvers.
-- **Implementation:**
-  - Utilize the existing `SolverAdapter` interface.
-  - Integrate a server-side high-resolution solver (e.g., Delft3D, HEC-RAS, or a custom SPH engine).
-  - Implement WebSockets to stream solver output back to the browser in real-time, allowing the UI to remain responsive while heavy computation happens on a GPU cluster.
+## 1. Solver
 
-## 2. Automated Data Pipeline
-- **Goal:** Remove the need for manual QGIS data preparation.
-- **Implementation:**
-  - Build a backend service (Node.js/Python) that automatically fetches DEM data (SRTM/Copernicus) and OSM infrastructure data for any user-defined bounding box.
-  - Automate the conversion of DEM GeoTIFFs into optimized binary grids (`Float32Array`) required by the simulation engine.
+- **Choose the solver on the whole run, not its first half-minute.** On a discrete GPU the WebGPU
+  solver finishes a Tehri run 1.2–1.8× faster than the processor but loses the opening race, which
+  samples the flood at its smallest. Race a later or longer slice, or choose by adapter class, after
+  confirming the two agree run for run.
+- **Roughness from land cover.** `src/lib/landcover.ts` already turns OpenStreetMap land use into a
+  Manning coefficient per cell (Chow, 1959), and the solvers accept a roughness grid; it needs a
+  switch in the Model tab and a validation run.
+- **Cascading failure inside the solver.** Today a downstream dam (Koteshwar below Tehri) is read
+  off the flood surface; route the flood through its reservoir and let it breach in turn.
+- **Channels the DEM cannot see.** Burn river bathymetry into the grid where it is known, and
+  accept finer DEMs (CartoDEM, local surveys) through the builder, which already reads GeoTIFF and
+  ASCII.
 
-## 3. Live Earth Observation (GEE) Integration
-- **Goal:** Replace the GEE stub with live satellite telemetry.
-- **Implementation:**
-  - Hook directly into Google Earth Engine via a service account API.
-  - Automatically process Sentinel-1 SAR imagery as soon as it becomes available after an event to generate actual NRT (Near Real-Time) flood masks.
+## 2. Data
 
-## 4. Multi-Dam Library & API
-- **Goal:** Support dynamic scenario generation for any major dam in India.
-- **Implementation:**
-  - Create a centralized PostgreSQL/PostGIS database containing breach parameters, topography bounds, and infrastructure profiles for hundreds of dams.
-  - Implement a REST API to dynamically load these scenarios into the command center.
+- **Every dam in India.** Merge the CWC National Register of Large Dams (attributes) with
+  OpenStreetMap (positions) into the bundled catalogue — `scripts/build-national-catalogue.ts` and
+  `scripts/fetch-osm-dams.ts` exist — so dam search works offline and on networks that block
+  OpenStreetMap.
+- **Exposure that knows its sources.** Census population for settlements where OpenStreetMap has
+  none, instead of a typical value for the place type.
 
-## 5. Automated Report Generation
-- **Goal:** Generate tactical briefing documents for decision-makers.
-- **Implementation:**
-  - Use `puppeteer` or a similar headless browser to take snapshots of the map and charts at critical impact moments.
-  - Compile these into an automated PDF brief detailing expected casualties, financial loss, and compromised evacuation routes.
+## 3. Validation
+
+- **More events that happened**: Kedarnath / Chorabari 2013, and South Lhonak 2023, which destroyed
+  the Teesta-III dam — each with recorded arrivals and depths, as Machchhu II carries today.
+- **Real satellite checks**: run the Earth Engine script for Rishi Ganga 2021 and every future
+  event, and keep the observed extents beside the scenarios.
+
+## 4. Use in operations
+
+- **Offline first**: installable, with the scenario's tiles cached, for a control room without a
+  reliable link.
+- **Warnings that go somewhere**: the CAP 1.2 export is already SACHET-shaped; wire it to an
+  issuing workflow with review.
+- **Shareable scenarios**: a link that opens a scenario with its settings, alongside today's
+  scenario file.
+- **Hindi and regional languages** across the interface, not only in the CAP alert.
+
+## 5. Performance
+
+- **60 fps while a run plays on a discrete GPU**, measured as map redraws (`mapframes.cjs`), not
+  page frames.
+- **Less on the main thread**: sample exposure in the solver's worker, and build the evacuation
+  graph there too.

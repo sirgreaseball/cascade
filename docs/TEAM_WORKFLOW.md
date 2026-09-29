@@ -1,24 +1,17 @@
-# Team Workflow
+# Team workflow
 
-We are a 6-person team building the NTRO Dam Break Inundation Simulation. To avoid merge conflicts and broken demos, follow these strict rules.
+- **`main` is the product.** Every push to `main` is built and deployed by Vercel to
+  https://cascading.vercel.app, and teammates pull it onto their own machines. Keep commits small,
+  and push only what you have run and built (`npm run build` builds the splash too).
+- **Before a commit**: `npx tsc --noEmit -p .`, `npx eslint src`, and `npm run verify` whenever
+  solver code changes. `docs/HANDOFF.md` §0 has the rules that are not negotiable.
+- **No hardcoding scenarios**: read coordinates and figures from the scenario configuration and the
+  stores, never from a component.
 
-## Git Branching Strategy
+## Where things live
 
-- **`main`**: The sacred branch. **Stable demo ONLY.** Nobody pushes directly to main. Only the Team Lead merges to `main` before a demo or pitch.
-- **`dev`**: The active integration branch. All feature branches branch off of `dev` and merge back into `dev`.
-- **`feature/*`**: Individual task branches. (e.g., `feature/ui-dashboard`, `feature/flood-worker`).
-- **`fix/*`**: Bug fixes.
-
-## Rules for Merging
-
-1. **Pull frequently**: Always pull from `dev` before starting work to avoid massive rebase conflicts.
-2. **Small PRs**: Merge often. Don't wait 2 days to submit a PR with 50 changed files.
-3. **No hardcoding**: Do not hardcode Tehri-specific coordinates in components. Use the `scenarioStore` and config files.
-4. **Mock Mode**: Use `NEXT_PUBLIC_USE_MOCK_DATA=true` if real data is missing, so you aren't blocked.
-
-## Folder Ownership Guidelines
-To prevent stepping on toes:
-- **UI/UX Team**: Focuses on `components/panels/`, `components/ui/`, `app/`
-- **Map/Engine Team**: Focuses on `components/map/`, `simulation/`
-- **Data/GIS Team**: Focuses on `public/data/`, `public/scenarios/`, `scripts/`
-- **Integration/Lead**: Focuses on `store/`, `lib/`, overall architecture.
+- **Interface**: `src/components/panels/`, `src/components/ui/`, `src/app/`, and the splash in
+  `frontend/`.
+- **Map and solvers**: `src/components/map/`, `src/simulation/`.
+- **Data**: `public/data/`, `public/scenarios/`, `scripts/`.
+- **Shared logic**: `src/store/`, `src/lib/`.

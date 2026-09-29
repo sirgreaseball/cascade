@@ -1,46 +1,46 @@
-# Tasks Breakdown (6-Person Team)
+# Tasks and status
 
-## Person 1: Team Lead / Integrator
-- Repository setup, branch management, and merging.
-- App shell architecture (Next.js layout).
-- Vercel/Netlify deployment.
-- Final demo stability checks.
+What Cascade does today, what is still open, and what the submission needs. The engineering detail
+behind each line — commits, measurements, the reasons — is in `docs/HANDOFF.md`. Updated
+29 September 2026.
 
-## Person 2: Map / Terrain Engineer
-- Implement MapLibre GL JS dark base map.
-- Configure Deck.gl integration.
-- Implement `TerrainLayer` for 3D ground.
-- Implement visual `GridCellLayer` or `BitmapLayer` for the flood.
+## Done
 
-## Person 3: Simulation Engineer
-- Write the TypeScript Web Worker (`floodWorker.ts`).
-- Implement the cellular automata / gravity flow algorithm.
-- Manage memory via `Float32Array` and optimize for 30+ FPS.
+| Area | What works | Where |
+|---|---|---|
+| Physics | 2D shallow-water grid solver on the CPU and on WebGPU; SPH-SWE particle solver; Froehlich (2008) breach with level-pool routing against the live tailwater | `src/simulation/` |
+| Events | Dam break, lake outburst (lake volume measured from the terrain), controlled release, cloudburst; seasons; imported hydrographs | Event tab |
+| Scenarios | Tehri, Bhakra, Machchhu II 1979 (with recorded arrivals and depths), Rishi Ganga 2021; a builder for any dam or blockage in India | top bar |
+| Impact | People exposed, arrival, depth, AIDR H1–H6 hazard, JRC loss, Graham loss of life with warning time, facilities, bridges, roads cut, places by arrival, evacuation routes that follow the clock | Impact panel, map |
+| Two methods | Grid vs SPH: Grid / SPH / Both view, Difference layer, critical success index; one-click SPH check after a grid run | top bar, Impact panel |
+| Uncertainty | 12-run ensemble and the Chance layer | Model tab |
+| Validation | Live analytical benchmarks, mass balance of the run, comparison with another model's raster, the Machchhu historical check, reservoirs either side of the failure | Model, Observe, Event tabs |
+| Satellite | Earth Engine Sentinel-1 script (UN-SPIDER), windows around the event for real failures; import of the observed extent and scoring | Observe tab |
+| Data in | Spreadsheets (.xlsx / .csv / .tsv) with a hydrograph, dam figures or settlements; DEMs; exposure; scenario files | Event tab, builder |
+| Data out | KML, Shapefile, GeoJSON, ASCII rasters, CSV evacuation list, one-page brief, CAP 1.2 alert (English and Hindi) | Export |
+| Map | 3D terrain with imagery to about half a metre, detail chosen by measured bandwidth, flood drawn and animated on the GPU | `src/components/map/` |
+| Site | Splash at `/`, simulator at `/dashboard`, deployed from `main` to https://cascading.vercel.app | `frontend/`, `next.config.ts` |
 
-## Person 4: UI / Command Center Engineer
-- Build the Dashboard layout (Left/Right panels, Alert Log).
-- Implement sliders, controls, and readouts.
-- Add Framer Motion animations for that "Emergency Operations" feel.
+## Open
 
-## Person 5: GIS / Data Engineer
-- Download and prepare DEM data (QGIS/GDAL).
-- Crop data to 512x512 grids and export to binary for the simulation.
-- Prepare GeoJSON for villages, hospitals, roads, and bridges.
-- Create scenario JSON config files.
+- **Frame rate during a run on the GTX 1650.** Measured at 33 fps settling to 50 before the
+  main-thread work was cut on 29 September (`781e62a`–`0ddde4b`); not re-measured since. The
+  figure to get is map redraws per second with `scripts/bench/mapframes.cjs`, old and new builds
+  interleaved.
+- **The WebGPU race.** It refuses the graphics card on every machine tested, yet over a whole
+  Tehri run the card is 1.2× faster than the processor when paced for the map and 1.8× faster
+  flat out. Decide: race over a later or longer slice, or choose by adapter class — and check GPU
+  and CPU results agree (`gpucompare.cjs`) before changing who wins.
+- **The dam catalogue holds 144 dams.** Any other dam is found by a live OpenStreetMap search in
+  the builder, which fails on networks that block Overpass and Nominatim. `scripts/fetch-osm-dams.ts`
+  can add every mapped dam in India; it needs a connection Overpass answers on, and has failed
+  part-way on slow links.
 
-## Person 6: Analytics / QA / Pitch
-- Implement Turf.js intersection logic.
-- Trigger alerts based on flood arrival times.
-- Write the demo script and prepare the pitch deck.
-- Record the backup demo video.
+## For the submission
 
----
-
-## 🛑 STATUS: FEATURE FREEZE (HARDENING MODE)
-As of Milestone 12, all core features (M1-M12) are completed.
-**Next Steps (Hackathon T-Minus 12 Hours):**
-- Demo preparation & rehearsal.
-- Offline resilience (fallback UI for local data).
-- Build stabilization (`npm run build`).
-- Post-hackathon documentation (`ROADMAP.md`).
-No new functional features are to be added.
+1. Record the product video on a network that reaches Esri, AWS terrain tiles and OpenStreetMap
+   (the university network blocks OpenStreetMap). Open each scenario once first so tiles are cached.
+2. Record playback after a run has finished rather than the live run: replay is smooth, while a run
+   shares the processor with the map.
+3. For the two-methods story, switch SPH on (or use the Impact panel's button after a grid run) and
+   show Both, the Difference layer and the CSI.

@@ -23,7 +23,9 @@ This file deliberately holds only the things you must know *before your first ac
    structured cloning only — never a transfer list. Both the worker and the main-thread fallback get
    their solver from the single `createRuntime` factory in `src/simulation/runtime.ts`; new solver
    parameters go into `EngineConfig`, never a second argument list.
-5. **Do not modify `frontend/`** — the splash page is a separate Vite app.
+5. **`frontend/` is the splash page** at `/` of the live site (https://cascading.vercel.app), a
+   separate Vite app built in by `npm run build`; the simulator is at `/dashboard`. Every push to
+   `main` deploys, so never push what does not build.
 
 ## Why this file is short
 
