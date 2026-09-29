@@ -1,12 +1,23 @@
-// Solver speed on this machine: the grid solver alone (SPH off) offered the graphics card, then
-// held to the processor, read from the Model tab's device readout.
-// usage: node gpubench.cjs <playwrightDir> <url>
+// Solver speed on this machine: the grid solver alone (SPH off), offered the graphics card or held
+// to the processor, read from the Model tab's device readout.
+// usage: node gpubench.cjs <playwrightDir> <url> [runs=gpu,cpu]
+//
+//   gpu      offered the graphics card, paced as it is by default: while a run plays on screen the
+//            GPU solver pauses after each submission so the map keeps its frame rate, so this is
+//            the wall time a user waits, not what the card can do
+//   gpufast  offered the graphics card with "Compute as fast as possible" on: no pauses
+//   cpu      held to the processor, which is never paced
+//
+// Runs go in the order given, in one page: `gpu,cpu,gpufast,gpu,cpu,gpufast` is two interleaved
+// rounds.
 //
 // The switch only *offers* the graphics card. Since the solvers are raced over the opening slice
 // (57418b2), asking for the GPU and getting it are different things, so every run here reports the
 // backend that actually ran and says so when it is not the one that was asked for. A timing printed
 // against the wrong backend is worse than no timing at all.
-const [, , pwDir, url] = process.argv;
+const [, , pwDir, url, runsArg = 'gpu,cpu'] = process.argv;
+const RUNS = runsArg.split(',');
+if (!RUNS.every((m) => ['gpu', 'gpufast', 'cpu'].includes(m))) throw new Error(`runs must be gpu, gpufast or cpu: ${runsArg}`);
 const { chromium } = require(pwDir);
 const readout = (page) =>
   page.evaluate(() => {
@@ -29,10 +40,22 @@ const readout = (page) =>
   // until it does — so wait for the switch itself rather than for the text, or for a fixed pause.
   const enabled = (name) => page.locator(`[role=switch][aria-label="${name}"]:not([disabled])`).first();
   const GPU_SWITCH = 'Let the grid solver try the graphics card';
-  await enabled('SPH solver').waitFor({ timeout: 240000 });
-  await enabled('SPH solver').click();
-  await page.waitForTimeout(500);
-  const run = async (asked, button) => {
+  const FAST_SWITCH = 'Compute as fast as possible';
+  // Switches are set to a state, never toggled blind: this script used to click "SPH solver"
+  // assuming it started on, and once SPH became off by default the click turned it on, so every
+  // "grid solver alone" timing ran SPH alongside.
+  const set = async (name, want) => {
+    await enabled(name).waitFor({ timeout: 600000 });
+    if (((await enabled(name).getAttribute('aria-checked')) === 'true') !== want) await enabled(name).click();
+    await page.waitForTimeout(400);
+    if (((await enabled(name).getAttribute('aria-checked')) === 'true') !== want) throw new Error(`could not set "${name}" to ${want}`);
+  };
+  await set('SPH solver', false);
+  const run = async (mode, button) => {
+    const asked = mode === 'cpu' ? 'CPU' : 'GPU';
+    await set(GPU_SWITCH, asked === 'GPU');
+    // The pacing switch is only shown while the graphics card is offered.
+    if (asked === 'GPU') await set(FAST_SWITCH, mode === 'gpufast');
     const t0 = Date.now();
     await page.getByRole('button', { name: button }).first().click();
     await page.getByText(/Finished in/).first().waitFor({ timeout: 1500000 });
@@ -45,15 +68,11 @@ const readout = (page) =>
     // Anchored: the reason that follows also contains "graphics card" ("...the graphics card the
     // browser gave it..."), so a substring test reads a processor run as a GPU one.
     const ran = /^\s*Graphics card/i.test(field) ? 'GPU' : /^\s*Processor/i.test(field) ? 'CPU' : 'unknown';
-    console.log(`asked for ${asked}, ran on ${ran}: finished after ${wall} s of wall time`);
+    console.log(`${mode}: asked for ${asked}, ran on ${ran}: finished after ${wall} s of wall time`);
     if (ran !== asked) console.log(`   ** ${wall} s is the ${ran}, not the ${asked} — do not file it as a ${asked} timing **`);
     console.log('   ' + line);
   };
-  await run('GPU', 'Run simulation');
-  await enabled(GPU_SWITCH).waitFor({ timeout: 600000 });
-  await enabled(GPU_SWITCH).click();
-  await page.waitForTimeout(600);
-  await run('CPU', 'Run again with the current settings');
+  for (const [i, mode] of RUNS.entries()) await run(mode, i === 0 ? 'Run simulation' : 'Run again with the current settings');
   console.log('console errors: ' + errors.length);
   for (const e of errors.slice(0, 6)) console.log('   ' + e);
   await browser.close();
