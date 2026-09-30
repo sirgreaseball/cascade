@@ -257,10 +257,12 @@ const LINK_SAMPLES = 12;
 
 /**
  * Megabits per second worth the extra zoom level. A viewport holds roughly 40 terrain tiles, about
- * 160 with the extra level; at the ~30 kB a Terrarium tile runs to, that is near 5 MB, which should
- * arrive in a few seconds rather than most of a minute.
+ * 160 with the extra level. Each tile is a ~30 kB Terrarium tile plus the four ~30 kB imagery tiles
+ * its texture is stitched from, so the finer level is some 25 MB per view: about 7 s at 30 Mbps.
+ * At the 12 Mbps this used to be, it took long enough that coarse parent tiles sat on screen as
+ * blurred squares (seen on an 18 Mbps link while filming the demo).
  */
-const FAST_MBPS = 12;
+const FAST_MBPS = 30;
 
 /**
  * A tile the network delivered faster than this came from the browser's cache, and says nothing

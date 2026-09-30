@@ -25,6 +25,38 @@ const MapView = dynamic(() => import('./map/MapView'), {
   loading: () => <div className="absolute inset-0 bg-canvas" />,
 });
 
+/**
+ * A graphics-driver reset, or Chrome reclaiming GPU memory under load (screen recording on the
+ * same card, say), loses the map's WebGL context and leaves a black map with nothing to bring it
+ * back. The map is mounted afresh a moment later instead: the scenario, the run and its results
+ * live in the stores, so only the camera starts over. Tearing a map down loses its context on
+ * purpose (MapLibre does so in remove()), so losses just after a remount are not answered, or the
+ * two would chase each other.
+ */
+function useMapRecovery(): number {
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    let timer = 0;
+    let quietUntil = 0;
+    const lost = (e: Event) => {
+      const canvas = e.target;
+      if (!(canvas instanceof HTMLCanvasElement) || !canvas.isConnected || performance.now() < quietUntil) return;
+      console.warn('[map] The graphics context was lost; drawing the map again.');
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        quietUntil = performance.now() + 4000;
+        setGeneration((g) => g + 1);
+      }, 800);
+    };
+    window.addEventListener('webglcontextlost', lost, true);
+    return () => {
+      window.removeEventListener('webglcontextlost', lost, true);
+      window.clearTimeout(timer);
+    };
+  }, []);
+  return generation;
+}
+
 /** Loads the scenario list and opens the last-used (or first) scenario. */
 function useBoot() {
   useEffect(() => {
@@ -344,12 +376,13 @@ export default function Dashboard() {
   useDeviceCheck();
   useKeyboard();
   useResponsiveStart();
+  const mapGeneration = useMapRecovery();
   // Drop frames from a previous session's run when this component unmounts (route change).
   useEffect(() => () => results.clear(), []);
   return (
     <MotionConfig reducedMotion="user">
       <main className="relative h-dvh w-screen select-none overflow-hidden bg-canvas text-ink">
-      <MapView />
+      <MapView key={mapGeneration} reuseBasemap={mapGeneration === 0} />
       <TopBar />
       <LeftPanel />
       <RightPanel />

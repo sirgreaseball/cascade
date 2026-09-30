@@ -140,6 +140,8 @@ const pickOnlyPlaces = ({ layer, renderPass }: { layer: Layer; renderPass: strin
 /** The flood's textures, shared by the 2D and 3D flood layers; rebuilt when the grid changes. */
 let floodField: FloodField | null = null;
 let terrainTileErrors = 0;
+/** Set by the first world terrain tile; after that a dropped connection keeps the world terrain. */
+let worldTerrainShown = false;
 /** The 2D flood layer needs an image of its own, but its colour comes from the flood shader. */
 const BLANK_IMAGE = typeof ImageData !== 'undefined' ? new ImageData(1, 1) : null;
 const OBSERVED_RGB = hexToRgb(IDENTITY.observed);
@@ -307,7 +309,12 @@ function settleCamera(v: MapViewState): MapViewState {
   return pitch === v.pitch && bearing === v.bearing ? v : { ...v, pitch, bearing };
 }
 
-export default function MapView() {
+/**
+ * `reuseBasemap` keeps the MapLibre instance across remounts (quicker back-navigation). It is off
+ * when the map is remounted after its graphics context was lost, since the kept instance's canvas
+ * is the one that was lost.
+ */
+export default function MapView({ reuseBasemap = true }: { reuseBasemap?: boolean }) {
   const config = useScenarioStore((s) => s.config);
   const data = useScenarioStore((s) => s.data);
   const exposure = useScenarioStore((s) => s.exposure);
@@ -352,11 +359,15 @@ export default function MapView() {
   // at the cheaper zoom and steps up once tiles have proven they arrive fast enough. Latched on,
   // so the step happens at most once and never throws loaded tiles away.
   const [fineTerrain, setFineTerrain] = useState(false);
+  // On a slow link the imagery stops one zoom short (about 1.2 m a pixel instead of 0.6), which
+  // is a quarter of the requests for the closest tiles; it only shows when zoomed right in.
+  const [slowLink, setSlowLink] = useState(false);
   useEffect(() => {
     return onPerfChange(() => {
       const g = getMapGpu();
       if (g) setGpuKind(classifyGpu(g.renderer));
       if (linkSpeed() === 'fast') setFineTerrain(true);
+      if (linkSpeed() === 'slow') setSlowLink(true);
     });
   }, []);
   // Mesh terrain in a worker; if the worker cannot start, fall back to the main thread.
@@ -379,12 +390,18 @@ export default function MapView() {
    */
   const onTerrainTile = useCallback(() => {
     terrainTileErrors = 0;
+    worldTerrainShown = true;
     if (!useUiStore.getState().mapReady) useUiStore.getState().setMapReady(true);
   }, []);
-  // Offline, the scenario's own DEM stands in for the world terrain; back online, the world returns.
+  // Offline from the start, the scenario's own DEM stands in for the world terrain; back online,
+  // the world returns. A connection that drops once world tiles are on screen keeps them: swapping
+  // to the DEM block for a short Wi-Fi dropout lifted it over the flat basemap like a slab with a
+  // cliff round its edge, and coming back then downloaded every tile again (seen while filming).
   useEffect(() => {
     const online = () => setTerrainMode('world');
-    const offline = () => setTerrainMode('local');
+    const offline = () => {
+      if (!worldTerrainShown) setTerrainMode('local');
+    };
     window.addEventListener('online', online);
     window.addEventListener('offline', offline);
     return () => {
@@ -734,7 +751,7 @@ export default function MapView() {
           id: `terrain-world-${view.basemap}-${view.showRoads ? 'r' : 'nr'}-${terrainWorker ? 'w' : 'm'}-${fineTerrain ? 'fine' : 'base'}`,
           elevationData: TERRARIUM_URL,
           texture,
-          textureMaxZoom: view.basemap === 'satellite' ? 18 : 16,
+          textureMaxZoom: view.basemap === 'satellite' ? (slowLink && !fineTerrain ? 17 : 18) : 16,
           roadsOverlay: view.showRoads ? ROADS_OVERLAY_URL : null,
           elevationDecoder: TERRARIUM_DECODER,
           maxZoom: 17,
@@ -1086,7 +1103,7 @@ export default function MapView() {
       );
     }
     return list;
-  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, pickingDam, damCatalog, builtDams, isBuilt, onTerrainError, onTerrainTile, hasFlood, layerFade, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
+  }, [config, data, exposure, setup, terrain, terrainMode, terrainWorker, gpuKind, fineTerrain, slowLink, pickingDam, damCatalog, builtDams, isBuilt, onTerrainError, onTerrainTile, hasFlood, layerFade, skin, water, roadPaths3d, evacuation, particles, impacts, view, selectedAsset, assetZ, labels, zoomStep, haze]);
 
   // The breach pulse changes on every frame of its couple of seconds, so it is built on its own and
   // spliced in just below the dam marker. Inside the list above, each of its frames rebuilt every
@@ -1296,7 +1313,7 @@ export default function MapView() {
             loading (a quick zoom out, a new area) or the terrain stops, the map shows imagery
             instead of a void. */}
         <MapGL
-          reuseMaps
+          reuseMaps={reuseBasemap}
           mapStyle={
             (view.terrain3d && terrainMode === 'world'
               ? view.basemap === 'satellite'
