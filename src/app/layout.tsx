@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 const inter = Inter({
@@ -26,7 +27,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} h-full`}>
-      <body className="h-full">{children}</body>
+      <body className="h-full">
+        {children}
+        {/* Page views, referrers and countries in the Vercel dashboard: no cookies, nobody identified. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
