@@ -8,6 +8,14 @@ import { useUiStore } from '@/store/uiStore';
 /** Bumped when the tour changes enough that people who have seen the old one should see it again. */
 const SEEN_KEY = 'cascade.tour.v1';
 
+function rememberSeen(): void {
+  try {
+    localStorage.setItem(SEEN_KEY, '1');
+  } catch {
+    // Nothing to remember it with; the tour will simply offer itself again.
+  }
+}
+
 /**
  * The four things somebody meeting Cascade for the first time needs to find. Each points at a real
  * control by its `data-coach` name; a step whose control is not on screen is skipped, so the tour
@@ -77,7 +85,12 @@ export default function FirstRun() {
       seen = false;
     }
     if (seen) return;
-    const t = setTimeout(() => setStep(0), 900);
+    const t = setTimeout(() => {
+      setStep(0);
+      // Seen once it has been shown: remembering only on Skip or "Got it" brought the whole tour
+      // back on every visit for anyone who closed the tab or reloaded part way through.
+      rememberSeen();
+    }, 900);
     return () => clearTimeout(t);
   }, [ready, mapReady, step]);
 
@@ -97,11 +110,7 @@ export default function FirstRun() {
 
   const end = () => {
     setStep(STEPS.length);
-    try {
-      localStorage.setItem(SEEN_KEY, '1');
-    } catch {
-      // Nothing to remember it with; the tour will simply offer itself again.
-    }
+    rememberSeen();
   };
   const next = () => {
     // Skip past any step whose control this window does not show.
