@@ -55,7 +55,10 @@ version of how it fits together.
 
 - **Site:** one Next.js app on Vercel. `/` is the splash (`frontend/`, built in by `npm run build`
   and rewritten to by `next.config.ts`), `/dashboard` the simulator. Locally, `npx next start -p
-  3000` serves both the same way.
+  3000` serves both the same way. Visits are counted by Vercel Web Analytics (`@vercel/analytics`
+  in `src/app/layout.tsx`, a script tag in `frontend/index.html`): page views, countries, referrers
+  and devices, no cookies. It counts only once Analytics is enabled for the project in the Vercel
+  dashboard; the Vercel MCP's `count_pageviews` and `aggregate_pageviews` read the figures.
 
 - **Stack:** Next.js 16.3 (App Router, Turbopack), React 19.2, TypeScript 5, Zustand 5,
   Tailwind 4, Framer Motion; deck.gl 9.4 (+ luma.gl 9) over MapLibre 6.9 via react-map-gl.
@@ -166,6 +169,14 @@ every message. The playhead is advanced by the rAF loop in `Dashboard.tsx`.
   its levels off the model (`f1f1a27`); the controls appearing after 9 s even when no terrain tile
   arrives (`4240faf`); Earth Engine windows around the event for scenarios that happened
   (`4bf7927`). The whole-run GPU against CPU timing (§5) was measured that morning.
+- 30 September, after the submission, from what went wrong while recording the demo video: the
+  first-run tour counts as seen once it is shown, not only on Skip or "Got it" (`7577b08`); the map
+  keeps its world terrain through a connection that drops once tiles are on screen, finer terrain
+  waits for 30 Mbps instead of 12, a slow link stops satellite imagery at zoom 17, and a lost WebGL
+  context remounts the map with a fresh basemap instead of leaving it black (`862108d`, §7, §9.4);
+  Vercel Web Analytics on the dashboard and the splash (`8bd5e56`, §1); `CLAUDE.md` with the rules,
+  commands and architecture (`01cc201`). Headless Chrome on the GTX 1650 laptop, production build,
+  one run of `mapframes.cjs` without pans: the map redrew at 104.8 fps during a run, 122.5 late.
 
 A failed experiment (terrain `meshMaxError` 2→1) used to sit in `git stash`; the stash is empty
 now (checked 29 September).
@@ -423,6 +434,15 @@ Measure with the production server, three runs or more, old and new in the same 
   freezes while the solver worker keeps computing, framer-motion transitions stall half-way, and
   screenshots time out. Keep the window in front for demos, recordings and measurements.
 - The splash's `* { cursor: none }` hides the system pointer for its custom cursor, on purpose.
+- **A dropped connection must not throw the world terrain away.** MapView used to switch to the
+  scenario-DEM terrain on every `offline` event: a few seconds of Wi-Fi loss lifted that block over
+  the flat basemap as a slab with a cliff round its edge, and every world tile downloaded again
+  when the link came back. Only a page that starts offline uses the scenario DEM now (`862108d`).
+- **`reuseMaps` hands back a dead basemap.** After a WebGL context loss the map is remounted
+  (`useMapRecovery`, `Dashboard.tsx`), and react-map-gl's `reuseMaps` would give the new mount the
+  MapLibre instance whose canvas was lost, so the remount turns it off. MapLibre also loses its
+  context on purpose in `remove()`, so losses just after a remount are ignored, or the two would
+  chase each other.
 
 ---
 
@@ -517,8 +537,11 @@ the solver (through `EngineConfig`, respecting §0.4). Build the evacuation grap
   move per-tile normal computation (`addNormals`, `hiResTerrain.ts`) off the main thread — tightening
   `meshMaxError` alone cost panning frames. Measure.
   *Built:* `zoomOffset: 1` applies on a discrete GPU once 12 tiles fetched from the network (not the
-  cache) have arrived at 12 Mbps or more (`4d91e3e`, `824ecd7`, `src/lib/perfMonitor.ts`); the
-  verdict latches, so detail can rise once and never falls. Normals stayed on the main thread and
+  cache) have arrived at 30 Mbps or more (`4d91e3e`, `824ecd7`, `src/lib/perfMonitor.ts`). It was
+  12 Mbps until `862108d`: each finer tile also stitches four imagery tiles, and on an 18 Mbps link
+  coarse parent tiles sat on screen as blurred squares. On a link judged slow the satellite imagery
+  stops at zoom 17 (about 1.2 m a pixel). The verdict latches, so detail can rise once and never
+  falls. Normals stayed on the main thread and
   now cost a quarter of what they did (`0ddde4b`).
 - Water that cannot clip through or float above terrain: sample the flood textures (§3) inside the
   terrain tile shader by position, instead of drawing a separate lifted mesh.

@@ -11,7 +11,8 @@ solvers, the analytics, the exports — runs in the visitor's browser.
 `npm run build` builds the splash first (`prebuild` → `build:splash`, with `--include=dev` so it
 also works where `NODE_ENV=production`), then `next build`. `next.config.ts` rewrites `/` to
 `/splash/index.html` whenever the splash has been built; without it, `/` falls back to the
-dashboard. Vercel builds and deploys `main` on every push (https://trycascade.vercel.app).
+dashboard. Vercel builds and deploys `main` on every push (https://trycascade.vercel.app). Visits
+are counted with Vercel Web Analytics (no cookies), once it is enabled for the project.
 
 ---
 
@@ -99,8 +100,12 @@ deck.gl 9.4 and luma.gl over MapLibre 6.9 (react-map-gl).
 - **Terrain.** `HiResTerrainLayer` (`map/hiResTerrain.ts`): Terrarium elevation tiles to zoom 17
   (heights cut from zoom 15), imagery stitched one zoom deeper, a shared download queue with
   retries and coarser fallbacks. One zoom finer (`zoomOffset: 1`) only on a discrete GPU and a link
-  measured, from the network rather than the cache, at 12 Mbps or more. Offline, the scenario's own
-  DEM is drawn as a single mesh.
+  measured, from the network rather than the cache, at 30 Mbps or more; on a slower link satellite
+  imagery stops at zoom 17. A page that starts offline draws the scenario's own DEM as a single
+  mesh; a connection lost later keeps the world terrain already on screen.
+- **A lost graphics context** (driver reset, GPU memory pressure) remounts the map with a fresh
+  basemap (`useMapRecovery`, `Dashboard.tsx`). The scenario and results live in the stores, so only
+  the camera starts over.
 - **Flood.** Frames are uploaded once into reused textures (`map/floodGpu.ts`); a shader blends the
   two frames around the playhead, colours through lookup tables and reveals each cell at the second
   the water arrived. In 3D it is drawn on a lifted mesh of the scenario DEM, in 2D on a quad. The map
