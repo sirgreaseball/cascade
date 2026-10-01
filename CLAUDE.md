@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Cascade is a browser-only dam-break inundation simulator for Smart India Hackathon problem SIH26161
 (NTRO). There is no server code: solvers, analytics and exports all run in the visitor's browser.
-Live at https://trycascade.vercel.app (splash at `/`, simulator at `/dashboard`); **every push to
-`main` deploys there**. `docs/HANDOFF.md` is the canonical engineering handoff (status, measured
+Live at https://trycascade.vercel.app (splash at `/`, simulator at `/dashboard`). **`main` is
+production — every push to it deploys there — and day-to-day work goes to `dev`** (see Branches).
+`docs/HANDOFF.md` is the canonical engineering handoff (status, measured
 figures, benchmarks, gotchas); `docs/ARCHITECTURE.md` is the short version. Keep status out of this
 file.
 
@@ -15,7 +16,7 @@ file.
 
 - Commits are authored `sirgreaseball <dhruuvvsonar@gmail.com>` (repo-local config; check
   `git config user.email` first). No `Co-Authored-By` trailers or AI attribution of any kind.
-- Small, verified commits, pushed to `main` straight away. Never push what you have not run or what
+- Small, verified commits, pushed to `dev` straight away. Never push what you have not run or what
   does not build.
 - Ask the owner before adding any npm dependency.
 - Performance must never get worse: 60 fps minimum (idle, panning, during a run, in 3D) on the target
@@ -23,6 +24,21 @@ file.
   runs or more, old and new in the same session.
 - Design: dark "liquid glass" panels, Inter, amber accent `#f59e0b`. The splash (`frontend/`) keeps
   its own look (cinematic, monospace labels, serif headline) and relative links (`/dashboard`).
+
+## Branches
+
+- `dev` gets every change, however small: commit there after the gate and push. Vercel builds each
+  push to it as a preview deployment, not the live site.
+- `main` is production: the live site, and the branch GitHub shows. It takes only major changes —
+  features, fixes to bugs visitors can hit, measured performance work, solver changes that passed
+  `npm run verify`. Docs, tooling and small tweaks wait on `dev` and ride along with the next one.
+- Releasing: squash `dev` into one commit on `main` that names the major change, then merge `main`
+  straight back into `dev` before anything else lands there (otherwise the next squash conflicts):
+
+```bash
+git checkout main && git pull && git merge --squash dev && git commit -m "<the major change>" && git push
+git checkout dev && git merge --no-edit main && git push
+```
 
 ## Commands
 

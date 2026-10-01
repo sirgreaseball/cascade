@@ -17,10 +17,13 @@ number here was measured; where something was not measured, it says so.
    `git config --local user.name sirgreaseball` and `git config --local user.email dhruuvvsonar@gmail.com`.
    The machine's global identity may belong to someone else; never commit under it.
    **No `Co-Authored-By` trailers** or any other attribution in commit messages.
-2. **Small, verified commits, pushed to `main` straight away.** The owner pulls on several machines
-   and must always get a working app — and every push to `main` is deployed to the live site by
-   Vercel. Never push something you have not run, and never push something that does not build:
-   `npm run build` builds the splash as well as the dashboard, exactly as Vercel does.
+2. **Small, verified commits, pushed to `dev` straight away; `main` takes only major changes.**
+   Since 1 October 2026 `dev` carries every change and `main` is production: every push to `main`
+   is deployed to the live site by Vercel, so it receives only major changes, squashed in from
+   `dev` (`CLAUDE.md` → Branches has the steps). The owner pulls on several machines and must
+   always get a working app. Never push something you have not run, and never push something that
+   does not build: `npm run build` builds the splash as well as the dashboard, exactly as Vercel
+   does.
 3. **Performance must never get worse.** 60 fps minimum — idle, panning and with a simulation
    running, in 3D — on the owner's main laptop: **Windows, NVIDIA GeForce GTX 1650 (4 GB), AMD
    Ryzen 5 4600H, 16 GB RAM, hybrid graphics**. The Mac ran smoothly; Windows is the target. Measure

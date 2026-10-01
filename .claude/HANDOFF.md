@@ -13,8 +13,9 @@ This file deliberately holds only the things you must know *before your first ac
 1. **Git identity.** Commits are authored `sirgreaseball <dhruuvvsonar@gmail.com>` — two u's, two
    v's. No `Co-Authored-By` trailers, no AI attribution of any kind. The machine's global identity
    may belong to someone else; check `git config user.email` before the first commit.
-2. **Small commits, pushed to `main` straight away.** The owner pulls on several machines and must
-   always get a working app. Never push something you have not run.
+2. **Small commits, pushed to `dev` straight away.** `main` is production and takes only major
+   changes, squashed in from `dev` (`CLAUDE.md` → Branches). The owner pulls on several machines and
+   must always get a working app. Never push something you have not run.
 3. **The gate before any commit:** `npm run verify` (whenever solver code changes),
    `npx tsc --noEmit -p .`, `npx eslint <files you touched>` — all clean. Performance is measured on
    the production build (`npm run build && npx next start`), never the dev server, and never on one
