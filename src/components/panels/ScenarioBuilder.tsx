@@ -223,6 +223,21 @@ export default function ScenarioBuilder() {
   const building = steps !== null && steps.some((s) => s.state === 'active');
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
+  // Ask OpenStreetMap as soon as the dam and the area settle, so the servers' queue runs while the
+  // rest of the form is filled in. Build joins the same requests, or finds the answers waiting.
+  useEffect(() => {
+    if (!open || building) return;
+    const timer = setTimeout(() => {
+      if (form.event !== 'lake-outburst' && !catalogCrestLine(form.lng, form.lat)) fetchDamLine(form.lng, form.lat).catch(() => undefined);
+      if (form.exposureSource === 'osm') {
+        autoStudyArea(form.lng, form.lat, form.reachKm, form.widthKm, (z, x, y) => fetchTerrariumTile(z, x, y))
+          .then((area) => fetchOsmExposure(area.bbox))
+          .catch(() => undefined);
+      }
+    }, 1_500);
+    return () => clearTimeout(timer);
+  }, [open, building, form.event, form.lng, form.lat, form.reachKm, form.widthKm, form.exposureSource]);
+
   const run = async () => {
     const plan = [
       { label: 'Following the river downstream', state: 'active' as StepState },
@@ -236,12 +251,23 @@ export default function ScenarioBuilder() {
     abort.current = new AbortController();
     const signal = abort.current.signal;
     const fetchTile = (z: number, x: number, y: number) => fetchTerrariumTile(z, x, y, signal);
+    // OpenStreetMap is the slow part: its free servers often queue a request for half a minute. So
+    // each lookup starts as soon as its inputs are known and runs alongside the terrain download.
+    // The real crest, so the modelled dam sits where the imagery shows it: stored for catalogue
+    // dams, otherwise looked up in OpenStreetMap.
+    const crestLineLookup =
+      form.event === 'lake-outburst'
+        ? undefined
+        : (catalogCrestLine(form.lng, form.lat) ?? fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined));
     try {
       let stepIndex = 0;
       const area = await autoStudyArea(form.lng, form.lat, form.reachKm, form.widthKm, fetchTile);
       update(stepIndex++, 'done', `${formatNumber(area.reachKm, 1)} km of river`);
       const spec = gridForBBox(area.bbox, form.cellSize, 360_000);
       const grid = gridGeometry(spec);
+      const osm = form.exposureSource === 'osm' ? fetchOsmExposure(spec.bbox, fetch, signal, (m) => update(2, 'active', m)) : null;
+      // Its failure is reported when the exposure step waits for it, even if the terrain fails first.
+      osm?.catch(() => undefined);
 
       let dem: Float32Array;
       let demSourceLabel: string;
@@ -267,21 +293,14 @@ export default function ScenarioBuilder() {
       let assets: AssetCollection = { type: 'FeatureCollection', features: [] };
       let roads: RoadCollection = { type: 'FeatureCollection', features: [] };
       let exposureSource = 'None';
-      if (form.exposureSource === 'osm') {
-        const osm = await fetchOsmExposure(spec.bbox, fetch, signal, (m) => update(stepIndex, 'active', m));
-        assets = osm.assets;
-        roads = osm.roads;
+      if (osm) {
+        ({ assets, roads } = await osm);
         exposureSource = `${OSM_ATTRIBUTION} (Overpass API)`;
       } else if (form.exposureSource === 'upload' && exposureFile) {
         ({ assets, roads } = parseExposureGeoJson(await exposureFile.text()));
         exposureSource = exposureFile.name;
       }
-      // The real crest, so the modelled dam sits where the imagery shows it: stored for catalogue
-      // dams, otherwise looked up in OpenStreetMap.
-      const crestLine =
-        form.event === 'lake-outburst'
-          ? undefined
-          : (catalogCrestLine(form.lng, form.lat) ?? (await fetchDamLine(form.lng, form.lat, form.crestLength, fetch, signal).catch(() => undefined)));
+      const crestLine = await crestLineLookup;
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
       // A river blockage impounds whatever the valley behind it can hold: fill the terrain to the
