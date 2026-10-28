@@ -180,6 +180,17 @@ every message. The playhead is advanced by the rAF loop in `Dashboard.tsx`.
   Vercel Web Analytics on the dashboard and the splash (`8bd5e56`, §1); `CLAUDE.md` with the rules,
   commands and architecture (`01cc201`). Headless Chrome on the GTX 1650 laptop, production build,
   one run of `mapframes.cjs` without pans: the map redrew at 104.8 fps during a run, 122.5 late.
+- 28 October, the scenario builder's OpenStreetMap step. Measured from the owner's laptop, the free
+  Overpass servers queued the builder's query for 17–44 s, refused it at once (502 "at capacity",
+  504), or never answered (`overpass.private.coffee` and `overpass.kumi.systems` hung past 120 s).
+  Even a 20 kB query waited 27 s, so the delay is the queue, not the query. The builder asked
+  for places and roads only after the terrain, and for the crest only after that; when every
+  mirror failed, it waited for the whole round (up to 90 s) before asking again. Now each mirror
+  is asked again 2–10 s after it refuses, until one answers or the deadline passes. Both lookups
+  run alongside the terrain download, and the builder starts them as soon as a dam is picked;
+  Build then joins the same request or finds the answer cached (`c1936b2`). Production build, in
+  the browser pane: Build pressed about 25 s after the dam was picked took 3.1 s. Build pressed
+  straight away on a new 41 km area took 37.7 s, nearly all of it Overpass's queue.
 
 A failed experiment (terrain `meshMaxError` 2→1) used to sit in `git stash`; the stash is empty
 now (checked 29 September).
@@ -411,6 +422,9 @@ Measure with the production server, three runs or more, old and new in the same 
   but a running `next start` can lock `.next` files — stop it before `npm run build`.
 - Overpass is blocked on the owner's university network. Separately, Overpass answers a request
   that carries no User-Agent with a 406, which looks like a block and is not.
+- The public Overpass servers are often full. Expect a queue of 20–40 s, instant 502/504 refusals,
+  and mirrors that never answer. `askMirrors` in `src/lib/osm.ts` asks each mirror again on its
+  own; never make it wait for a whole round to fail.
 - **A cached response looks like a fast download.** A terrain tile served from the browser's cache
   took 0.5–1.1 ms by Resource Timing, but resolves in JavaScript only when the page gets round to it
   — tens of milliseconds later while a scenario loads — so a JavaScript stopwatch cannot tell it
