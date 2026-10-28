@@ -71,8 +71,8 @@ version of how it fits together.
   Breach: Froehlich (2008) geometry and timing, level-pool reservoir routed against the live
   tailwater. Hazard AIDR 7-3, JRC depth–damage, Graham (1999) loss of life.
 - **Data:** Terrarium elevation tiles (AWS, SRTM-derived), Esri World Imagery and Dark Gray Canvas
-  basemaps, OpenStreetMap places/roads via Overpass (blocked on the owner's university Wi-Fi —
-  use a hotspot for scenario builds).
+  basemaps, OpenStreetMap places/roads from OpenFreeMap's vector tiles (populations from
+  Nominatim), dam crest lines from Overpass (blocked on the owner's university Wi-Fi).
 - `cascade-reference.html` (repo root) is the owner's presentation reference on how the model works.
 
 ---
@@ -109,11 +109,12 @@ src/simulation/
 src/store/                  simulationStore (setup, runs, playhead, view), scenarioStore, uiStore,
                             ensembleStore
 src/lib/                    perfMonitor (device readout), evacuation, analytics, dams (catalogue),
-                            damCrests, osm (Overpass, Nominatim), gee (Earth Engine script),
+                            damCrests, osm (OpenFreeMap tiles, Overpass, Nominatim), gee (Earth Engine script),
                             cascading (reservoirs panel), xlsx + importers, geo/terrarium, export/*, …
 public/scenarios/*.json     bundled scenarios (tehri, bhakra, rishi-ganga, machchhu) + index.json
 public/data/<id>/           elevation.bin (Float32, north-up, row-major), assets.geojson, roads.geojson
 scripts/verify-engines.ts   `npm run verify`: analytical dam breaks, mass balance, Tehri SWE/SPH
+scripts/check-exposure.ts   the builder's places and roads against the bundled data (§6)
 scripts/bench/              browser benchmarks and checks (§6)
 docs/handoff/               the tiled GPU solver's edit spec, applied long ago (§8)
 docs/samples/               a sample file for every import, built from Tehri's own terrain (`fce797f`)
@@ -191,6 +192,21 @@ every message. The playhead is advanced by the rAF loop in `Dashboard.tsx`.
   Build then joins the same request or finds the answer cached (`c1936b2`). Production build, in
   the browser pane: Build pressed about 25 s after the dam was picked took 3.1 s. Build pressed
   straight away on a new 41 km area took 37.7 s, nearly all of it Overpass's queue.
+- 29 October, the builder's places and roads from vector tiles. Overpass then answered nothing:
+  both of its servers' `/api/status` said "at capacity… the request queue is full", and the other
+  mirrors hung, so every Build that wanted places and roads ran into the 120 s timeout. Now
+  `fetchOsmExposure` reads OpenFreeMap's zoom-14 vector tiles (OpenMapTiles schema, a CDN,
+  versioned URLs cached for a year) with a small protobuf reader in `osm.ts`. Roads are cut at
+  tile edges and rejoined per way. A road end within 3 m of another road becomes a vertex of it:
+  the tiles simplify each road on its own and drop the junction vertex, which split the
+  evacuation network into pieces. Road names come from the name layer, matched by shared
+  vertices. Populations, which the tiles leave out, come from one Nominatim lookup for up to 50
+  places, the largest classes first. `scripts/check-exposure.ts` compares the result with the four
+  bundled, Overpass-built areas: identical settlements, facilities and people, the same road km,
+  and the largest road network within 3 points. Production build, in the browser pane, with Build
+  pressed straight after picking a new catalogue dam: Ukai (190 tiles) took 5.8 s end to end.
+  Bhatsa, which is not in the catalogue, took 9.6 s, 3 s of it the capped wait for Overpass's
+  crest line. The crest is the only thing still asked of Overpass.
 
 A failed experiment (terrain `meshMaxError` 2→1) used to sit in `git stash`; the stash is empty
 now (checked 29 September).
@@ -361,6 +377,7 @@ production build.
 npm run verify                       # CPU solvers; must stay passing whenever solver code changes
 npx tsc --noEmit -p .
 npx eslint src                       # dashboard (0 errors, 0 warnings)
+node scripts/check-exposure.ts       # whenever src/lib/osm.ts changes; needs the network
 npm run build                        # splash + dashboard, exactly what Vercel runs
 npx next start -p 3000               # http://localhost:3000/ splash, /dashboard simulator
 ```
@@ -423,8 +440,12 @@ Measure with the production server, three runs or more, old and new in the same 
 - Overpass is blocked on the owner's university network. Separately, Overpass answers a request
   that carries no User-Agent with a 406, which looks like a block and is not.
 - The public Overpass servers are often full. Expect a queue of 20–40 s, instant 502/504 refusals,
-  and mirrors that never answer. `askMirrors` in `src/lib/osm.ts` asks each mirror again on its
-  own; never make it wait for a whole round to fail.
+  and mirrors that never answer (on 28–29 October, all of them). Only dam crest lines still come
+  from Overpass. `askMirrors` in `src/lib/osm.ts` asks each mirror again on its own; never make it
+  wait for a whole round to fail. The builder waits for the crest at most 3 s past everything else.
+  Places and roads come from OpenFreeMap's tiles: never send them back to Overpass.
+- `overpass.private.coffee` and `overpass.kumi.systems` resolve to the same server, so the four
+  Overpass mirrors are really three.
 - **A cached response looks like a fast download.** A terrain tile served from the browser's cache
   took 0.5–1.1 ms by Resource Timing, but resolves in JavaScript only when the page gets round to it
   — tens of milliseconds later while a scenario loads — so a JavaScript stopwatch cannot tell it

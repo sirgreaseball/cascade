@@ -1,5 +1,5 @@
 // Builds the offline data for bundled scenarios: the DEM grid (from AWS Terrain Tiles,
-// SRTM-derived) and exposure layers (from OpenStreetMap via Overpass). Uses the exact same
+// SRTM-derived) and exposure layers (OpenStreetMap, via OpenFreeMap's vector tiles). Uses the same
 // sampling and parsing code as the in-app scenario builder.
 //
 //   node scripts/build-scenario.ts            # every scenario in public/scenarios/index.json
@@ -88,7 +88,7 @@ async function build(id: string, withOsm: boolean) {
   };
 
   if (withOsm) {
-    const { assets, roads } = await fetchOsmExposure(scenario.bbox, fetch, undefined, (m) => console.log(`  ${m}`));
+    const { assets, roads } = await fetchOsmExposure(scenario.bbox);
     await writeFile(path.join(outDir, 'assets.geojson'), JSON.stringify(assets));
     await writeFile(path.join(outDir, 'roads.geojson'), JSON.stringify(roads));
     const counts = assets.features.reduce<Record<string, number>>((acc, f) => {
@@ -99,7 +99,7 @@ async function build(id: string, withOsm: boolean) {
     scenario.exposure = {
       assetsUrl: `/data/${id}/assets.geojson`,
       roadsUrl: `/data/${id}/roads.geojson`,
-      source: `${OSM_ATTRIBUTION} (Overpass API)`,
+      source: `${OSM_ATTRIBUTION} (OpenFreeMap vector tiles)`,
       retrieved: today,
     };
   }
