@@ -176,36 +176,28 @@ export function parseOverpass(json: { elements: OverpassElement[] }): { assets: 
   };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /**
- * Runs an Overpass query, rotating through public mirrors and backing off when they are busy
- * (HTTP 429 / 5xx are common on the free instances).
+ * Asks every public mirror at once and returns the first good answer. The free servers are often
+ * full: they turn a request away at once (429, 502, 504), sit on it, or answer 200 with a
+ * "runtime error" remark and partial data. Each mirror is asked again a few seconds after it fails,
+ * until one answers or `deadline` (ms) passes. Waiting for a whole round to fail before asking again
+ * left the builder idle for 90 s behind the mirrors that never answer, while the ones that had
+ * refused in a second would have taken the query.
  */
-async function overpass<T>(
-  query: string,
-  fetchImpl: typeof fetch,
-  signal: AbortSignal | undefined,
-  onRetry: ((message: string) => void) | undefined,
-  backoff: number[],
-): Promise<T> {
+async function askMirrors<T>(query: string, fetchImpl: typeof fetch, onRetry: ((message: string) => void) | undefined, deadline: number): Promise<T> {
   const body = new URLSearchParams({ data: query }).toString();
-  let lastError: unknown = null;
-  for (const wait of backoff) {
-    if (wait) {
-      onRetry?.(`OpenStreetMap servers are busy — retrying in ${wait / 1000} s`);
-      await sleep(wait);
-    }
-    if (signal?.aborted) throw new Error('Cancelled');
-    // Ask every mirror at once and take the first good answer: trying them one after another let
-    // a single slow or silent server hold the build up for minutes.
-    const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
-    const stop = () => controllers.forEach((c) => c.abort());
-    signal?.addEventListener('abort', stop, { once: true });
-    const timer = setTimeout(stop, 90_000);
-    try {
-      return await Promise.any(
-        OVERPASS_ENDPOINTS.map(async (endpoint, i) => {
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), deadline);
+  const started = Date.now();
+  const pause = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, ms);
+      stop.signal.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+    });
+  try {
+    return await Promise.any(
+      OVERPASS_ENDPOINTS.map(async (endpoint) => {
+        for (let attempt = 0; ; attempt++) {
           const res = await fetchImpl(endpoint, {
             method: 'POST',
             body,
@@ -213,22 +205,63 @@ async function overpass<T>(
             // network. A browser always sends one and ignores this header; Node sends none, so
             // without it the same code works in the app and fails in every script.
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Cascade/1.0 (dam-break model)' },
-            signal: controllers[i].signal,
-          });
-          if (!res.ok) throw new Error(`Overpass ${new URL(endpoint).host} returned ${res.status}`);
-          const json = (await res.json()) as T;
-          controllers.forEach((c, j) => j !== i && c.abort());
-          return json;
-        }),
-      );
-    } catch (err) {
-      lastError = err instanceof AggregateError ? err.errors[0] : err;
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', stop);
-    }
+            signal: stop.signal,
+          }).catch(() => null);
+          if (res?.ok) {
+            const json = (await res.json().catch(() => null)) as (T & { remark?: string }) | null;
+            if (json && !/runtime error/i.test(json.remark ?? '')) {
+              stop.abort();
+              return json;
+            }
+          } else if (res && res.status !== 429 && res.status < 500) {
+            throw new Error(`Overpass ${new URL(endpoint).host} returned ${res.status}`);
+          }
+          if (stop.signal.aborted) throw new Error('Stopped');
+          onRetry?.(`OpenStreetMap servers are busy — still trying (${Math.round((Date.now() - started) / 1000)} s)`);
+          await pause(Math.min(2_000 * 2 ** attempt, 10_000));
+        }
+      }),
+    );
+  } catch (err) {
+    if (stop.signal.aborted) throw new Error(`OpenStreetMap did not answer in ${Math.round(deadline / 1000)} s. Try again, or set Places and roads to None.`);
+    throw err instanceof AggregateError ? err.errors[0] : err;
+  } finally {
+    clearTimeout(timer);
   }
-  throw lastError instanceof Error ? lastError : new Error('Overpass request failed');
+}
+
+/**
+ * Answers by query, shared while in flight and kept for the session (failures are dropped). The
+ * builder asks as soon as a dam is picked, and Build then joins that request instead of queuing
+ * behind the same busy servers a second time.
+ */
+const answers = new Map<string, Promise<unknown>>();
+
+/** Runs an Overpass query. `signal` stops this caller waiting; the shared request carries on. */
+function overpass<T>(
+  query: string,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal | undefined,
+  onRetry: ((message: string) => void) | undefined,
+  deadline: number,
+): Promise<T> {
+  let answer = answers.get(query) as Promise<T> | undefined;
+  if (!answer) {
+    const report = onRetry && ((m: string) => {
+      if (!signal?.aborted) onRetry(m);
+    });
+    answer = askMirrors<T>(query, fetchImpl, report, deadline);
+    answers.set(query, answer);
+    answer.catch(() => answers.delete(query));
+    if (answers.size > 8) answers.delete(answers.keys().next().value!);
+  }
+  if (!signal) return answer;
+  return new Promise<T>((resolve, reject) => {
+    const cancel = () => reject(new Error('Cancelled'));
+    if (signal.aborted) return cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    answer.then(resolve, reject).finally(() => signal.removeEventListener('abort', cancel));
+  });
 }
 
 /** Places and roads fetched before, kept on this device so rebuilding an area needs no network. */
@@ -266,7 +299,7 @@ export async function fetchOsmExposure(
   const key = bbox.map((v) => v.toFixed(3)).join(',');
   const cached = await cacheGet<{ assets: AssetCollection; roads: RoadCollection }>(key);
   if (cached) return cached;
-  const result = parseOverpass(await overpass(overpassQuery(bbox), fetchImpl, signal, onRetry, [0, 5_000]));
+  const result = parseOverpass(await overpass(overpassQuery(bbox), fetchImpl, signal, onRetry, 120_000));
   await cachePut(key, result).catch(() => undefined);
   return result;
 }
@@ -387,7 +420,7 @@ export async function fetchDamLine(
   signal?: AbortSignal,
   radius = 2500,
 ): Promise<XY[] | null> {
-  const json = await overpass<{ elements: OverpassElement[] }>(damLineQuery(lng, lat, radius), fetchImpl, signal, undefined, [0, 4_000]);
+  const json = await overpass<{ elements: OverpassElement[] }>(damLineQuery(lng, lat, radius), fetchImpl, signal, undefined, 60_000);
   let best: XY[] | null = null;
   let bestDistance = Infinity;
   for (const el of json.elements ?? []) {
