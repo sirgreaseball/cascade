@@ -223,8 +223,9 @@ export default function ScenarioBuilder() {
   const building = steps !== null && steps.some((s) => s.state === 'active');
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
-  // Ask OpenStreetMap as soon as the dam and the area settle, so the servers' queue runs while the
-  // rest of the form is filled in. Build joins the same requests, or finds the answers waiting.
+  // Ask OpenStreetMap as soon as the dam and the area settle, so the downloads (and Overpass's queue
+  // for the crest) run while the rest of the form is filled in. Build joins the same requests, or
+  // finds the answers waiting.
   useEffect(() => {
     if (!open || building) return;
     const timer = setTimeout(() => {
@@ -251,10 +252,10 @@ export default function ScenarioBuilder() {
     abort.current = new AbortController();
     const signal = abort.current.signal;
     const fetchTile = (z: number, x: number, y: number) => fetchTerrariumTile(z, x, y, signal);
-    // OpenStreetMap is the slow part: its free servers often queue a request for half a minute. So
-    // each lookup starts as soon as its inputs are known and runs alongside the terrain download.
-    // The real crest, so the modelled dam sits where the imagery shows it: stored for catalogue
-    // dams, otherwise looked up in OpenStreetMap.
+    // Each OpenStreetMap lookup starts as soon as its inputs are known and runs alongside the terrain
+    // download. The real crest, so the modelled dam sits where the imagery shows it: stored for
+    // catalogue dams, otherwise asked of Overpass, whose free servers often queue a request for half
+    // a minute or turn it away.
     const crestLineLookup =
       form.event === 'lake-outburst'
         ? undefined
@@ -295,12 +296,14 @@ export default function ScenarioBuilder() {
       let exposureSource = 'None';
       if (osm) {
         ({ assets, roads } = await osm);
-        exposureSource = `${OSM_ATTRIBUTION} (Overpass API)`;
+        exposureSource = `${OSM_ATTRIBUTION} (OpenFreeMap vector tiles)`;
       } else if (form.exposureSource === 'upload' && exposureFile) {
         ({ assets, roads } = parseExposureGeoJson(await exposureFile.text()));
         exposureSource = exposureFile.name;
       }
-      const crestLine = await crestLineLookup;
+      // Without the crest the model finds the dam axis in the terrain, so a busy Overpass gets a few
+      // seconds past everything else rather than its full minute. Opening the scenario later asks again.
+      const crestLine = await Promise.race([crestLineLookup, new Promise<undefined>((resolve) => setTimeout(resolve, 3_000))]);
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
       // A river blockage impounds whatever the valley behind it can hold: fill the terrain to the
