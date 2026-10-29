@@ -62,18 +62,32 @@ async function withCrestLine(config: ScenarioConfig, data: ScenarioData, custom:
   }
   if (config.dam.crestLine !== undefined) return config;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return config;
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 10_000);
-  try {
-    const crestLine = await fetchDamLine(config.dam.lng, config.dam.lat, config.dam.crestLength, fetch, abort.signal);
-    const next = { ...config, dam: { ...config.dam, crestLine } };
-    if (custom) await saveCustomScenario(next, data).catch(() => undefined);
-    return next;
-  } catch {
+  // A busy Overpass gets 3 s, as in the builder, rather than holding up every opening of the scenario.
+  const lookup = fetchDamLine(config.dam.lng, config.dam.lat, config.dam.crestLength).catch(() => undefined);
+  const crestLine = await Promise.race([lookup, new Promise<undefined>((resolve) => setTimeout(resolve, 3_000))]);
+  if (crestLine === undefined) {
+    if (custom) rememberCrestLine(config.id, lookup);
     return config;
-  } finally {
-    clearTimeout(timer);
   }
+  const next = { ...config, dam: { ...config.dam, crestLine } };
+  if (custom) await saveCustomScenario(next, data).catch(() => undefined);
+  return next;
+}
+
+/**
+ * Stores a crest line that arrives after the wait for it was cut short, so the next opening of the
+ * scenario needs no lookup. The saved record is read back first: later edits are kept, and a
+ * scenario deleted in the meantime stays deleted.
+ */
+export function rememberCrestLine(id: string, lookup: Promise<[number, number][] | null | undefined>): void {
+  lookup
+    .then(async (crestLine) => {
+      if (crestLine === undefined) return;
+      const stored = await loadCustomScenario(id);
+      if (stored.config.dam.crestLine !== undefined) return;
+      await saveCustomScenario({ ...stored.config, dam: { ...stored.config.dam, crestLine } }, stored.data);
+    })
+    .catch(() => undefined);
 }
 
 function activate(config: ScenarioConfig, data: ScenarioData): ExposureIndex {

@@ -46,6 +46,7 @@ function network(roads: RoadCollection, bbox: number[]): { km: number; largest: 
 const settlements = (a: AssetCollection) => a.features.filter((f) => f.properties.kind === 'settlement');
 const people = (a: AssetCollection) => settlements(a).reduce((s, f) => s + f.properties.population, 0);
 const facilities = (a: AssetCollection) => a.features.filter((f) => ['hospital', 'school', 'emergency'].includes(f.properties.kind)).length;
+const bridges = (a: AssetCollection) => a.features.filter((f) => f.properties.kind === 'bridge');
 const near = (a: number, b: number, tolerance: number) => Math.abs(a - b) <= tolerance * Math.max(a, b);
 
 let failed = false;
@@ -61,10 +62,18 @@ for (const id of process.argv.length > 2 ? process.argv.slice(2) : ['bhakra', 'm
   const names = new Set(settlements(tiles.assets).map((f) => f.properties.name));
   const found = settlements(bundled.assets).filter((f) => names.has(f.properties.name)).length / settlements(bundled.assets).length;
   const [was, now] = [network(bundled.roads, bbox), network(tiles.roads, bbox)];
+  // A bridge counted twice (one way split into several lines) inflates "bridges under water". The
+  // tiles merge a bridge mapped as consecutive ways into one, so fewer is fine; missing is not.
+  const tileBridges = bridges(tiles.assets);
+  const repeats = tileBridges.length - new Set(tileBridges.map((f) => f.properties.id)).size;
+  const kx = 111_320 * Math.cos((((bbox[1] + bbox[3]) / 2) * Math.PI) / 180);
+  const bridgeVertices = tiles.roads.features.filter((f) => f.properties.bridge).flatMap((f) => f.geometry.coordinates);
+  const missed = bridges(bundled.assets).filter(({ geometry: { coordinates: [x, y] } }) => !bridgeVertices.some(([u, v]) => Math.hypot((u - x) * kx, (v - y) * 110_574) < 50)).length;
   const checks: [string, boolean][] = [
     [`settlements ${settlements(tiles.assets).length} (bundled ${settlements(bundled.assets).length}, ${(found * 100).toFixed(0)}% of its names found)`, found >= 0.95],
     [`people ${people(tiles.assets)} (bundled ${people(bundled.assets)})`, near(people(tiles.assets), people(bundled.assets), 0.1)],
     [`facilities ${facilities(tiles.assets)} (bundled ${facilities(bundled.assets)})`, near(facilities(tiles.assets), facilities(bundled.assets), 0.1)],
+    [`bridges ${tileBridges.length} (bundled ${bridges(bundled.assets).length}, ${missed} of them not on a tile bridge), ${repeats} repeating a way`, repeats === 0 && missed <= 0.05 * bridges(bundled.assets).length],
     [`road km ${now.km.toFixed(0)} (bundled ${was.km.toFixed(0)})`, near(now.km, was.km, 0.05)],
     [`largest road network ${(now.largest * 100).toFixed(0)}% (bundled ${(was.largest * 100).toFixed(0)}%)`, now.largest >= was.largest - 0.05],
   ];

@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, Crosshair, FileUp, Search, X } from 'lucide-react';
-import { useScenarioStore } from '@/store/scenarioStore';
+import { rememberCrestLine, useScenarioStore } from '@/store/scenarioStore';
 import { useUiStore } from '@/store/uiStore';
 import { catalogCrestLine, DAM_CATALOG, damMatchesTokens, findCatalogDam, loadNationalDamCatalog, normalizeSearchText } from '@/lib/dams';
 import type { DamCatalogEntry } from '@/lib/dams';
@@ -302,8 +302,10 @@ export default function ScenarioBuilder() {
         exposureSource = exposureFile.name;
       }
       // Without the crest the model finds the dam axis in the terrain, so a busy Overpass gets a few
-      // seconds past everything else rather than its full minute. Opening the scenario later asks again.
+      // seconds past everything else rather than its full minute; a line that comes later is stored.
       const crestLine = await Promise.race([crestLineLookup, new Promise<undefined>((resolve) => setTimeout(resolve, 3_000))]);
+      // Cancel ends the crest lookup with an empty answer, not an error, so check for it here.
+      if (signal.aborted) throw new Error('Cancelled');
       update(stepIndex++, 'done', `${formatNumber(assets.features.length)} places, ${formatNumber(roads.features.length)} roads`);
 
       // A river blockage impounds whatever the valley behind it can hold: fill the terrain to the
@@ -348,6 +350,7 @@ export default function ScenarioBuilder() {
       };
       const data = makeScenarioData(config, dem, assets, roads);
       await addCustom(config, data);
+      if (crestLine === undefined && crestLineLookup instanceof Promise) rememberCrestLine(config.id, crestLineLookup);
       update(stepIndex, 'done');
       toast({
         title: `${form.name} is ready`,
