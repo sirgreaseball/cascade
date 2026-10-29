@@ -207,6 +207,20 @@ every message. The playhead is advanced by the rAF loop in `Dashboard.tsx`.
   pressed straight after picking a new catalogue dam: Ukai (190 tiles) took 5.8 s end to end.
   Bhatsa, which is not in the catalogue, took 9.6 s, 3 s of it the capped wait for Overpass's
   crest line. The crest is the only thing still asked of Overpass.
+- 29 October, review fixes to the tile path. The tiles give one way two ids (way × 10 + 2 in some
+  tiles, + 0 in others: 76 of 365 ways in Tehri), which split roads and counted one bridge several
+  times (Tehri: 97 bridge assets for 80 bridge ways). Roads are now keyed by way, with one bridge
+  asset per way. Scenarios saved before the fix keep their extra bridges until rebuilt. Bridges now
+  come out fewer than in the bundled Overpass data (Bhakra 121 against 141), because the tiles
+  merge a bridge mapped as consecutive ways into one. `check-exposure.ts` checks that every
+  bundled bridge lies on a tile bridge and that none repeats. Other fixes:
+  - The exposure cache's IndexedDB version went to 2, which drops every entry built before.
+  - Every tile, TileJSON and Nominatim request has a deadline.
+  - Nominatim is asked about every city, town and suburb, in batches of 50 one second apart,
+    with 2 s for each batch.
+  - Road ends are never joined onto bridges or tunnels.
+  - Opening a scenario waits 3 s for its crest rather than 10 s. A crest that arrives after
+    either wait is stored (`rememberCrestLine` in `scenarioStore.ts`).
 
 A failed experiment (terrain `meshMaxError` 2→1) used to sit in `git stash`; the stash is empty
 now (checked 29 September).
@@ -444,8 +458,8 @@ Measure with the production server, three runs or more, old and new in the same 
   from Overpass. `askMirrors` in `src/lib/osm.ts` asks each mirror again on its own; never make it
   wait for a whole round to fail. The builder waits for the crest at most 3 s past everything else.
   Places and roads come from OpenFreeMap's tiles: never send them back to Overpass.
-- `overpass.private.coffee` and `overpass.kumi.systems` resolve to the same server, so the four
-  Overpass mirrors are really three.
+- `overpass.private.coffee` and `overpass.kumi.systems` resolve to the same server, so
+  `OVERPASS_ENDPOINTS` lists only the first.
 - **A cached response looks like a fast download.** A terrain tile served from the browser's cache
   took 0.5–1.1 ms by Resource Timing, but resolves in JavaScript only when the page gets round to it
   — tens of milliseconds later while a scenario loads — so a JavaScript stopwatch cannot tell it
