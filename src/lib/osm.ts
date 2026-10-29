@@ -5,8 +5,8 @@
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  // overpass.kumi.systems is the same server (one IP): listing it too only doubled the load there.
   'https://overpass.private.coffee/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
 
@@ -102,8 +102,9 @@ function toExposure(elements: OverpassElement[]): { assets: AssetCollection; roa
       if (bridge) {
         const mid = coords[Math.floor(coords.length / 2)];
         const key = `${mid[0].toFixed(3)},${mid[1].toFixed(3)}`;
-        if (!seenBridges.has(key)) {
-          seenBridges.add(key);
+        // One asset per bridge: a way can come out as several lines, and a bridge as two short ways.
+        if (!seenBridges.has(key) && !seenBridges.has(`w${el.id}`)) {
+          seenBridges.add(key).add(`w${el.id}`);
           assets.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: mid },
@@ -249,9 +250,19 @@ function overpass<T>(query: string, fetchImpl: typeof fetch, signal: AbortSignal
 function cacheStore(mode: IDBTransactionMode): Promise<IDBObjectStore | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
   return new Promise((resolve) => {
-    const req = indexedDB.open('cascade-osm', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('exposure');
-    req.onsuccess = () => resolve(req.result.transaction('exposure', mode).objectStore('exposure'));
+    // Bump the version whenever stored exposure changes source or shape: the upgrade drops every
+    // entry, so an area built before is fetched again rather than served stale (2: vector tiles).
+    const req = indexedDB.open('cascade-osm', 2);
+    req.onupgradeneeded = () => {
+      if (req.result.objectStoreNames.contains('exposure')) req.result.deleteObjectStore('exposure');
+      req.result.createObjectStore('exposure');
+    };
+    // A tab still holding the old version open blocks the upgrade: go without the cache, never wait.
+    req.onblocked = () => resolve(null);
+    req.onsuccess = () => {
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result.transaction('exposure', mode).objectStore('exposure'));
+    };
     req.onerror = () => resolve(null);
   });
 }
@@ -317,6 +328,9 @@ function readTile(buf: Uint8Array, wanted: Set<string>): Map<string, { extent: n
     return v;
   };
   const zigzag = (n: number) => (n % 2 ? -(n + 1) / 2 : n / 2);
+  // Where a length-prefixed field ends, never past the buffer: reading beyond it yields zeros, so a
+  // corrupt length (a body that is not a tile) would otherwise keep a loop going for billions of steps.
+  const until = (len: number) => Math.min(pos + len, buf.length);
   const text = () => {
     const len = varint();
     pos += len;
@@ -341,7 +355,7 @@ function readTile(buf: Uint8Array, wanted: Set<string>): Map<string, { extent: n
   const layers = new Map<string, { extent: number; features: TileFeature[] }>();
   fields(buf.length, (field, wire) => {
     if (field !== 3) return skip(wire);
-    const end = varint() + pos;
+    const end = until(varint());
     const start = pos;
     let name = '';
     fields(end, (f, w) => (f === 1 ? (name = text()) : skip(w)));
@@ -353,13 +367,13 @@ function readTile(buf: Uint8Array, wanted: Set<string>): Map<string, { extent: n
     let extent = 4096;
     fields(end, (f, w) => {
       if (f === 2) {
-        const featureEnd = varint() + pos;
+        const featureEnd = until(varint());
         ranges.push([pos, featureEnd]);
         pos = featureEnd;
       } else if (f === 3) keys.push(text());
       else if (f === 4) {
         let v: TileValue = '';
-        fields(varint() + pos, (vf, vw) => {
+        fields(until(varint()), (vf, vw) => {
           if (vf === 1) v = text();
           else if (vf === 2) {
             v = view.getFloat32(pos, true);
@@ -383,18 +397,18 @@ function readTile(buf: Uint8Array, wanted: Set<string>): Map<string, { extent: n
         if (f === 1) feature.id = varint();
         else if (f === 3) feature.type = varint();
         else if (f === 2) {
-          const tagsEnd = varint() + pos;
+          const tagsEnd = until(varint());
           while (pos < tagsEnd) feature.props[keys[varint()]] = values[varint()];
         } else if (f === 4) {
           // Commands: MoveTo (1) and LineTo (2) carry zigzag-encoded deltas; ClosePath (7) none.
-          const geometryEnd = varint() + pos;
+          const geometryEnd = until(varint());
           let x = 0;
           let y = 0;
           let part: XY[] = [];
           while (pos < geometryEnd) {
             const command = varint();
             if ((command & 7) === 7) continue;
-            for (let i = command >> 3; i > 0; i--) {
+            for (let i = command >> 3; i > 0 && pos < geometryEnd; i--) {
               x += zigzag(varint());
               y += zigzag(varint());
               if ((command & 7) === 1) feature.parts.push((part = []));
@@ -471,8 +485,10 @@ function stitch(pieces: XY[][]): XY[][] {
  * side road stop half a metre short and cut off. A road end within 3 m of another road that does
  * not already pass through it becomes a vertex of that road. (Testing only loose ends misses the
  * crossroads, where the side road is split in two at the junction and its halves share the end.)
+ * Bridges and tunnels (`layered`, by index) are never joined onto: a road ending 3 m from one in
+ * plan passes under or over it.
  */
-function joinEnds(lines: XY[][]): void {
+function joinEnds(lines: XY[][], layered: Set<number>): void {
   const key = (p: XY) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
   const linesAt = new Map<string, Set<number>>();
   lines.forEach((line, li) => {
@@ -507,7 +523,7 @@ function joinEnds(lines: XY[][]): void {
       for (let x = gx - 1; x <= gx + 1; x++) {
         for (let y = gy - 1; y <= gy + 1; y++) {
           for (const [lj, j] of segments.get(`${x},${y}`) ?? []) {
-            if (lj === li) continue;
+            if (lj === li || layered.has(lj)) continue;
             const a = lines[lj][j - 1];
             const b = lines[lj][j];
             const ax = (b[0] - a[0]) * kx;
@@ -528,12 +544,24 @@ function joinEnds(lines: XY[][]): void {
   for (const { li, i, p } of [...inserts.values()].sort((a, b) => b.i - a.i || b.t - a.t)) lines[li].splice(i, 0, p);
 }
 
+/**
+ * A signal that aborts after `ms`. Some networks finish the TLS handshake and then drop the traffic,
+ * which leaves a fetch pending for ever; AbortSignal.timeout would do, but Safari has it only from 16.
+ */
+function deadline(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
 /** One tile's bytes, asked for up to three times. An empty tile can come back as 204 or 404. */
 async function tileBytes(url: string, fetchImpl: typeof fetch): Promise<Uint8Array> {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetchImpl(url).catch(() => null);
-    if (res?.status === 204 || res?.status === 404) return new Uint8Array(0);
+    const limit = deadline(10_000);
+    const res = await fetchImpl(url, { signal: limit.signal }).catch(() => null);
     const buf = res?.ok ? await res.arrayBuffer().catch(() => null) : null;
+    limit.clear();
+    if (res?.status === 204 || res?.status === 404) return new Uint8Array(0);
     if (buf) return new Uint8Array(buf);
     if (attempt === 3) throw new Error('Map tiles from OpenFreeMap failed to download. Check the connection and try again.');
     await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
@@ -542,25 +570,30 @@ async function tileBytes(url: string, fetchImpl: typeof fetch): Promise<Uint8Arr
 
 /**
  * OpenMapTiles leaves out the population tag. Few places carry one, but they are the towns that
- * dominate the people at risk (Morbi, 194,947), so one Nominatim lookup restores it for up to 50
- * places, the largest classes first. The rest keep the typical value for their class.
+ * dominate the people at risk (Morbi, 194,947). Nominatim lookups of 50 places each, one a second
+ * as its usage policy asks, restore it for every city, town and suburb, and for as many villages and
+ * hamlets as fit in the last request; the rest keep the typical value for their class. Each request
+ * gets 2 s, and a network that does not answer Nominatim costs that once, not once per request.
  */
 async function addPopulations(elements: OverpassElement[], fetchImpl: typeof fetch): Promise<void> {
   const places = elements
     .filter((e) => e.tags?.place)
-    .sort((a, b) => PLACE_CLASSES.indexOf(a.tags!.place) - PLACE_CLASSES.indexOf(b.tags!.place))
-    .slice(0, 50);
-  if (!places.length) return;
-  const url = `https://nominatim.openstreetmap.org/lookup?format=json&extratags=1&osm_ids=${places.map((p) => `N${p.id}`).join(',')}`;
-  const res = await fetchImpl(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'Cascade/1.0 (dam-break model)' },
-    signal: AbortSignal.timeout(5_000),
-  }).catch(() => null);
-  const found = res?.ok ? ((await res.json().catch(() => [])) as { osm_id: number; extratags?: { population?: string } }[]) : [];
-  const byId = new Map(places.map((p) => [p.id, p]));
-  for (const f of found) {
-    const place = byId.get(Number(f.osm_id));
-    if (place && f.extratags?.population) place.tags!.population = f.extratags.population;
+    .sort((a, b) => PLACE_CLASSES.indexOf(a.tags!.place) - PLACE_CLASSES.indexOf(b.tags!.place));
+  const urban = places.filter((p) => ['city', 'town', 'suburb'].includes(p.tags!.place)).length;
+  const asked = places.slice(0, Math.max(1, Math.ceil(urban / 50)) * 50);
+  const byId = new Map(asked.map((p) => [p.id, p]));
+  for (let i = 0; i < asked.length; i += 50) {
+    if (i) await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const url = `https://nominatim.openstreetmap.org/lookup?format=json&extratags=1&osm_ids=${asked.slice(i, i + 50).map((p) => `N${p.id}`).join(',')}`;
+    const limit = deadline(2_000);
+    const res = await fetchImpl(url, { headers: { Accept: 'application/json', 'User-Agent': 'Cascade/1.0 (dam-break model)' }, signal: limit.signal }).catch(() => null);
+    const found = res?.ok ? ((await res.json().catch(() => [])) as { osm_id: number; extratags?: { population?: string } }[]) : [];
+    limit.clear();
+    if (!res?.ok) return;
+    for (const f of found) {
+      const place = byId.get(Number(f.osm_id));
+      if (place && f.extratags?.population) place.tags!.population = f.extratags.population;
+    }
   }
 }
 
@@ -570,8 +603,10 @@ async function tileElements(
   fetchImpl: typeof fetch,
   onProgress?: (message: string) => void,
 ): Promise<OverpassElement[]> {
-  const res = await fetchImpl(OPENFREEMAP).catch(() => null);
+  const limit = deadline(10_000);
+  const res = await fetchImpl(OPENFREEMAP, { signal: limit.signal }).catch(() => null);
   const template = res?.ok ? ((await res.json().catch(() => null)) as { tiles?: string[] } | null)?.tiles?.[0] : undefined;
+  limit.clear();
   if (!template) throw new Error('OpenFreeMap did not answer. Check the connection and try again.');
   const n = 2 ** TILE_ZOOM;
   const column = (lng: number) => Math.floor(((lng + 180) / 360) * n);
@@ -606,14 +641,18 @@ async function tileElements(
       if (PLACE_CLASSES.includes(String(f.props.class))) point(f, { place: String(f.props.class) });
     }
     for (const f of layers.get('poi')?.features ?? []) {
-      if (FACILITY.test(String(f.props.subclass))) point(f, { amenity: String(f.props.subclass) });
+      // A node that is both a place and a facility stays a settlement, as toExposure ranks them.
+      if (FACILITY.test(String(f.props.subclass)) && !points.get(f.id)?.tags?.place) point(f, { amenity: String(f.props.subclass) });
     }
     for (const f of layers.get('transportation')?.features ?? []) {
       // `ramp` marks the *_link slip roads, which the major-road classes leave out.
       if (f.type !== 2 || !MAJOR_ROAD.test(String(f.props.class)) || f.props.ramp) continue;
-      const road = roads.get(f.id) ?? { pieces: [], tags: { highway: String(f.props.class), ...(f.props.brunnel === 'bridge' ? { bridge: 'yes' } : {}) } };
+      // Keyed by the way, not the tile id: one way comes as id × 10 + 2 in some tiles and + 0 in others.
+      const way = Math.floor(f.id / 10);
+      const brunnel: Record<string, string> = f.props.brunnel === 'bridge' ? { bridge: 'yes' } : f.props.brunnel === 'tunnel' ? { tunnel: 'yes' } : {};
+      const road = roads.get(way) ?? { pieces: [], tags: { highway: String(f.props.class), ...brunnel } };
       for (const part of f.parts) for (const run of clipToTile(part, extent)) road.pieces.push(run.map(lngLat));
-      roads.set(f.id, road);
+      roads.set(way, road);
     }
     for (const f of layers.get('transportation_name')?.features ?? []) {
       const label = f.props.name ? `name:${f.props.name}` : f.props.ref ? `ref:${f.props.ref}` : '';
@@ -629,20 +668,28 @@ async function tileElements(
 
   let next = 0;
   let done = 0;
+  // Once a tile has failed, the tiles still in flight report nothing: a late "x of y" would put the
+  // builder's failed step back to active.
+  let failed = false;
   await Promise.all(
     Array.from({ length: 32 }, async () => {
-      while (next < tiles.length) {
+      while (!failed && next < tiles.length) {
         const [x, y] = tiles[next++];
         try {
-          read(x, y, await tileBytes(template.replace('{z}', String(TILE_ZOOM)).replace('{x}', String(x)).replace('{y}', String(y)), fetchImpl));
+          const bytes = await tileBytes(template.replace('{z}', String(TILE_ZOOM)).replace('{x}', String(x)).replace('{y}', String(y)), fetchImpl);
+          if (failed) return;
+          read(x, y, bytes);
         } catch (err) {
-          next = tiles.length;
+          failed = true;
           throw err;
         }
         onProgress?.(`${++done} of ${tiles.length} map tiles`);
       }
     }),
   );
+  // Populations come from the network; start that before the roads below take the main thread.
+  const elements = [...points.values()];
+  const populated = addPopulations(elements, fetchImpl);
 
   const lines: { id: number; line: XY[]; tags: Record<string, string> }[] = [];
   for (const [id, road] of roads) {
@@ -661,11 +708,13 @@ async function tileElements(
     const tags = votes >= Math.max(2, vertices / 2) ? { ...road.tags, [label.slice(0, colon)]: label.slice(colon + 1) } : road.tags;
     for (const line of stitch(road.pieces)) if (line.some(inside)) lines.push({ id, line, tags });
   }
-  joinEnds(lines.map((l) => l.line));
+  joinEnds(
+    lines.map((l) => l.line),
+    new Set(lines.flatMap((l, i) => (l.tags.bridge || l.tags.tunnel ? [i] : []))),
+  );
 
-  const elements = [...points.values()];
-  await addPopulations(elements, fetchImpl);
-  for (const { id, line, tags } of lines) elements.push({ type: 'way', id: Math.floor(id / 10), geometry: line.map(([lon, lat]) => ({ lat, lon })), tags });
+  await populated;
+  for (const { id, line, tags } of lines) elements.push({ type: 'way', id, geometry: line.map(([lon, lat]) => ({ lat, lon })), tags });
   return elements;
 }
 
